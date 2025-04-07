@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "259911523711",
+    "project_id": "hermes-app-49773",
+    "storage_bucket": "hermes-app-49773.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:259911523711:android:f14a97162d7c9d4b3d4e4a",
+        "android_client_info": {
+          "package_name": "com.jersondevs.hermes"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3v4ekMDdvXLA4U_zOBBwR6wCSlAJTT8A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

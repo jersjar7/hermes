@@ -1,0 +1,206 @@
+{
+  "@@locale": "en",
+  
+  "appTitle": "Hermes",
+  "@appTitle": {
+    "description": "The title of the application"
+  },
+  
+  "welcomeMessage": "Welcome to Hermes",
+  "@welcomeMessage": {
+    "description": "Welcome message on the home screen"
+  },
+  
+  "startSession": "Start Session",
+  "@startSession": {
+    "description": "Button to start a new session as speaker"
+  },
+  
+  "joinSession": "Join Session",
+  "@joinSession": {
+    "description": "Button to join an existing session as audience"
+  },
+  
+  "scanQrCode": "Scan QR Code",
+  "@scanQrCode": {
+    "description": "Button to scan QR code to join a session"
+  },
+  
+  "enterSessionCode": "Enter Session Code",
+  "@enterSessionCode": {
+    "description": "Hint text for session code input"
+  },
+  
+  "selectLanguage": "Select Language",
+  "@selectLanguage": {
+    "description": "Label for language selection dropdown"
+  },
+  
+  "settings": "Settings",
+  "@settings": {
+    "description": "Settings screen title"
+  },
+  
+  "profile": "Profile",
+  "@profile": {
+    "description": "Profile screen title"
+  },
+  
+  "about": "About",
+  "@about": {
+    "description": "About screen title"
+  },
+  
+  "darkMode": "Dark Mode",
+  "@darkMode": {
+    "description": "Label for dark mode toggle"
+  },
+  
+  "chooseSourceLanguage": "Choose Source Language",
+  "@chooseSourceLanguage": {
+    "description": "Prompt to choose the language you speak"
+  },
+  
+  "chooseTargetLanguage": "Choose Target Language",
+  "@chooseTargetLanguage": {
+    "description": "Prompt to choose the language you want to hear"
+  },
+  
+  "sessionCode": "Session Code",
+  "@sessionCode": {
+    "description": "Label for the session code"
+  },
+  
+  "sessionName": "Session Name",
+  "@sessionName": {
+    "description": "Label for session name input"
+  },
+  
+  "endSession": "End Session",
+  "@endSession": {
+    "description": "Button to end the current session"
+  },
+  
+  "leaveSession": "Leave Session",
+  "@leaveSession": {
+    "description": "Button to leave the current session"
+  },
+  
+  "connecting": "Connecting...",
+  "@connecting": {
+    "description": "Status message when connecting to a session"
+  },
+  
+  "connected": "Connected",
+  "@connected": {
+    "description": "Status message when connected to a session"
+  },
+  
+  "disconnected": "Disconnected",
+  "@disconnected": {
+    "description": "Status message when disconnected from a session"
+  },
+  
+  "reconnecting": "Reconnecting...",
+  "@reconnecting": {
+    "description": "Status message when reconnecting to a session"
+  },
+  
+  "errorOccurred": "An error occurred",
+  "@errorOccurred": {
+    "description": "Generic error message"
+  },
+  
+  "networkError": "Network error. Please check your connection.",
+  "@networkError": {
+    "description": "Network error message"
+  },
+  
+  "sessionNotFound": "Session not found",
+  "@sessionNotFound": {
+    "description": "Error message when session is not found"
+  },
+  
+  "invalidSessionCode": "Invalid session code",
+  "@invalidSessionCode": {
+    "description": "Error message when session code is invalid"
+  },
+  
+  "microphonePermission": "Microphone Permission",
+  "@microphonePermission": {
+    "description": "Title for microphone permission dialog"
+  },
+  
+  "microphonePermissionRequired": "Microphone permission is required to use this feature",
+  "@microphonePermissionRequired": {
+    "description": "Message for microphone permission dialog"
+  },
+  
+  "grantPermission": "Grant Permission",
+  "@grantPermission": {
+    "description": "Button to grant permission"
+  },
+  
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Cancel button text"
+  },
+  
+  "ok": "OK",
+  "@ok": {
+    "description": "OK button text"
+  },
+  
+  "confirm": "Confirm",
+  "@confirm": {
+    "description": "Confirm button text"
+  },
+  
+  "retry": "Retry",
+  "@retry": {
+    "description": "Retry button text"
+  },
+  
+  "back": "Back",
+  "@back": {
+    "description": "Back button text"
+  },
+  
+  "next": "Next",
+  "@next": {
+    "description": "Next button text"
+  },
+  
+  "listeningTo": "Listening to {language}",
+  "@listeningTo": {
+    "description": "Message showing which language the user is listening to",
+    "placeholders": {
+      "language": {
+        "type": "String",
+        "example": "Spanish"
+      }
+    }
+  },
+  
+  "speakingIn": "Speaking in {language}",
+  "@speakingIn": {
+    "description": "Message showing which language the user is speaking in",
+    "placeholders": {
+      "language": {
+        "type": "String",
+        "example": "English"
+      }
+    }
+  },
+  
+  "listeners": "{count, plural, =0{No listeners} =1{1 listener} other{{count} listeners}}",
+  "@listeners": {
+    "description": "Number of listeners in a session",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  }
+}
