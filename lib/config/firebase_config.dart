@@ -220,61 +220,6 @@ class FirebaseQueryHelpers {
   }
 }
 
-/// Session status enum
-enum SessionStatus {
-  /// Session is being created
-  creating,
-
-  /// Session is active
-  active,
-
-  /// Session is paused
-  paused,
-
-  /// Session has ended
-  ended,
-
-  /// Session has an error
-  error,
-}
-
-/// Helper to convert session status enum to string
-extension SessionStatusExtension on SessionStatus {
-  /// Get string representation of session status
-  String get value {
-    switch (this) {
-      case SessionStatus.creating:
-        return 'creating';
-      case SessionStatus.active:
-        return 'active';
-      case SessionStatus.paused:
-        return 'paused';
-      case SessionStatus.ended:
-        return 'ended';
-      case SessionStatus.error:
-        return 'error';
-    }
-  }
-
-  /// Get session status from string
-  static SessionStatus fromString(String value) {
-    switch (value) {
-      case 'creating':
-        return SessionStatus.creating;
-      case 'active':
-        return SessionStatus.active;
-      case 'paused':
-        return SessionStatus.paused;
-      case 'ended':
-        return SessionStatus.ended;
-      case 'error':
-        return SessionStatus.error;
-      default:
-        return SessionStatus.error;
-    }
-  }
-}
-
 /// Firebase timestamp helpers
 class FirebaseTimestampHelpers {
   /// Get current timestamp

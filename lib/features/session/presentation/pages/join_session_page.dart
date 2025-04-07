@@ -2,13 +2,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:hermes/core/utils/extensions.dart';
+import 'package:hermes/features/audience/presentation/widgets/join_form.dart';
+import 'package:hermes/features/audience/presentation/widgets/qr_scanner_view.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
 import 'package:hermes/features/session/domain/entities/user.dart';
 import 'package:hermes/features/session/domain/usecases/join_session.dart';
 import 'package:hermes/features/session/infrastructure/services/auth_service.dart';
-import 'package:hermes/features/session/presentation/widgets/join_form.dart';
-import 'package:hermes/features/session/presentation/widgets/qr_scanner_view.dart';
 import 'package:hermes/routes.dart';
 
 /// Page for audience to join a session

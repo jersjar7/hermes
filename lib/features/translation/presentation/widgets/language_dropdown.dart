@@ -36,7 +36,7 @@ class LanguageDropdown extends StatelessWidget {
 
         const SizedBox(height: 8),
 
-        DropdownButtonFormField<LanguageSelection>(
+        DropdownButtonFormField<LanguageSelection?>(
           value: selectedLanguage,
           decoration: const InputDecoration(prefixIcon: Icon(Icons.language)),
           items:
@@ -62,7 +62,14 @@ class LanguageDropdown extends StatelessWidget {
                     ),
                   )
                   .toList(),
-          onChanged: disabled ? null : onChanged,
+          onChanged:
+              disabled
+                  ? null
+                  : (LanguageSelection? value) {
+                    if (value != null) {
+                      onChanged(value);
+                    }
+                  },
         ),
       ],
     );

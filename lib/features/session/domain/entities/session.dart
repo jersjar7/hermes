@@ -1,7 +1,6 @@
 // lib/features/session/domain/entities/session.dart
 
 import 'package:equatable/equatable.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Represents a session entity in the domain layer
 class Session extends Equatable {

@@ -27,7 +27,7 @@ class SessionModel extends Session {
       speakerId: json['speaker_id'] as String,
       sourceLanguage: json['source_language'] as String,
       createdAt: (json['created_at'] as Timestamp).toDate(),
-      status: SessionStatus.fromString(json['status'] as String),
+      status: SessionStatusX.fromString(json['status'] as String),
       listeners: List<String>.from(json['listeners'] ?? []),
       endedAt:
           json['ended_at'] != null

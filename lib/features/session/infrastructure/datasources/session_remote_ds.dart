@@ -1,7 +1,6 @@
 // lib/features/session/infrastructure/datasources/session_remote_ds.dart
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:injectable/injectable.dart';
 import 'package:hermes/config/firebase_config.dart';
 import 'package:hermes/core/utils/logger.dart';
@@ -21,11 +20,10 @@ class SessionNotFoundException implements Exception {
 @lazySingleton
 class SessionRemoteDataSource {
   final FirebaseFirestore _firestore;
-  final firebase_auth.FirebaseAuth _auth;
   final Logger _logger;
 
   /// Creates a new [SessionRemoteDataSource]
-  SessionRemoteDataSource(this._firestore, this._auth, this._logger);
+  SessionRemoteDataSource(this._firestore, this._logger);
 
   /// Creates a new session
   Future<SessionModel> createSession({
