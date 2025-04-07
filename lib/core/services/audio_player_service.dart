@@ -50,7 +50,7 @@ class AudioPlayerService {
     // Clean up after playback
     _audioPlayer.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) {
-        file.delete().catchError((_) {});
+        file.delete().catchError((_) => file);
       }
     });
   }
