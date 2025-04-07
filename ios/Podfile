@@ -36,12 +36,6 @@ target 'Runner' do
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   
-  # Fix for Firebase dependencies
-  # pod 'FirebaseFirestore', :modular_headers => true
-  # pod 'FirebaseCore', :modular_headers => true
-  # pod 'gRPC-Core', :modular_headers => true
-  # pod 'gRPC-C++', :modular_headers => true
-  
   target 'RunnerTests' do
     inherit! :search_paths
   end
@@ -50,24 +44,22 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
-    
-    # Fix for Xcode 15 warnings
+
     target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
-      
-      # For duplicate frameworks
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.6'
       config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
     end
-    
-    # Add the following to resolve duplicate framework references
+
     target.build_phases.each do |build_phase|
       if build_phase.respond_to?(:product_ref) && build_phase.product_ref
-        build_phase.product_ref.build_settings = { 'EXCLUDED_SOURCE_FILE_NAMES' => ['SwiftProtobuf'] }
+        build_phase.product_ref.build_settings = {
+          'EXCLUDED_SOURCE_FILE_NAMES' => ['SwiftProtobuf']
+        }
       end
     end
   end
-  
-  # Fix for duplicate frameworks 
+
   installer.aggregate_targets.each do |target|
     target.xcconfigs.each do |variant, xcconfig|
       xcconfig_path = target.client_root + target.xcconfig_relative_path(variant)
