@@ -2,12 +2,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:hermes/features/audience/presentation/pages/audience_home_page.dart';
+import 'package:hermes/features/home/presentation/pages/home_screen.dart'; // New import path
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/presentation/pages/active_session_page.dart';
 import 'package:hermes/features/session/presentation/pages/join_session_page.dart';
 import 'package:hermes/features/session/presentation/pages/session_start_page.dart';
-import 'package:hermes/main.dart';
 
 /// Route names used throughout the app
 class AppRoutes {

@@ -1,12 +1,10 @@
 // lib/features/session/infrastructure/services/auth_service.dart
 
 import 'package:firebase_auth/firebase_auth.dart' hide User;
-import 'package:injectable/injectable.dart';
 import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/session/domain/entities/user.dart' as domain;
 
 /// Authentication service for Firebase
-@lazySingleton
 class AuthService {
   final FirebaseAuth _auth;
   final Logger _logger;

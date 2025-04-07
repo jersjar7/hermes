@@ -2,14 +2,12 @@
 
 import 'package:dartz/dartz.dart';
 import 'package:equatable/equatable.dart';
-import 'package:injectable/injectable.dart';
 import 'package:hermes/core/errors/failure.dart';
 import 'package:hermes/core/usecases/usecase.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/domain/repositories/session_repository.dart';
 
 /// Use case for joining a session
-@injectable
 class JoinSession implements UseCase<Session, JoinSessionParams> {
   final SessionRepository _repository;
 
