@@ -39,7 +39,7 @@ dependencies:
   firebase_core: ^3.13.0
   firebase_auth: ^5.5.2
   cloud_firestore: ^5.6.6
-  firebase_storage: ^12.4.5
+  firebase_storage: ^12.1.2
   web_socket_channel: ^3.0.2
   just_audio: ^0.9.46
   qr_flutter: ^4.1.0

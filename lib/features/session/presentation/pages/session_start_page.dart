@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:hermes/core/utils/extensions.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
-import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/domain/entities/user.dart';
 import 'package:hermes/features/session/domain/usecases/create_session.dart';
 import 'package:hermes/features/session/infrastructure/services/auth_service.dart';

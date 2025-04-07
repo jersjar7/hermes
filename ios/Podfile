@@ -4,6 +4,9 @@ platform :ios, '16.6'
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
+# Pin Firebase SDK version for consistency
+$FirebaseSDKVersion = '11.10.0'
+
 project 'Runner', {
   'Debug' => :debug,
   'Profile' => :release,
@@ -39,5 +42,17 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    
+    # Fix for Xcode 15 warnings
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
+    end
+    
+    # Add the following to resolve duplicate framework references
+    target.build_phases.each do |build_phase|
+      if build_phase.respond_to?(:product_ref) && build_phase.product_ref
+        build_phase.product_ref.build_settings = { 'EXCLUDED_SOURCE_FILE_NAMES' => ['SwiftProtobuf'] }
+      end
+    end
   end
 end

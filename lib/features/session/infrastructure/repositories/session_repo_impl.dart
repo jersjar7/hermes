@@ -3,17 +3,14 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dartz/dartz.dart';
 import 'package:injectable/injectable.dart';
-import 'package:hermes/config/firebase_config.dart';
 import 'package:hermes/core/errors/failure.dart';
 import 'package:hermes/core/services/network_checker.dart';
 import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/domain/repositories/session_repository.dart';
 import 'package:hermes/features/session/infrastructure/datasources/session_remote_ds.dart';
-import 'package:hermes/features/session/infrastructure/models/session_model.dart';
 
 /// Implementation of [SessionRepository]
 @LazySingleton(as: SessionRepository)
