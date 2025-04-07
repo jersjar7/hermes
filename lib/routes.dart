@@ -1,6 +1,13 @@
 // lib/routes.dart
 
 import 'package:flutter/material.dart';
+import 'package:hermes/features/audience/presentation/pages/audience_home_page.dart';
+import 'package:hermes/features/session/domain/entities/language_selection.dart';
+import 'package:hermes/features/session/domain/entities/session.dart';
+import 'package:hermes/features/session/presentation/pages/active_session_page.dart';
+import 'package:hermes/features/session/presentation/pages/join_session_page.dart';
+import 'package:hermes/features/session/presentation/pages/session_start_page.dart';
+import 'package:hermes/main.dart';
 
 /// Route names used throughout the app
 class AppRoutes {
@@ -35,43 +42,28 @@ class AppRouter {
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
       case AppRoutes.home:
-        return MaterialPageRoute(
-          builder:
-              (_) => const Scaffold(
-                body: Center(child: Text('Home Page Placeholder')),
-              ),
-        );
+        return MaterialPageRoute(builder: (_) => const HomeScreen());
 
       case AppRoutes.sessionStart:
-        return MaterialPageRoute(
-          builder:
-              (_) => const Scaffold(
-                body: Center(child: Text('Session Start Page Placeholder')),
-              ),
-        );
+        return MaterialPageRoute(builder: (_) => const SessionStartPage());
 
       case AppRoutes.activeSession:
+        final session = settings.arguments as Session;
         return MaterialPageRoute(
-          builder:
-              (_) => const Scaffold(
-                body: Center(child: Text('Active Session Page Placeholder')),
-              ),
+          builder: (_) => ActiveSessionPage(session: session),
         );
 
       case AppRoutes.joinSession:
-        return MaterialPageRoute(
-          builder:
-              (_) => const Scaffold(
-                body: Center(child: Text('Join Session Page Placeholder')),
-              ),
-        );
+        return MaterialPageRoute(builder: (_) => const JoinSessionPage());
 
       case AppRoutes.audienceView:
+        final args = settings.arguments as Map<String, dynamic>;
+        final session = args['session'] as Session;
+        final language = args['language'] as LanguageSelection;
+
         return MaterialPageRoute(
           builder:
-              (_) => const Scaffold(
-                body: Center(child: Text('Audience View Page Placeholder')),
-              ),
+              (_) => AudienceHomePage(session: session, language: language),
         );
 
       case AppRoutes.settings:
