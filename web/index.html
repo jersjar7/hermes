@@ -44,13 +44,13 @@
     // Your web app's Firebase configuration
     // For Firebase JS SDK v7.20.0 and later, measurementId is optional
     const firebaseConfig = {
-      apiKey: "AIzaSyCv2SU1KFwR7B7SpEueRbFObKJY-AdioWE",
-      authDomain: "hermes-app-49773.firebaseapp.com",
-      projectId: "hermes-app-49773",
-      storageBucket: "hermes-app-49773.firebasestorage.app",
-      messagingSenderId: "259911523711",
-      appId: "1:259911523711:web:f757e48b14b708fe3d4e4a",
-      measurementId: "G-7HG14YNNGQ"
+      apiKey: process.env.FIREBASE_API_KEY,
+      authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+      appId: process.env.FIREBASE_APP_ID,
+      measurementId: process.env.FIREBASE_MEASUREMENT_ID
     };
   
     // Initialize Firebase
