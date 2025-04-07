@@ -2,7 +2,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:hermes/core/utils/extensions.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
 import 'package:hermes/features/translation/presentation/widgets/language_dropdown.dart';
 
