@@ -1,8 +1,6 @@
 // lib/config/translation_module.dart
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:injectable/injectable.dart';
-import 'package:hermes/core/services/network_checker.dart';
 import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/translation/domain/repositories/transcription_repository.dart';
 import 'package:hermes/features/translation/domain/repositories/translation_repository.dart';

@@ -8,7 +8,6 @@ import 'package:hermes/config/env.dart';
 import 'package:hermes/core/utils/logger.dart';
 
 /// Service to handle translation operations using Google Cloud Translation API
-@lazySingleton
 class TranslationService {
   final Logger _logger;
   final http.Client _httpClient;

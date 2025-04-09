@@ -43,8 +43,8 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
   @override
   void initState() {
     super.initState();
-    _speakerController.setActiveSession(_session);
     _session = widget.session;
+    _speakerController.setActiveSession(_session);
     _listenerCount = _session.listeners.length;
     _setupSessionListener();
   }

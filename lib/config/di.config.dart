@@ -29,8 +29,29 @@ import '../features/session/infrastructure/datasources/session_remote_ds.dart'
 import '../features/session/infrastructure/repositories/session_repo_impl.dart'
     as _i331;
 import '../features/session/infrastructure/services/auth_service.dart' as _i374;
+import '../features/translation/domain/repositories/transcription_repository.dart'
+    as _i187;
+import '../features/translation/domain/repositories/translation_repository.dart'
+    as _i775;
+import '../features/translation/domain/usecases/stream_transcription.dart'
+    as _i443;
+import '../features/translation/domain/usecases/translate_text_chunk.dart'
+    as _i1006;
+import '../features/translation/infrastructure/repositories/transcription_repo_impl.dart'
+    as _i1048;
+import '../features/translation/infrastructure/repositories/translation_repo_impl.dart'
+    as _i77;
+import '../features/translation/infrastructure/services/speech_to_text_service.dart'
+    as _i304;
+import '../features/translation/infrastructure/services/translation_service.dart'
+    as _i1060;
+import '../features/translation/presentation/controllers/audience_controller.dart'
+    as _i202;
+import '../features/translation/presentation/controllers/speaker_controller.dart'
+    as _i724;
 import 'firebase_config.dart' as _i352;
 import 'session_module.dart' as _i849;
+import 'translation_module.dart' as _i458;
 
 // initializes the registration of main-scope dependencies inside of GetIt
 _i174.GetIt init(
@@ -40,6 +61,7 @@ _i174.GetIt init(
 }) {
   final gh = _i526.GetItHelper(getIt, environment, environmentFilter);
   final firebaseInjectableModule = _$FirebaseInjectableModule();
+  final translationInjectableModule = _$TranslationInjectableModule();
   final sessionInjectableModule = _$SessionInjectableModule();
   gh.lazySingleton<_i503.Logger>(() => _i503.Logger.create());
   gh.lazySingleton<_i137.NetworkChecker>(() => _i137.NetworkChecker.create());
@@ -55,6 +77,37 @@ _i174.GetIt init(
   gh.lazySingleton<_i457.FirebaseStorage>(
     () => firebaseInjectableModule.firebaseStorage,
   );
+  gh.lazySingleton<_i304.SpeechToTextService>(
+    () => translationInjectableModule.provideSpeechToTextService(
+      gh<_i503.Logger>(),
+    ),
+  );
+  gh.lazySingleton<_i1060.TranslationService>(
+    () => translationInjectableModule.provideTranslationService(
+      gh<_i503.Logger>(),
+    ),
+  );
+  gh.lazySingleton<_i187.TranscriptionRepository>(
+    () => _i1048.TranscriptionRepositoryImpl(
+      gh<_i304.SpeechToTextService>(),
+      gh<_i974.FirebaseFirestore>(),
+      gh<_i137.NetworkChecker>(),
+      gh<_i503.Logger>(),
+    ),
+  );
+  gh.lazySingleton<_i443.StreamTranscription>(
+    () => translationInjectableModule.provideStreamTranscription(
+      gh<_i187.TranscriptionRepository>(),
+    ),
+  );
+  gh.lazySingleton<_i775.TranslationRepository>(
+    () => _i77.TranslationRepositoryImpl(
+      gh<_i1060.TranslationService>(),
+      gh<_i974.FirebaseFirestore>(),
+      gh<_i137.NetworkChecker>(),
+      gh<_i503.Logger>(),
+    ),
+  );
   gh.lazySingleton<_i368.SessionRemoteDataSource>(
     () => _i368.SessionRemoteDataSource(
       gh<_i974.FirebaseFirestore>(),
@@ -64,6 +117,24 @@ _i174.GetIt init(
   gh.lazySingleton<_i374.AuthService>(
     () => sessionInjectableModule.authService(
       gh<_i59.FirebaseAuth>(),
+      gh<_i503.Logger>(),
+    ),
+  );
+  gh.lazySingleton<_i1006.TranslateTextChunk>(
+    () => translationInjectableModule.provideTranslateTextChunk(
+      gh<_i775.TranslationRepository>(),
+    ),
+  );
+  gh.factory<_i202.AudienceController>(
+    () => _i202.AudienceController(
+      gh<_i187.TranscriptionRepository>(),
+      gh<_i775.TranslationRepository>(),
+      gh<_i503.Logger>(),
+    ),
+  );
+  gh.factory<_i724.SpeakerController>(
+    () => _i724.SpeakerController(
+      gh<_i443.StreamTranscription>(),
       gh<_i503.Logger>(),
     ),
   );
@@ -91,5 +162,7 @@ _i174.GetIt init(
 }
 
 class _$FirebaseInjectableModule extends _i352.FirebaseInjectableModule {}
+
+class _$TranslationInjectableModule extends _i458.TranslationInjectableModule {}
 
 class _$SessionInjectableModule extends _i849.SessionInjectableModule {}

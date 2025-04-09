@@ -12,7 +12,6 @@ import 'package:hermes/config/env.dart';
 import 'package:hermes/core/utils/logger.dart';
 
 /// Service to handle speech-to-text operations using Google Cloud STT
-@lazySingleton
 class SpeechToTextService {
   final Logger _logger;
   final http.Client _httpClient;
