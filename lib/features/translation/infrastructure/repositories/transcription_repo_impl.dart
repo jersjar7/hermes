@@ -34,22 +34,37 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     this._firestore,
     this._networkChecker,
     this._logger,
-  );
+  ) {
+    print("[REPO_DEBUG] TranscriptionRepositoryImpl constructor called");
+  }
 
   @override
   Stream<Either<Failure, Transcript>> streamTranscription({
     required String sessionId,
     required String languageCode,
   }) {
+    print(
+      "[REPO_DEBUG] streamTranscription called with languageCode=$languageCode",
+    );
+
     // Close existing stream if any
-    _transcriptStreamController?.close();
-    _transcriptionSubscription?.cancel();
+    if (_transcriptStreamController != null) {
+      print("[REPO_DEBUG] Closing existing stream controller");
+      _transcriptStreamController?.close();
+    }
+
+    if (_transcriptionSubscription != null) {
+      print("[REPO_DEBUG] Cancelling existing subscription");
+      _transcriptionSubscription?.cancel();
+    }
 
     // Create a new stream controller
+    print("[REPO_DEBUG] Creating new stream controller");
     _transcriptStreamController =
         StreamController<Either<Failure, Transcript>>.broadcast();
 
     // Initialize the stream asynchronously
+    print("[REPO_DEBUG] Starting _initializeTranscriptionStream");
     _initializeTranscriptionStream(sessionId, languageCode);
 
     return _transcriptStreamController!.stream;
@@ -60,22 +75,32 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     String sessionId,
     String languageCode,
   ) async {
+    print("[REPO_DEBUG] _initializeTranscriptionStream started");
     try {
+      print("[REPO_DEBUG] Checking network connection");
       if (!await _networkChecker.hasConnection()) {
+        print("[REPO_DEBUG] No network connection");
         _transcriptStreamController?.add(const Left(NetworkFailure()));
         return;
       }
+      print("[REPO_DEBUG] Network connection available");
 
       try {
         // Start the STT service
+        print("[REPO_DEBUG] Starting STT service");
         final sttStream = _sttService.startStreaming(
           sessionId: sessionId,
           languageCode: languageCode,
         );
+        print("[REPO_DEBUG] STT service started, got stream");
 
         // Subscribe to STT results
+        print("[REPO_DEBUG] Subscribing to STT results");
         _transcriptionSubscription = sttStream.listen(
           (result) async {
+            print(
+              "[REPO_DEBUG] Received result: transcript='${result.transcript}', isFinal=${result.isFinal}",
+            );
             final transcript = Transcript(
               id: _uuid.v4(),
               sessionId: sessionId,
@@ -85,24 +110,30 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
               isFinal: result.isFinal,
             );
 
+            print("[REPO_DEBUG] Adding transcript to stream");
             _transcriptStreamController?.add(Right(transcript));
 
             if (result.isFinal && result.transcript.isNotEmpty) {
+              print("[REPO_DEBUG] Final transcript, saving to Firestore");
               await saveTranscript(transcript);
             }
           },
           onError: (error) {
+            print("[REPO_DEBUG] Error in STT stream: $error");
             _logger.e('Error in STT stream', error: error);
             _transcriptStreamController?.add(
               Left(SpeechRecognitionFailure(message: error.toString())),
             );
           },
           onDone: () {
+            print("[REPO_DEBUG] STT stream closed");
             _logger.i('STT stream closed');
           },
         );
       } catch (e) {
+        print("[REPO_DEBUG] Exception when starting STT service: $e");
         if (e is MicrophonePermissionException) {
+          print("[REPO_DEBUG] Microphone permission exception");
           _transcriptStreamController?.add(
             Left(
               SpeechRecognitionFailure(
@@ -112,6 +143,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
             ),
           );
         } else {
+          print("[REPO_DEBUG] General exception: $e");
           _transcriptStreamController?.add(
             Left(SpeechRecognitionFailure(message: e.toString())),
           );
@@ -119,6 +151,8 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
         _logger.e('Failed to start STT service', error: e);
       }
     } catch (e, stacktrace) {
+      print("[REPO_DEBUG] Exception in _initializeTranscriptionStream: $e");
+      print("[REPO_DEBUG] Stack trace: $stacktrace");
       _logger.e(
         'Failed to initialize transcription stream',
         error: e,
@@ -132,13 +166,18 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
 
   @override
   Future<Either<Failure, void>> stopTranscription() async {
+    print("[REPO_DEBUG] stopTranscription called");
     try {
+      print("[REPO_DEBUG] Stopping STT service");
       await _sttService.stopStreaming();
+      print("[REPO_DEBUG] Cancelling subscription");
       await _transcriptionSubscription?.cancel();
       _transcriptionSubscription = null;
+      print("[REPO_DEBUG] Transcription stopped");
 
       return const Right(null);
     } catch (e, stacktrace) {
+      print("[REPO_DEBUG] Exception in stopTranscription: $e");
       _logger.e(
         'Failed to stop transcription',
         error: e,
@@ -150,10 +189,14 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
 
   @override
   Future<Either<Failure, void>> pauseTranscription() async {
+    print("[REPO_DEBUG] pauseTranscription called");
     try {
+      print("[REPO_DEBUG] Pausing STT service");
       await _sttService.pauseStreaming();
+      print("[REPO_DEBUG] STT service paused");
       return const Right(null);
     } catch (e, stacktrace) {
+      print("[REPO_DEBUG] Exception in pauseTranscription: $e");
       _logger.e(
         'Failed to pause transcription',
         error: e,
@@ -165,10 +208,14 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
 
   @override
   Future<Either<Failure, void>> resumeTranscription() async {
+    print("[REPO_DEBUG] resumeTranscription called");
     try {
+      print("[REPO_DEBUG] Resuming STT service");
       await _sttService.resumeStreaming();
+      print("[REPO_DEBUG] STT service resumed");
       return const Right(null);
     } catch (e, stacktrace) {
+      print("[REPO_DEBUG] Exception in resumeTranscription: $e");
       _logger.e(
         'Failed to resume transcription',
         error: e,
@@ -184,17 +231,22 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     required Uint8List audioData,
     required String languageCode,
   }) async {
+    print("[REPO_DEBUG] transcribeAudio called");
     try {
+      print("[REPO_DEBUG] Checking network connection");
       if (!await _networkChecker.hasConnection()) {
+        print("[REPO_DEBUG] No network connection");
         return const Left(NetworkFailure());
       }
 
+      print("[REPO_DEBUG] Calling STT service transcribeAudio");
       final results = await _sttService.transcribeAudio(
         audioData: audioData,
         languageCode: languageCode,
       );
 
       if (results.isEmpty) {
+        print("[REPO_DEBUG] No transcription results");
         return const Left(
           SpeechRecognitionFailure(message: 'No transcription results'),
         );
@@ -203,6 +255,9 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
       // Get the best result (highest confidence)
       final bestResult = results.reduce(
         (curr, next) => curr.confidence > next.confidence ? curr : next,
+      );
+      print(
+        "[REPO_DEBUG] Best result: transcript='${bestResult.transcript}', confidence=${bestResult.confidence}",
       );
 
       // Create transcript entity
@@ -216,10 +271,12 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
       );
 
       // Save to Firestore
+      print("[REPO_DEBUG] Saving transcript to Firestore");
       final savedTranscriptResult = await saveTranscript(transcript);
 
       return savedTranscriptResult;
     } catch (e, stacktrace) {
+      print("[REPO_DEBUG] Exception in transcribeAudio: $e");
       _logger.e('Failed to transcribe audio', error: e, stackTrace: stacktrace);
       return Left(SpeechRecognitionFailure(message: e.toString()));
     }
@@ -229,22 +286,31 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
   Future<Either<Failure, Transcript>> saveTranscript(
     Transcript transcript,
   ) async {
+    print("[REPO_DEBUG] saveTranscript called");
     try {
+      print("[REPO_DEBUG] Checking network connection");
       if (!await _networkChecker.hasConnection()) {
+        print("[REPO_DEBUG] No network connection");
         return const Left(NetworkFailure());
       }
 
       // Convert domain entity to model
+      print("[REPO_DEBUG] Converting domain entity to model");
       final transcriptModel = TranscriptModel.fromEntity(transcript);
 
       // Save to Firestore
+      print(
+        "[REPO_DEBUG] Saving to Firestore collection: ${FirestoreCollections.transcripts}",
+      );
       await _firestore
           .collection(FirestoreCollections.transcripts)
           .doc(transcript.id)
           .set(transcriptModel.toJson());
+      print("[REPO_DEBUG] Saved to Firestore");
 
       return Right(transcript);
     } catch (e, stacktrace) {
+      print("[REPO_DEBUG] Exception in saveTranscript: $e");
       _logger.e('Failed to save transcript', error: e, stackTrace: stacktrace);
       return Left(ServerFailure(message: e.toString()));
     }
@@ -254,11 +320,15 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
   Future<Either<Failure, List<Transcript>>> getSessionTranscripts(
     String sessionId,
   ) async {
+    print("[REPO_DEBUG] getSessionTranscripts called for sessionId=$sessionId");
     try {
+      print("[REPO_DEBUG] Checking network connection");
       if (!await _networkChecker.hasConnection()) {
+        print("[REPO_DEBUG] No network connection");
         return const Left(NetworkFailure());
       }
 
+      print("[REPO_DEBUG] Querying Firestore");
       final querySnapshot =
           await _firestore
               .collection(FirestoreCollections.transcripts)
@@ -266,6 +336,9 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
               .where('is_final', isEqualTo: true)
               .orderBy('timestamp')
               .get();
+      print(
+        "[REPO_DEBUG] Got ${querySnapshot.docs.length} documents from Firestore",
+      );
 
       final transcripts =
           querySnapshot.docs
@@ -274,6 +347,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
 
       return Right(transcripts);
     } catch (e, stacktrace) {
+      print("[REPO_DEBUG] Exception in getSessionTranscripts: $e");
       _logger.e(
         'Failed to get session transcripts',
         error: e,
@@ -288,11 +362,17 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     required String sessionId,
     int limit = 20,
   }) async {
+    print(
+      "[REPO_DEBUG] getRecentTranscripts called for sessionId=$sessionId, limit=$limit",
+    );
     try {
+      print("[REPO_DEBUG] Checking network connection");
       if (!await _networkChecker.hasConnection()) {
+        print("[REPO_DEBUG] No network connection");
         return const Left(NetworkFailure());
       }
 
+      print("[REPO_DEBUG] Querying Firestore");
       final querySnapshot =
           await _firestore
               .collection(FirestoreCollections.transcripts)
@@ -301,6 +381,9 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
               .orderBy('timestamp', descending: true)
               .limit(limit)
               .get();
+      print(
+        "[REPO_DEBUG] Got ${querySnapshot.docs.length} documents from Firestore",
+      );
 
       final transcripts =
           querySnapshot.docs
@@ -309,9 +392,11 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
 
       // Return in chronological order (oldest first)
       transcripts.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      print("[REPO_DEBUG] Sorted ${transcripts.length} transcripts");
 
       return Right(transcripts);
     } catch (e, stacktrace) {
+      print("[REPO_DEBUG] Exception in getRecentTranscripts: $e");
       _logger.e(
         'Failed to get recent transcripts',
         error: e,
@@ -325,7 +410,11 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
   Stream<Either<Failure, List<Transcript>>> streamSessionTranscripts(
     String sessionId,
   ) {
+    print(
+      "[REPO_DEBUG] streamSessionTranscripts called for sessionId=$sessionId",
+    );
     try {
+      print("[REPO_DEBUG] Setting up Firestore stream");
       return _firestore
           .collection(FirestoreCollections.transcripts)
           .where('session_id', isEqualTo: sessionId)
@@ -333,6 +422,9 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
           .orderBy('timestamp')
           .snapshots()
           .map<Either<Failure, List<Transcript>>>((snapshot) {
+            print(
+              "[REPO_DEBUG] Received snapshot with ${snapshot.docs.length} documents",
+            );
             try {
               final transcripts =
                   snapshot.docs
@@ -341,8 +433,10 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
                             TranscriptModel.fromJson(doc.data()).toEntity(),
                       )
                       .toList();
+              print("[REPO_DEBUG] Mapped ${transcripts.length} transcripts");
               return Right(transcripts);
             } catch (e, stacktrace) {
+              print("[REPO_DEBUG] Error parsing transcripts: $e");
               _logger.e(
                 'Error parsing transcripts',
                 error: e,
@@ -354,6 +448,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
           .transform(
             StreamTransformer.fromHandlers(
               handleError: (error, stacktrace, sink) {
+                print("[REPO_DEBUG] Error in stream: $error");
                 _logger.e(
                   'Error streaming transcripts',
                   error: error,
@@ -364,6 +459,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
             ),
           );
     } catch (e, stacktrace) {
+      print("[REPO_DEBUG] Exception in streamSessionTranscripts: $e");
       _logger.e(
         'Failed to stream session transcripts',
         error: e,

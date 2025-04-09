@@ -100,6 +100,8 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
   }
 
   void _startListening() async {
+    // Debug print
+    print("[DEBUG] Starting to listen for transcription");
     setState(() {
       _isListening = true;
       _errorMessage = null;
@@ -111,53 +113,68 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
     );
 
     // Start streaming transcription
-    final transcriptionStream = _streamTranscription(params);
+    try {
+      print("[DEBUG] About to call _streamTranscription");
+      final transcriptionStream = _streamTranscription(params);
+      print("[DEBUG] Got transcription stream");
 
-    _transcriptionSubscription = transcriptionStream.listen(
-      (result) {
-        result.fold(
-          (failure) {
-            setState(() {
-              _errorMessage = failure.message;
-              _isListening = false;
-            });
-          },
-          (transcript) {
-            setState(() {
-              // For final transcripts, add to list and translate
-              if (transcript.isFinal) {
-                // Only add if text is not empty
-                if (transcript.text.trim().isNotEmpty) {
-                  _transcripts.add(transcript);
-                  _translateTranscript(transcript);
-                  _currentPartialTranscript = '';
+      _transcriptionSubscription = transcriptionStream.listen(
+        (result) {
+          print("[DEBUG] Received transcription result: $result");
+          result.fold(
+            (failure) {
+              print("[DEBUG] Transcription failure: ${failure.message}");
+              setState(() {
+                _errorMessage = failure.message;
+                _isListening = false;
+              });
+            },
+            (transcript) {
+              print("[DEBUG] Transcription success: ${transcript.text}");
+              setState(() {
+                // For final transcripts, add to list and translate
+                if (transcript.isFinal) {
+                  // Only add if text is not empty
+                  if (transcript.text.trim().isNotEmpty) {
+                    _transcripts.add(transcript);
+                    _translateTranscript(transcript);
+                    _currentPartialTranscript = '';
 
-                  // Scroll to the bottom
-                  _scrollToBottom();
+                    // Scroll to the bottom
+                    _scrollToBottom();
+                  }
+                } else {
+                  // Update partial transcript
+                  _currentPartialTranscript = transcript.text;
+
+                  // Debounce translation of partial transcripts
+                  _debouncedTranslate(transcript);
                 }
-              } else {
-                // Update partial transcript
-                _currentPartialTranscript = transcript.text;
-
-                // Debounce translation of partial transcripts
-                _debouncedTranslate(transcript);
-              }
-            });
-          },
-        );
-      },
-      onError: (error) {
-        setState(() {
-          _errorMessage = error.toString();
-          _isListening = false;
-        });
-      },
-      onDone: () {
-        setState(() {
-          _isListening = false;
-        });
-      },
-    );
+              });
+            },
+          );
+        },
+        onError: (error) {
+          print("[DEBUG] Transcription stream error: $error");
+          setState(() {
+            _errorMessage = error.toString();
+            _isListening = false;
+          });
+        },
+        onDone: () {
+          print("[DEBUG] Transcription stream closed");
+          setState(() {
+            _isListening = false;
+          });
+        },
+      );
+    } catch (e) {
+      print("[DEBUG] Exception when starting transcription: $e");
+      setState(() {
+        _errorMessage = "Error starting transcription: $e";
+        _isListening = false;
+      });
+    }
   }
 
   void _debouncedTranslate(Transcript transcript) {
@@ -324,14 +341,13 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
             ),
           ),
 
-        // Transcripts list - KEY CHANGE: Use Flexible instead of Expanded
-        // This allows the column to shrink if needed, avoiding overflow
-        Flexible(child: _buildTranscriptionList()),
+        // Transcripts list - Fix: Use Expanded instead of Flexible
+        Expanded(child: _buildTranscriptionList()),
       ],
     );
   }
 
-  // Make the _buildTranscriptionList more resilient
+  // Fix the transcription list widget to make it more overflow-proof
   Widget _buildTranscriptionList() {
     // Check if there's any content to display
     if (_transcripts.isEmpty && _currentPartialTranscript.isEmpty) {
@@ -353,8 +369,6 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      // Shrink the list if there are few items
-      shrinkWrap: true,
       // Make the list scrollable
       physics: const AlwaysScrollableScrollPhysics(),
       itemCount: allTranscripts.length + (showPartial ? 1 : 0),
