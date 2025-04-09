@@ -274,76 +274,98 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Header with status and controls
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-          color: Colors.grey.shade200,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Status indicator
-              Row(
-                children: [
-                  Icon(
-                    _isListening ? Icons.mic : Icons.mic_off,
-                    color: _isListening ? Colors.green : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _isListening ? 'Listening...' : 'Not listening',
-                    style: TextStyle(
-                      color: _isListening ? Colors.green : Colors.grey,
-                      fontWeight: FontWeight.bold,
+    return SafeArea(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header with status and controls
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 8,
+                        horizontal: 16,
+                      ),
+                      color: Colors.grey.shade200,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                _isListening ? Icons.mic : Icons.mic_off,
+                                color:
+                                    _isListening ? Colors.green : Colors.grey,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _isListening ? 'Listening...' : 'Not listening',
+                                style: TextStyle(
+                                  color:
+                                      _isListening ? Colors.green : Colors.grey,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '${widget.sourceLanguage.flagEmoji} → ${widget.targetLanguage.flagEmoji}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          if (widget.isSpeakerView)
+                            IconButton(
+                              icon: Icon(
+                                _isListening ? Icons.stop : Icons.play_arrow,
+                              ),
+                              onPressed: _toggleListening,
+                              tooltip:
+                                  _isListening
+                                      ? 'Stop listening'
+                                      : 'Start listening',
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
 
-              // Language indicator
-              Text(
-                '${widget.sourceLanguage.flagEmoji} → ${widget.targetLanguage.flagEmoji}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
+                    // Error message (if any)
+                    if (_errorMessage != null)
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        margin: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              color: Colors.red.shade900,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _errorMessage!,
+                                style: TextStyle(color: Colors.red.shade900),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
-              // Toggle button (for speaker view only)
-              if (widget.isSpeakerView)
-                IconButton(
-                  icon: Icon(_isListening ? Icons.stop : Icons.play_arrow),
-                  onPressed: _toggleListening,
-                  tooltip: _isListening ? 'Stop listening' : 'Start listening',
+                    // Transcription List
+                    Expanded(child: _buildTranscriptionList()),
+                  ],
                 ),
-            ],
-          ),
-        ),
-
-        // Error message (if any)
-        if (_errorMessage != null)
-          Container(
-            padding: const EdgeInsets.all(8),
-            margin: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              color: Colors.red.shade100,
-              borderRadius: BorderRadius.circular(8),
+              ),
             ),
-            child: Row(
-              children: [
-                Icon(Icons.error_outline, color: Colors.red.shade900),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _errorMessage!,
-                    style: TextStyle(color: Colors.red.shade900),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-        // Transcripts list - Fix: Use Expanded instead of Flexible
-        Expanded(child: _buildTranscriptionList()),
-      ],
+          );
+        },
+      ),
     );
   }
 

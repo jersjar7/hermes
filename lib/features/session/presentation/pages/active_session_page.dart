@@ -67,17 +67,16 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
   }
 
   // Add this improved _checkMicrophonePermission method to your ActiveSessionPage class
-
   Future<bool> _checkMicrophonePermission() async {
     final status = await Permission.microphone.status;
 
+    // If permission is already granted, return true immediately
     if (status.isGranted) {
-      // Permission already granted
       return true;
     }
 
+    // If permission is permanently denied, send user to settings
     if (status.isPermanentlyDenied) {
-      // If permanently denied, we need to send user to settings
       if (mounted) {
         await showDialog(
           context: context,
@@ -107,53 +106,20 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
       return false;
     }
 
-    // For denied but not permanently denied, request permission
-    bool granted = false;
-    if (mounted) {
-      await showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder:
-            (context) => AlertDialog(
-              title: const Text('Microphone Permission'),
-              content: const Text(
-                'Hermes needs microphone access to transcribe your speech. Without this permission, you cannot start a session as a speaker.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    granted = false;
-                  },
-                  child: const Text('Cancel'),
-                ),
-                TextButton(
-                  onPressed: () async {
-                    Navigator.pop(context);
-                    final result = await Permission.microphone.request();
-                    granted = result.isGranted;
+    // Directly request permission using the system dialog
+    final result = await Permission.microphone.request();
 
-                    // If still not granted after request, show a follow-up message
-                    if (!granted && mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Microphone permission is required to speak',
-                          ),
-                          duration: Duration(seconds: 3),
-                        ),
-                      );
-                    }
-                  },
-                  child: const Text('Grant Permission'),
-                ),
-              ],
-            ),
+    // If still not granted after request, show a message
+    if (!result.isGranted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Microphone permission is required to speak'),
+          duration: Duration(seconds: 3),
+        ),
       );
     }
 
-    // Double-check the permission status after dialog
-    return await Permission.microphone.status.isGranted;
+    return result.isGranted;
   }
 
   Future<void> _handleEndSession() async {
