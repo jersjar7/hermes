@@ -4,6 +4,7 @@ import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
 
 import 'di.config.dart';
+import 'package:hermes/config/translation_module.dart';
 
 /// Global service locator
 final getIt = GetIt.instance;
@@ -14,7 +15,7 @@ final getIt = GetIt.instance;
   preferRelativeImports: true, // default
   asExtension: false, // default
 )
-Future<void> configureDependencies() async => await init(getIt);
+Future<void> configureDependencies() async => init(getIt);
 
 /// Registers a singleton instance in the DI container
 void registerSingleton<T extends Object>(T instance) {

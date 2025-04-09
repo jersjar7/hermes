@@ -10,6 +10,7 @@ import 'package:hermes/features/session/domain/entities/language_selection.dart'
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/domain/repositories/session_repository.dart';
 import 'package:hermes/features/session/infrastructure/services/auth_service.dart';
+import 'package:hermes/features/translation/presentation/controllers/audience_controller.dart';
 import 'package:hermes/features/translation/presentation/widgets/language_dropdown.dart';
 import 'package:hermes/features/translation/presentation/widgets/live_transcript_view.dart';
 import 'package:hermes/routes.dart';
@@ -46,9 +47,13 @@ class _AudienceHomePageState extends State<AudienceHomePage> {
 
   _AudienceHomePageState() : _selectedLanguage = LanguageSelections.english;
 
+  final AudienceController _audienceController =
+      GetIt.instance<AudienceController>();
+
   @override
   void initState() {
     super.initState();
+    _audienceController.setSessionAndLanguage(_session, _selectedLanguage);
     _session = widget.session;
     _selectedLanguage = widget.language;
     _setupSessionListener();
@@ -151,6 +156,9 @@ class _AudienceHomePageState extends State<AudienceHomePage> {
       _selectedLanguage = language;
     });
 
+    // Update controller
+    await _audienceController.changeLanguage(language);
+
     try {
       // Update user preference
       await _authService.updatePreferredLanguage(language.languageCode);
@@ -162,6 +170,7 @@ class _AudienceHomePageState extends State<AudienceHomePage> {
   @override
   void dispose() {
     _sessionSubscription?.cancel();
+    _audienceController.dispose();
     super.dispose();
   }
 
@@ -241,6 +250,7 @@ class _AudienceHomePageState extends State<AudienceHomePage> {
                 sessionId: _session.id,
                 sourceLanguage: speakerLanguage,
                 targetLanguage: _selectedLanguage,
+                isSpeakerView: false,
               ),
             ),
           ],

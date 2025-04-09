@@ -11,6 +11,8 @@ import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/domain/usecases/end_session.dart';
 import 'package:hermes/features/session/presentation/widgets/qr_code_display.dart';
 import 'package:hermes/features/session/presentation/widgets/session_code_card.dart';
+import 'package:hermes/features/translation/presentation/controllers/speaker_controller.dart';
+import 'package:hermes/features/translation/presentation/widgets/live_transcript_view.dart';
 import 'package:hermes/routes.dart';
 
 /// Page for active session for speaker
@@ -35,9 +37,13 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
   late Session _session;
   late StreamSubscription? _sessionSubscription;
 
+  final SpeakerController _speakerController =
+      GetIt.instance<SpeakerController>();
+
   @override
   void initState() {
     super.initState();
+    _speakerController.setActiveSession(_session);
     _session = widget.session;
     _listenerCount = _session.listeners.length;
     _setupSessionListener();
@@ -96,19 +102,15 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
   }
 
   void _toggleListening() {
-    setState(() {
-      _isListening = !_isListening;
-    });
-
-    // In a real implementation, you would start/stop the speech recognition
-    // This would connect to the translation feature
     if (_isListening) {
-      // Start listening
-      // ...
+      _speakerController.stopListening();
     } else {
-      // Stop listening
-      // ...
+      _speakerController.startListening();
     }
+
+    setState(() {
+      _isListening = _speakerController.isListening;
+    });
   }
 
   void _copySessionCode() {
@@ -146,101 +148,105 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
         child: Column(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // Session name
-                      Text(
-                        _session.name,
-                        style: context.textTheme.headlineSmall,
-                        textAlign: TextAlign.center,
-                      ),
+              child: Column(
+                children: [
+                  // Session info section
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Session name
+                        Text(
+                          _session.name,
+                          style: context.textTheme.headlineSmall,
+                          textAlign: TextAlign.center,
+                        ),
 
-                      const SizedBox(height: 8),
+                        const SizedBox(height: 8),
 
-                      // Session language
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(language.flagEmoji),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Speaking in ${language.englishName}',
-                            style: context.textTheme.titleMedium,
-                          ),
-                        ],
-                      ),
+                        // Session language
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(language.flagEmoji),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Speaking in ${language.englishName}',
+                              style: context.textTheme.titleMedium,
+                            ),
+                          ],
+                        ),
 
-                      const SizedBox(height: 16),
+                        const SizedBox(height: 16),
 
-                      // Listeners count
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.people),
-                              const SizedBox(width: 8),
-                              Text(
-                                '$_listenerCount ${_listenerCount == 1 ? 'listener' : 'listeners'}',
-                                style: context.textTheme.bodyLarge,
-                              ),
-                            ],
+                        // Listeners count
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.people),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '$_listenerCount ${_listenerCount == 1 ? 'listener' : 'listeners'}',
+                                  style: context.textTheme.bodyLarge,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
 
-                      const SizedBox(height: 32),
+                        const SizedBox(height: 16),
 
-                      // Session code card
-                      SessionCodeCard(
-                        sessionCode: _session.code,
-                        onCopyTap: _copySessionCode,
-                      ),
-
-                      const SizedBox(height: 32),
-
-                      // QR code
-                      QrCodeDisplay(sessionCode: _session.code),
-
-                      const SizedBox(height: 24),
-
-                      Text(
-                        'Share this code or QR with your audience',
-                        style: context.textTheme.bodyLarge,
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      Text(
-                        'They can join by scanning the QR code or entering the session code in the app',
-                        style: context.textTheme.bodyMedium,
-                        textAlign: TextAlign.center,
-                      ),
-
-                      const SizedBox(height: 32),
-
-                      // Error message (if any)
-                      if (_errorMessage != null)
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            _errorMessage!,
-                            style: TextStyle(color: Colors.red.shade900),
-                          ),
+                        // Session code card
+                        SessionCodeCard(
+                          sessionCode: _session.code,
+                          onCopyTap: _copySessionCode,
                         ),
-                    ],
+
+                        const SizedBox(height: 16),
+
+                        // QR code
+                        QrCodeDisplay(sessionCode: _session.code),
+
+                        const SizedBox(height: 8),
+
+                        Text(
+                          'Share this code or QR with your audience',
+                          style: context.textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+
+                  // Transcription section
+                  Expanded(
+                    child: LiveTranscriptView(
+                      sessionId: _session.id,
+                      sourceLanguage: language,
+                      targetLanguage:
+                          language, // Speaker sees own language by default
+                      isSpeakerView: true,
+                    ),
+                  ),
+
+                  // Error message (if any)
+                  if (_errorMessage != null)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _errorMessage!,
+                        style: TextStyle(color: Colors.red.shade900),
+                      ),
+                    ),
+                ],
               ),
             ),
 
@@ -251,7 +257,7 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
                 color: context.theme.cardColor,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
+                    color: Colors.black.withValues(alpha: 0.1),
                     blurRadius: 4,
                     offset: const Offset(0, -2),
                   ),
