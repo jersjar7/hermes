@@ -100,7 +100,11 @@ class SpeakerController with ChangeNotifier {
       return true;
     } catch (e, stacktrace) {
       _logger.e('Failed to start listening', error: e, stackTrace: stacktrace);
-      _errorMessage = e.toString();
+
+      // Specific error message for user-facing UI
+      _errorMessage =
+          "Microphone access is required to start a session. Please grant microphone permission in your device settings.";
+
       _isListening = false;
       notifyListeners();
       return false;

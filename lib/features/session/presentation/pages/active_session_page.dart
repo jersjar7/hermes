@@ -14,6 +14,7 @@ import 'package:hermes/features/session/presentation/widgets/session_code_card.d
 import 'package:hermes/features/translation/presentation/controllers/speaker_controller.dart';
 import 'package:hermes/features/translation/presentation/widgets/live_transcript_view.dart';
 import 'package:hermes/routes.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Page for active session for speaker
 class ActiveSessionPage extends StatefulWidget {
@@ -47,6 +48,7 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
     _speakerController.setActiveSession(_session);
     _listenerCount = _session.listeners.length;
     _setupSessionListener();
+    _checkMicrophonePermission();
   }
 
   void _setupSessionListener() {
@@ -62,6 +64,36 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
         });
       }
     });
+  }
+
+  Future<void> _checkMicrophonePermission() async {
+    final status = await Permission.microphone.status;
+    if (!status.isGranted && mounted) {
+      showDialog(
+        context: context,
+        builder:
+            (context) => AlertDialog(
+              title: const Text('Microphone Permission'),
+              content: const Text(
+                'Hermes needs microphone access to transcribe your speech. Without this permission, you cannot start a session as a speaker.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await Permission.microphone.request();
+                    // You can optionally check and handle new permission status here
+                  },
+                  child: const Text('Request Permission'),
+                ),
+              ],
+            ),
+      );
+    }
   }
 
   Future<void> _handleEndSession() async {
