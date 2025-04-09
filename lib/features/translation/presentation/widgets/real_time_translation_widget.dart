@@ -305,7 +305,7 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
         if (_errorMessage != null)
           Container(
             padding: const EdgeInsets.all(8),
-            margin: const EdgeInsets.all(8),
+            margin: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
               color: Colors.red.shade100,
               borderRadius: BorderRadius.circular(8),
@@ -324,12 +324,14 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
             ),
           ),
 
-        // Transcripts and translations list
-        Expanded(child: _buildTranscriptionList()),
+        // Transcripts list - KEY CHANGE: Use Flexible instead of Expanded
+        // This allows the column to shrink if needed, avoiding overflow
+        Flexible(child: _buildTranscriptionList()),
       ],
     );
   }
 
+  // Make the _buildTranscriptionList more resilient
   Widget _buildTranscriptionList() {
     // Check if there's any content to display
     if (_transcripts.isEmpty && _currentPartialTranscript.isEmpty) {
@@ -342,14 +344,19 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
     }
 
     // Combine final transcripts with the current partial transcript
-    final allTranscripts = [..._transcripts];
+    final allTranscripts = List<Transcript>.from(_transcripts);
 
     // Only add current partial transcript if it's not empty
     final showPartial = _currentPartialTranscript.isNotEmpty && _isListening;
 
+    // Return ListView directly - no wrapping in Column or Expanded
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      // Shrink the list if there are few items
+      shrinkWrap: true,
+      // Make the list scrollable
+      physics: const AlwaysScrollableScrollPhysics(),
       itemCount: allTranscripts.length + (showPartial ? 1 : 0),
       itemBuilder: (context, index) {
         // Check if this is the partial transcript item

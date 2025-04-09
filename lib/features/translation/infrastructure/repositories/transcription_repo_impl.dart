@@ -15,6 +15,7 @@ import 'package:hermes/features/translation/domain/entities/transcript.dart';
 import 'package:hermes/features/translation/domain/repositories/transcription_repository.dart';
 import 'package:hermes/features/translation/infrastructure/models/transcript_model.dart';
 import 'package:hermes/features/translation/infrastructure/services/speech_to_text_service.dart';
+import 'package:hermes/features/translation/infrastructure/services/audio_stream_handler.dart';
 
 /// Implementation of [TranscriptionRepository]
 @LazySingleton(as: TranscriptionRepository)
