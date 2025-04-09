@@ -10,6 +10,17 @@ import 'package:record/record.dart';
 import 'package:hermes/config/env.dart';
 import 'package:hermes/core/utils/logger.dart';
 
+/// Custom exception for microphone permission issues
+class MicrophonePermissionException implements Exception {
+  final String message;
+  final PermissionStatus permissionStatus;
+
+  MicrophonePermissionException(this.message, {required this.permissionStatus});
+
+  @override
+  String toString() => message;
+}
+
 /// Service to handle speech-to-text operations using Google Cloud STT
 class SpeechToTextService {
   final Logger _logger;
@@ -30,19 +41,18 @@ class SpeechToTextService {
 
   /// Factory constructor for dependency injection
   @factoryMethod
-  static SpeechToTextService create(Logger logger) {
-    return SpeechToTextService(logger, http.Client(), AudioRecorder());
-  }
+  static SpeechToTextService create(Logger logger) =>
+      SpeechToTextService(logger, http.Client(), AudioRecorder());
 
   /// Initialize the service
   Future<bool> init() async {
     if (_isInitialized) return true;
 
     try {
-      // Check microphone permission
-      final status = await Permission.microphone.request();
+      // Check microphone permission - don't request yet, just check status
+      final status = await Permission.microphone.status;
       if (status != PermissionStatus.granted) {
-        _logger.e('Microphone permission not granted');
+        _logger.w('Microphone permission not granted: $status');
         return false;
       }
 
@@ -65,6 +75,17 @@ class SpeechToTextService {
     required String sessionId,
     required String languageCode,
   }) async* {
+    // Check permissions first
+    final permissionStatus = await Permission.microphone.status;
+
+    // If permission is denied or permanently denied, throw a more specific exception
+    if (permissionStatus != PermissionStatus.granted) {
+      throw MicrophonePermissionException(
+        'Microphone permission is required for speech transcription.',
+        permissionStatus: permissionStatus,
+      );
+    }
+
     if (!_isInitialized) {
       final initialized = await init();
       if (!initialized) {

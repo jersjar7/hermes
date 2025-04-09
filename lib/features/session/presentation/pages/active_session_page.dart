@@ -66,11 +66,53 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
     });
   }
 
-  Future<void> _checkMicrophonePermission() async {
+  // Add this improved _checkMicrophonePermission method to your ActiveSessionPage class
+
+  Future<bool> _checkMicrophonePermission() async {
     final status = await Permission.microphone.status;
-    if (!status.isGranted && mounted) {
-      showDialog(
+
+    if (status.isGranted) {
+      // Permission already granted
+      return true;
+    }
+
+    if (status.isPermanentlyDenied) {
+      // If permanently denied, we need to send user to settings
+      if (mounted) {
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Microphone Permission Required'),
+                content: const Text(
+                  'Microphone access is permanently denied. Please enable it in your device settings to use this feature.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      openAppSettings();
+                    },
+                    child: const Text('Open Settings'),
+                  ),
+                ],
+              ),
+        );
+      }
+      return false;
+    }
+
+    // For denied but not permanently denied, request permission
+    bool granted = false;
+    if (mounted) {
+      await showDialog(
         context: context,
+        barrierDismissible: false,
         builder:
             (context) => AlertDialog(
               title: const Text('Microphone Permission'),
@@ -79,21 +121,39 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    granted = false;
+                  },
                   child: const Text('Cancel'),
                 ),
                 TextButton(
                   onPressed: () async {
                     Navigator.pop(context);
-                    await Permission.microphone.request();
-                    // You can optionally check and handle new permission status here
+                    final result = await Permission.microphone.request();
+                    granted = result.isGranted;
+
+                    // If still not granted after request, show a follow-up message
+                    if (!granted && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Microphone permission is required to speak',
+                          ),
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                    }
                   },
-                  child: const Text('Request Permission'),
+                  child: const Text('Grant Permission'),
                 ),
               ],
             ),
       );
     }
+
+    // Double-check the permission status after dialog
+    return await Permission.microphone.status.isGranted;
   }
 
   Future<void> _handleEndSession() async {
@@ -133,16 +193,32 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
     }
   }
 
-  void _toggleListening() {
+  void _toggleListening() async {
     if (_isListening) {
       _speakerController.stopListening();
+      setState(() {
+        _isListening = _speakerController.isListening;
+      });
     } else {
-      _speakerController.startListening();
-    }
+      // Check permission first
+      final hasPermission = await _checkMicrophonePermission();
 
-    setState(() {
-      _isListening = _speakerController.isListening;
-    });
+      if (hasPermission) {
+        final success = await _speakerController.startListening();
+        if (mounted) {
+          setState(() {
+            _isListening = _speakerController.isListening;
+            _errorMessage = _speakerController.errorMessage;
+
+            if (!success && _errorMessage != null) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(_errorMessage!)));
+            }
+          });
+        }
+      }
+    }
   }
 
   void _copySessionCode() {

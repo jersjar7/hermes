@@ -49,6 +49,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     _transcriptStreamController =
         StreamController<Either<Failure, Transcript>>.broadcast();
 
+    // Initialize the stream asynchronously
     _initializeTranscriptionStream(sessionId, languageCode);
 
     return _transcriptStreamController!.stream;
@@ -65,43 +66,58 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
         return;
       }
 
-      // Start the STT service
-      final sttStream = _sttService.startStreaming(
-        sessionId: sessionId,
-        languageCode: languageCode,
-      );
+      try {
+        // Start the STT service
+        final sttStream = _sttService.startStreaming(
+          sessionId: sessionId,
+          languageCode: languageCode,
+        );
 
-      // Subscribe to STT results
-      _transcriptionSubscription = sttStream.listen(
-        (result) async {
-          // Create transcript entity
-          final transcript = Transcript(
-            id: _uuid.v4(),
-            sessionId: sessionId,
-            text: result.transcript,
-            language: languageCode,
-            timestamp: DateTime.now(),
-            isFinal: result.isFinal,
-          );
+        // Subscribe to STT results
+        _transcriptionSubscription = sttStream.listen(
+          (result) async {
+            final transcript = Transcript(
+              id: _uuid.v4(),
+              sessionId: sessionId,
+              text: result.transcript,
+              language: languageCode,
+              timestamp: DateTime.now(),
+              isFinal: result.isFinal,
+            );
 
-          // Add to stream
-          _transcriptStreamController?.add(Right(transcript));
+            _transcriptStreamController?.add(Right(transcript));
 
-          // Save final transcripts to Firestore
-          if (result.isFinal && result.transcript.isNotEmpty) {
-            await saveTranscript(transcript);
-          }
-        },
-        onError: (error) {
-          _logger.e('Error in STT stream', error: error);
+            if (result.isFinal && result.transcript.isNotEmpty) {
+              await saveTranscript(transcript);
+            }
+          },
+          onError: (error) {
+            _logger.e('Error in STT stream', error: error);
+            _transcriptStreamController?.add(
+              Left(SpeechRecognitionFailure(message: error.toString())),
+            );
+          },
+          onDone: () {
+            _logger.i('STT stream closed');
+          },
+        );
+      } catch (e) {
+        if (e is MicrophonePermissionException) {
           _transcriptStreamController?.add(
-            Left(SpeechRecognitionFailure(message: error.toString())),
+            Left(
+              SpeechRecognitionFailure(
+                message:
+                    'Microphone permission required. Please grant microphone access in settings.',
+              ),
+            ),
           );
-        },
-        onDone: () {
-          _logger.i('STT stream closed');
-        },
-      );
+        } else {
+          _transcriptStreamController?.add(
+            Left(SpeechRecognitionFailure(message: e.toString())),
+          );
+        }
+        _logger.e('Failed to start STT service', error: e);
+      }
     } catch (e, stacktrace) {
       _logger.e(
         'Failed to initialize transcription stream',

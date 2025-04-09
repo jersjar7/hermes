@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:hermes/features/translation/infrastructure/services/speech_to_text_service.dart';
 import 'package:injectable/injectable.dart';
 import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
@@ -86,7 +87,12 @@ class SpeakerController with ChangeNotifier {
           );
         },
         onError: (error) {
-          _errorMessage = error.toString();
+          if (error is MicrophonePermissionException) {
+            _errorMessage =
+                'Microphone permission is required. Please grant access in settings.';
+          } else {
+            _errorMessage = 'Error in transcription: ${error.toString()}';
+          }
           _isListening = false;
           notifyListeners();
           _logger.e('Error in transcription stream', error: error);
@@ -101,9 +107,14 @@ class SpeakerController with ChangeNotifier {
     } catch (e, stacktrace) {
       _logger.e('Failed to start listening', error: e, stackTrace: stacktrace);
 
-      // Specific error message for user-facing UI
-      _errorMessage =
-          "Microphone access is required to start a session. Please grant microphone permission in your device settings.";
+      // Better error messages based on exception type
+      if (e is MicrophonePermissionException) {
+        _errorMessage =
+            'Microphone permission is required. Please grant access in settings.';
+      } else {
+        _errorMessage =
+            "Failed to start speech recognition. Please check your internet connection and try again.";
+      }
 
       _isListening = false;
       notifyListeners();
