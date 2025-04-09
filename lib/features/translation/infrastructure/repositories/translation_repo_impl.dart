@@ -207,7 +207,7 @@ class TranslationRepositoryImpl implements TranslationRepository {
           .where('target_language', isEqualTo: targetLanguage)
           .orderBy('timestamp')
           .snapshots()
-          .map((snapshot) {
+          .map<Either<Failure, List<Translation>>>((snapshot) {
             try {
               final translations =
                   snapshot.docs
@@ -216,7 +216,6 @@ class TranslationRepositoryImpl implements TranslationRepository {
                             TranslationModel.fromJson(doc.data()).toEntity(),
                       )
                       .toList();
-
               return Right(translations);
             } catch (e, stacktrace) {
               _logger.e(
@@ -227,10 +226,18 @@ class TranslationRepositoryImpl implements TranslationRepository {
               return Left(ServerFailure(message: e.toString()));
             }
           })
-          .handleError((error) {
-            _logger.e('Error streaming translations', error: error);
-            return Left(ServerFailure(message: error.toString()));
-          });
+          .transform(
+            StreamTransformer.fromHandlers(
+              handleError: (error, stacktrace, sink) {
+                _logger.e(
+                  'Error streaming translations',
+                  error: error,
+                  stackTrace: stacktrace,
+                );
+                sink.add(Left(ServerFailure(message: error.toString())));
+              },
+            ),
+          );
     } catch (e, stacktrace) {
       _logger.e(
         'Failed to stream session translations',

@@ -316,7 +316,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
           .where('is_final', isEqualTo: true)
           .orderBy('timestamp')
           .snapshots()
-          .map((snapshot) {
+          .map<Either<Failure, List<Transcript>>>((snapshot) {
             try {
               final transcripts =
                   snapshot.docs
@@ -325,7 +325,6 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
                             TranscriptModel.fromJson(doc.data()).toEntity(),
                       )
                       .toList();
-
               return Right(transcripts);
             } catch (e, stacktrace) {
               _logger.e(
@@ -336,10 +335,18 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
               return Left(ServerFailure(message: e.toString()));
             }
           })
-          .handleError((error) {
-            _logger.e('Error streaming transcripts', error: error);
-            return Left(ServerFailure(message: error.toString()));
-          });
+          .transform(
+            StreamTransformer.fromHandlers(
+              handleError: (error, stacktrace, sink) {
+                _logger.e(
+                  'Error streaming transcripts',
+                  error: error,
+                  stackTrace: stacktrace,
+                );
+                sink.add(Left(ServerFailure(message: error.toString())));
+              },
+            ),
+          );
     } catch (e, stacktrace) {
       _logger.e(
         'Failed to stream session transcripts',

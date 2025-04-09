@@ -3,8 +3,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:hermes/core/errors/failure.dart';
-import 'package:hermes/core/utils/extensions.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
 import 'package:hermes/features/translation/domain/entities/transcript.dart';
 import 'package:hermes/features/translation/domain/entities/translation.dart';

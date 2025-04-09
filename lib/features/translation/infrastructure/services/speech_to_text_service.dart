@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
-import 'package:uuid/uuid.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -79,7 +78,6 @@ class SpeechToTextService {
     }
 
     try {
-      _currentSessionId = sessionId;
       _audioStreamController = StreamController<Uint8List>.broadcast();
       _isRecording = true;
 
@@ -121,7 +119,6 @@ class SpeechToTextService {
       _isRecording = false;
       _recorderSubscription = null;
       _audioStreamController = null;
-      _currentSessionId = null;
     } catch (e, stacktrace) {
       _logger.e(
         'Error stopping STT streaming',
@@ -174,8 +171,9 @@ class SpeechToTextService {
       {'key': _apiKey},
     );
 
-    final request = http.Request('POST', uri);
-    request.headers['Content-Type'] = 'application/json+stream';
+    final streamedRequest = http.StreamedRequest('POST', uri);
+    streamedRequest.headers['Content-Type'] =
+        'application/json+stream'; // Correct Content-Type for streaming
 
     // Start with config message
     final configJson = jsonEncode({
@@ -205,10 +203,6 @@ class SpeechToTextService {
       },
     });
 
-    // Setup streaming request
-    final streamedRequest = http.StreamedRequest('POST', uri);
-    streamedRequest.headers['Content-Type'] = 'application/json';
-
     // Send config first
     streamedRequest.sink.add(utf8.encode('$configJson\n'));
 
@@ -237,38 +231,37 @@ class SpeechToTextService {
       },
     );
 
-    // Process STT API responses
     try {
-      final response = await http.Response.fromStream(streamedRequest);
+      final client = http.Client();
+      final streamedResponse = await client.send(streamedRequest);
 
-      if (response.statusCode != 200) {
-        _logger.e(
-          'STT API Error: ${response.statusCode}',
-          error: response.body,
-        );
+      if (streamedResponse.statusCode != 200) {
+        final body = await streamedResponse.stream.bytesToString();
+        _logger.e('STT API Error: ${streamedResponse.statusCode}', error: body);
         throw Exception(
-          'STT API Error: ${response.statusCode} - ${response.body}',
+          'STT API Error: ${streamedResponse.statusCode} - $body',
         );
       }
 
-      // Parse streaming response (newline-delimited JSON)
-      final lines = LineSplitter.split(response.body);
-
-      for (final line in lines) {
-        if (line.trim().isEmpty) continue;
-
-        try {
-          final json = jsonDecode(line);
-          final result = SpeechRecognitionResult.fromJson(json);
-          yield result;
-        } catch (e, stacktrace) {
-          _logger.e(
-            'Error parsing STT response',
-            error: e,
-            stackTrace: stacktrace,
-          );
+      // Process streaming response (newline-delimited JSON)
+      await for (final chunk in streamedResponse.stream) {
+        final lines = utf8.decode(chunk).split('\n');
+        for (final line in lines) {
+          if (line.trim().isEmpty) continue;
+          try {
+            final json = jsonDecode(line);
+            final result = SpeechRecognitionResult.fromJson(json);
+            yield result;
+          } catch (e, stacktrace) {
+            _logger.e(
+              'Error parsing STT response line: $line',
+              error: e,
+              stackTrace: stacktrace,
+            );
+          }
         }
       }
+      client.close(); // Close the client when done
     } catch (e, stacktrace) {
       _logger.e('Error in STT API request', error: e, stackTrace: stacktrace);
       throw Exception('Error in STT API request: $e');
