@@ -1,21 +1,18 @@
 // lib/features/translation/infrastructure/services/audio_stream_handler.dart
 
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
-import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:hermes/core/utils/logger.dart';
 
 /// Handles streaming of audio data from the Record package
 class AudioStreamHandler {
-  final Record _recorder;
+  final AudioRecorder _recorder;
   final Logger _logger;
 
   bool _isStreaming = false;
-  String? _currentRecordingPath;
-  Timer? _chunkTimer;
-  int _lastReadPosition = 0;
+  StreamSubscription? _audioSubscription;
+  StreamSubscription? _amplitudeSubscription;
 
   final StreamController<Uint8List> _audioStreamController =
       StreamController<Uint8List>.broadcast();
@@ -38,11 +35,6 @@ class AudioStreamHandler {
     try {
       _isStreaming = true;
 
-      // Create a temporary file for recording
-      final tempDir = await getTemporaryDirectory();
-      _currentRecordingPath =
-          '${tempDir.path}/hermes_recording_${DateTime.now().millisecondsSinceEpoch}.pcm';
-
       // Configure recording
       final config = RecordConfig(
         encoder: AudioEncoder.pcm16bits, // Raw PCM is best for STT
@@ -53,15 +45,32 @@ class AudioStreamHandler {
         noiseSuppress: true, // Good for speech
       );
 
-      // Start recording
-      await _recorder.start(config: config, path: _currentRecordingPath);
+      // Start recording stream
+      final audioStream = await _recorder.startStream(config);
 
-      // Set up a timer to periodically read chunks from the recording file
-      _lastReadPosition = 0;
-      _chunkTimer = Timer.periodic(
-        const Duration(milliseconds: 200), // 200ms chunks
-        (_) => _readAudioChunk(),
+      // Subscribe to the stream
+      _audioSubscription = audioStream.listen(
+        (data) {
+          if (_isStreaming) {
+            _audioStreamController.add(data);
+          }
+        },
+        onError: (error) {
+          _logger.e('Error in audio stream', error: error);
+          _audioStreamController.addError(error);
+        },
+        onDone: () {
+          _logger.d('Audio stream done');
+        },
       );
+
+      // Monitor amplitude for debugging (optional)
+      _amplitudeSubscription = _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 100))
+          .listen((amp) {
+            // You can log amplitude for debugging or UI feedback
+            // _logger.d('Amplitude: ${amp.current}, Max: ${amp.max}');
+          });
 
       return true;
     } catch (e, stackTrace) {
@@ -75,49 +84,12 @@ class AudioStreamHandler {
     }
   }
 
-  /// Read a chunk of audio data from the current recording
-  Future<void> _readAudioChunk() async {
-    if (!_isStreaming || _currentRecordingPath == null) return;
-
-    try {
-      final file = File(_currentRecordingPath!);
-      if (await file.exists()) {
-        final fileLength = await file.length();
-
-        // Only process if there's new data
-        if (fileLength > _lastReadPosition) {
-          final randomAccessFile = await file.open(mode: FileMode.read);
-          await randomAccessFile.setPosition(_lastReadPosition);
-
-          // Read new data
-          final newData = await randomAccessFile.read(
-            fileLength - _lastReadPosition,
-          );
-          await randomAccessFile.close();
-
-          // Update position
-          _lastReadPosition = fileLength;
-
-          // Add data to stream if not empty
-          if (newData.isNotEmpty) {
-            _audioStreamController.add(Uint8List.fromList(newData));
-          }
-        }
-      }
-    } catch (e, stackTrace) {
-      _logger.e('Error reading audio chunk', error: e, stackTrace: stackTrace);
-    }
-  }
-
   /// Pause streaming
   Future<void> pauseStreaming() async {
     if (!_isStreaming) return;
 
     try {
-      if (_recorder.isRecording()) {
-        await _recorder.pause();
-        _chunkTimer?.cancel();
-      }
+      await _recorder.pause();
     } catch (e, stackTrace) {
       _logger.e(
         'Error pausing audio streaming',
@@ -132,15 +104,7 @@ class AudioStreamHandler {
     if (!_isStreaming) return;
 
     try {
-      if (_recorder.isPaused()) {
-        await _recorder.resume();
-
-        // Restart chunk reading
-        _chunkTimer = Timer.periodic(
-          const Duration(milliseconds: 200),
-          (_) => _readAudioChunk(),
-        );
-      }
+      await _recorder.resume();
     } catch (e, stackTrace) {
       _logger.e(
         'Error resuming audio streaming',
@@ -155,27 +119,13 @@ class AudioStreamHandler {
     _isStreaming = false;
 
     try {
-      _chunkTimer?.cancel();
-      _chunkTimer = null;
+      await _audioSubscription?.cancel();
+      await _amplitudeSubscription?.cancel();
 
-      if (_recorder.isRecording() || _recorder.isPaused()) {
-        await _recorder.stop();
-      }
+      _audioSubscription = null;
+      _amplitudeSubscription = null;
 
-      // Clean up recording file
-      if (_currentRecordingPath != null) {
-        final file = File(_currentRecordingPath!);
-        if (await file.exists()) {
-          try {
-            await file.delete();
-          } catch (e) {
-            _logger.e('Error deleting temporary recording file', error: e);
-          }
-        }
-        _currentRecordingPath = null;
-      }
-
-      _lastReadPosition = 0;
+      await _recorder.stop();
     } catch (e, stackTrace) {
       _logger.e(
         'Error stopping audio streaming',

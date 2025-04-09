@@ -1,9 +1,10 @@
+// lib/features/translation/infrastructure/services/speech_to_text_service.dart
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:hermes/config/env.dart';
@@ -13,12 +14,13 @@ import 'package:hermes/core/utils/logger.dart';
 class SpeechToTextService {
   final Logger _logger;
   final http.Client _httpClient;
-  final Record _recorder;
+  final AudioRecorder _recorder;
 
   bool _isInitialized = false;
   bool _isRecording = false;
   StreamController<Uint8List>? _audioStreamController;
   StreamSubscription? _audioSubscription;
+  StreamSubscription? _amplitudeSubscription;
 
   final String _apiKey = Env.googleCloudApiKey;
   final String _apiBaseUrl = 'speech.googleapis.com';
@@ -29,7 +31,7 @@ class SpeechToTextService {
   /// Factory constructor for dependency injection
   @factoryMethod
   static SpeechToTextService create(Logger logger) {
-    return SpeechToTextService(logger, http.Client(), Record());
+    return SpeechToTextService(logger, http.Client(), AudioRecorder());
   }
 
   /// Initialize the service
@@ -41,16 +43,6 @@ class SpeechToTextService {
       final status = await Permission.microphone.request();
       if (status != PermissionStatus.granted) {
         _logger.e('Microphone permission not granted');
-        return false;
-      }
-
-      // Check if recorder is available
-      final isRecorderReady = await _recorder.isEncoderSupported(
-        AudioEncoder.pcm16bits,
-      );
-
-      if (!isRecorderReady) {
-        _logger.e('Recorder is not ready or PCM16 is not supported');
         return false;
       }
 
@@ -88,43 +80,28 @@ class SpeechToTextService {
       _audioStreamController = StreamController<Uint8List>.broadcast();
       _isRecording = true;
 
-      // Prepare temporary directory for recording
-      final tempDir = await getTemporaryDirectory();
-      final tempPath =
-          '${tempDir.path}/temp_${DateTime.now().millisecondsSinceEpoch}.pcm';
-
       // Configure recording
       final config = RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
         numChannels: 1,
-        autoGain: true,
-        echoCancel: true,
-        noiseSuppress: true,
       );
 
       // Start recording with data stream
-      await _recorder.start(config: config, path: tempPath);
+      final audioStream = await _recorder.startStream(config);
 
-      // Stream audio data in chunks
-      _audioSubscription = _recorder
+      // Process the audio stream
+      _audioSubscription = audioStream.listen((data) {
+        if (!_isRecording) return;
+        _audioStreamController?.add(data);
+      });
+
+      // Monitor amplitude for debugging
+      _amplitudeSubscription = _recorder
           .onAmplitudeChanged(const Duration(milliseconds: 100))
-          .listen((amplitude) async {
-            if (!_isRecording) return;
-
-            try {
-              // Read audio data (in a real implementation, you'd need to read the actual audio data)
-              // For this simplified version, we're just checking if the file exists and has data
-              final file = File(tempPath);
-              if (await file.exists()) {
-                final bytes = await file.readAsBytes();
-                if (bytes.isNotEmpty) {
-                  _audioStreamController?.add(bytes);
-                }
-              }
-            } catch (e) {
-              _logger.e('Error reading audio data', error: e);
-            }
+          .listen((amp) {
+            // You can log amplitude or use it for UI feedback
+            // _logger.d('Amplitude: ${amp.current}, Max: ${amp.max}');
           });
 
       // Create a stream to send audio data to Google STT
@@ -151,16 +128,16 @@ class SpeechToTextService {
 
     try {
       // Stop recording
-      if (_recorder.isRecording()) {
-        await _recorder.stop();
-      }
+      await _recorder.stop();
 
       // Cancel subscriptions
       await _audioSubscription?.cancel();
+      await _amplitudeSubscription?.cancel();
       await _audioStreamController?.close();
 
       _isRecording = false;
       _audioSubscription = null;
+      _amplitudeSubscription = null;
       _audioStreamController = null;
     } catch (e, stacktrace) {
       _logger.e(
@@ -176,9 +153,7 @@ class SpeechToTextService {
     if (!_isRecording) return;
 
     try {
-      if (_recorder.isRecording()) {
-        await _recorder.pause();
-      }
+      await _recorder.pause();
     } catch (e, stacktrace) {
       _logger.e(
         'Error pausing STT streaming',
@@ -193,9 +168,7 @@ class SpeechToTextService {
     if (!_isRecording) return;
 
     try {
-      if (_recorder.isPaused()) {
-        await _recorder.resume();
-      }
+      await _recorder.resume();
     } catch (e, stacktrace) {
       _logger.e(
         'Error resuming STT streaming',
