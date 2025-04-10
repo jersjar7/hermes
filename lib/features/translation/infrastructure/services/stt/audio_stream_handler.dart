@@ -1,11 +1,12 @@
-// lib/features/translation/infrastructure/services/audio_stream_handler.dart
+// lib/features/translation/infrastructure/services/stt/audio_stream_handler.dart
 
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
 import 'package:hermes/core/utils/logger.dart';
+import 'package:hermes/features/translation/infrastructure/services/stt/stt_exceptions.dart';
 
-/// Handles streaming of audio data from the Record package
+/// Handles streaming of audio data from the microphone
 class AudioStreamHandler {
   final AudioRecorder _recorder;
   final Logger _logger;
@@ -19,6 +20,9 @@ class AudioStreamHandler {
 
   /// Stream of audio data chunks
   Stream<Uint8List> get audioStream => _audioStreamController.stream;
+
+  /// Whether currently streaming audio
+  bool get isStreaming => _isStreaming;
 
   /// Creates a new [AudioStreamHandler]
   AudioStreamHandler(this._recorder, this._logger);
@@ -35,6 +39,17 @@ class AudioStreamHandler {
     try {
       _isStreaming = true;
 
+      // Check if encoder is supported
+      final isEncoderSupported = await _recorder.isEncoderSupported(
+        AudioEncoder.pcm16bits,
+      );
+
+      if (!isEncoderSupported) {
+        throw AudioProcessingException(
+          'PCM16 encoder not supported on this device',
+        );
+      }
+
       // Configure recording
       final config = RecordConfig(
         encoder: AudioEncoder.pcm16bits, // Raw PCM is best for STT
@@ -44,6 +59,8 @@ class AudioStreamHandler {
         echoCancel: true, // Good for speech
         noiseSuppress: true, // Good for speech
       );
+
+      _logger.d('Starting audio recording with config: $config');
 
       // Start recording stream
       final audioStream = await _recorder.startStream(config);
@@ -69,7 +86,7 @@ class AudioStreamHandler {
           .onAmplitudeChanged(const Duration(milliseconds: 100))
           .listen((amp) {
             // You can log amplitude for debugging or UI feedback
-            // _logger.d('Amplitude: ${amp.current}, Max: ${amp.max}');
+            _logger.d('Amplitude: ${amp.current}, Max: ${amp.max}');
           });
 
       return true;
@@ -90,6 +107,7 @@ class AudioStreamHandler {
 
     try {
       await _recorder.pause();
+      _logger.d('Audio streaming paused');
     } catch (e, stackTrace) {
       _logger.e(
         'Error pausing audio streaming',
@@ -105,6 +123,7 @@ class AudioStreamHandler {
 
     try {
       await _recorder.resume();
+      _logger.d('Audio streaming resumed');
     } catch (e, stackTrace) {
       _logger.e(
         'Error resuming audio streaming',
@@ -126,6 +145,7 @@ class AudioStreamHandler {
       _amplitudeSubscription = null;
 
       await _recorder.stop();
+      _logger.d('Audio streaming stopped');
     } catch (e, stackTrace) {
       _logger.e(
         'Error stopping audio streaming',
@@ -135,12 +155,10 @@ class AudioStreamHandler {
     }
   }
 
-  /// Check if streaming is active
-  bool get isStreaming => _isStreaming;
-
   /// Dispose resources
   Future<void> dispose() async {
     await stopStreaming();
     await _audioStreamController.close();
+    _logger.d('AudioStreamHandler disposed');
   }
 }

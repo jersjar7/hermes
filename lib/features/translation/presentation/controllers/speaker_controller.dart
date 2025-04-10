@@ -2,7 +2,8 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:hermes/features/translation/infrastructure/services/speech_to_text_service.dart';
+import 'package:hermes/features/translation/infrastructure/services/stt/stt_exceptions.dart';
+// import 'package:hermes/features/translation/infrastructure/services/speech_to_text_service.dart';
 import 'package:injectable/injectable.dart';
 import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';

@@ -6,7 +6,7 @@ import 'package:hermes/features/translation/domain/repositories/transcription_re
 import 'package:hermes/features/translation/domain/repositories/translation_repository.dart';
 import 'package:hermes/features/translation/domain/usecases/stream_transcription.dart';
 import 'package:hermes/features/translation/domain/usecases/translate_text_chunk.dart';
-import 'package:hermes/features/translation/infrastructure/services/speech_to_text_service.dart';
+import 'package:hermes/features/translation/infrastructure/services/stt/stt_service.dart';
 import 'package:hermes/features/translation/infrastructure/services/translation_service.dart';
 
 /// Module for translation-related dependency injection
