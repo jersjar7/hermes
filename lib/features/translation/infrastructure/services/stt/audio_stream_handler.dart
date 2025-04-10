@@ -75,7 +75,16 @@ class AudioStreamHandler {
         (data) {
           if (_isStreaming && !_isPaused) {
             _audioStreamController.add(data);
-            _logger.d('Audio data received: ${data.length} bytes');
+
+            // Add more detailed audio data logging
+            _logger.d(
+              'Audio data received: ${data.length} bytes, first few bytes: ${data.take(10).toList()}',
+            );
+
+            // Add amplitude logging on each data chunk
+            _recorder.getAmplitude().then((amp) {
+              _logger.d('Current amplitude: ${amp.current}, Max: ${amp.max}');
+            });
           }
         },
         onError: (error) {

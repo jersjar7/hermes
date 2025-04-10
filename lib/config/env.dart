@@ -1,6 +1,7 @@
 // lib/config/env.dart
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dart:developer' as developer;
 
 /// Environment configuration for the application
 class Env {
@@ -23,6 +24,23 @@ class Env {
   /// Initialize environment variables
   static Future<void> init() async {
     await dotenv.load(fileName: '.env');
+
+    // Now log the loaded values (be careful with sensitive values)
+    developer.log(
+      'Environment loaded: ${dotenv.env.keys.join(', ')}',
+      name: 'Env',
+    );
+    developer.log('API Base URL: $apiBaseUrl', name: 'Env');
+    developer.log(
+      'Google Cloud API Key length: ${googleCloudApiKey.length}',
+      name: 'Env',
+    );
+    developer.log('Firebase Project ID: $firebaseProjectId', name: 'Env');
+    developer.log('WebSocket URL: $websocketUrl', name: 'Env');
+    developer.log(
+      'Environment mode: ${isDevelopment ? "development" : "production"}',
+      name: 'Env',
+    );
   }
 
   /// Determine if we're running in development mode
@@ -30,4 +48,7 @@ class Env {
 
   /// Determine if we're running in production mode
   static bool get isProduction => dotenv.env['ENVIRONMENT'] == 'production';
+
+  // Helper function to ensure string length safety
+  int min(int a, int b) => a < b ? a : b;
 }

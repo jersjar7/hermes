@@ -51,15 +51,44 @@ class SpeechToTextService {
     if (_isInitialized) return true;
 
     try {
+      // Check API key
+      final apiKey = Env.googleCloudApiKey;
+      if (apiKey.isEmpty) {
+        _logger.e('[STT_DEBUG] Google Cloud API key is empty');
+        return false;
+      } else {
+        _logger.d(
+          '[STT_DEBUG] API key found: ${apiKey.substring(0, 5)}...(truncated)',
+        );
+      }
+
+      // Check Firebase project ID
+      final projectId = Env.firebaseProjectId;
+      if (projectId.isEmpty) {
+        _logger.e('[STT_DEBUG] Firebase project ID is empty');
+        return false;
+      } else {
+        _logger.d('[STT_DEBUG] Project ID found: $projectId');
+      }
+
       // Check recorder availability
       final isAvailable = await _recorder.isEncoderSupported(
         AudioEncoder.pcm16bits,
       );
 
       if (!isAvailable) {
-        _logger.e('Recorder not available or encoder not supported');
+        _logger.e(
+          '[STT_DEBUG] Recorder not available or encoder not supported',
+        );
         return false;
+      } else {
+        _logger.d('[STT_DEBUG] Audio recorder and encoder are available');
       }
+
+      // Check if .env file was loaded correctly
+      _logger.d(
+        '[STT_DEBUG] Environment variables: API_BASE_URL=${Env.apiBaseUrl}',
+      );
 
       _isInitialized = true;
       _logger.d("[STT_DEBUG] Service successfully initialized");
@@ -124,6 +153,14 @@ class SpeechToTextService {
         }
       }
 
+      // After permission check and before initializing:
+      _logger.d("[STT_DEBUG] Starting audio with following parameters:");
+      _logger.d("[STT_DEBUG] Session ID: $sessionId");
+      _logger.d("[STT_DEBUG] Language code: $languageCode");
+      _logger.d(
+        "[STT_DEBUG] STT API URL: https://speech.googleapis.com/v2/projects/${Env.firebaseProjectId}/locations/global:recognizeStream",
+      );
+
       // Initialize if needed
       if (!_isInitialized) {
         _logger.d("[STT_DEBUG] Not initialized, calling init()");
@@ -149,6 +186,9 @@ class SpeechToTextService {
         interimResults: true,
         sampleRateHertz: 16000,
       );
+
+      // After creating SttConfig:
+      _logger.d("[STT_DEBUG] STT Config: ${config.toJson()}");
 
       // Start audio recording
       _isRecording = true;

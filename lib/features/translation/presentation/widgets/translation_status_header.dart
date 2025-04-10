@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
+import 'package:hermes/features/translation/presentation/widgets/audio_level_indicator.dart';
 
 /// Header widget that shows the translation status and controls
 class TranslationStatusHeader extends StatelessWidget {
@@ -32,31 +33,45 @@ class TranslationStatusHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            offset: const Offset(0, 1),
-            blurRadius: 2,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Your existing header row
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                offset: const Offset(0, 1),
+                blurRadius: 2,
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Status indicator
-          _buildStatusIndicator(),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Status indicator
+              _buildStatusIndicator(),
 
-          // Language indicator
-          _buildLanguageIndicator(),
+              // Language indicator
+              _buildLanguageIndicator(),
 
-          // Control button (for speaker only)
-          if (isSpeakerView && onToggleListening != null) _buildControlButton(),
-        ],
-      ),
+              // Control button (for speaker only)
+              if (isSpeakerView && onToggleListening != null)
+                _buildControlButton(),
+            ],
+          ),
+        ),
+
+        // 🎤 Audio Level Indicator goes here
+        if (isListening)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: AudioLevelIndicator(isListening: true),
+          ),
+      ],
     );
   }
 

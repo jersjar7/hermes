@@ -116,6 +116,10 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
         print("[REPO_DEBUG] Subscribing to STT results");
         _transcriptionSubscription = sttStream.listen(
           (result) async {
+            _logger.d(
+              '[REPO_DEBUG] STT result received: confidence=${result.confidence}, isFinal=${result.isFinal}',
+            );
+            _logger.d('[REPO_DEBUG] Transcript text: "${result.transcript}"');
             print(
               "[REPO_DEBUG] Received result: transcript='${result.transcript}', isFinal=${result.isFinal}",
             );

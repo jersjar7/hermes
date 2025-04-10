@@ -1,6 +1,7 @@
 // lib/features/translation/infrastructure/services/stt/stt_api_client.dart
 
 import 'dart:async';
+import 'dart:math';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -39,6 +40,10 @@ class SttApiClient {
         '$_apiVersion/projects/$projectId/locations/global:recognizeStream';
     final uri = Uri.https(_apiBaseUrl, endpoint, {'key': _apiKey});
 
+    _logger.d(
+      '[STT_CLIENT] API Key used: ${_apiKey.substring(0, 5)}...(truncated)',
+    );
+    _logger.d('[STT_CLIENT] Project ID: $projectId');
     _logger.d('[STT_CLIENT] Creating STT streaming request to: $uri');
 
     final streamedRequest = http.StreamedRequest('POST', uri);
@@ -108,6 +113,10 @@ class SttApiClient {
       _logger.d('[STT_CLIENT] Processing streaming response');
       await for (final chunk in streamedResponse.stream) {
         buffer += utf8.decode(chunk);
+        _logger.d('[STT_CLIENT] Received chunk of size: ${chunk.length} bytes');
+        _logger.d(
+          '[STT_CLIENT] Raw chunk data: ${utf8.decode(chunk).substring(0, min(50, utf8.decode(chunk).length))}...',
+        );
         _logger.d('[STT_CLIENT] Received chunk of size: ${chunk.length} bytes');
 
         // Process complete JSON objects (separated by newlines)
