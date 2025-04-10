@@ -1,5 +1,7 @@
 // lib/features/translation/presentation/widgets/live_transcript_view.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
 import 'package:hermes/features/translation/presentation/widgets/real_time_translation_widget.dart';
@@ -36,6 +38,71 @@ class LiveTranscriptView extends StatefulWidget {
 }
 
 class _LiveTranscriptViewState extends State<LiveTranscriptView> {
+  String? _errorMessage;
+  bool _isReconnecting = false;
+  Timer? _reconnectTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // No need to set up error listener yet since we'll handle errors directly
+  }
+
+  void _handleError(String errorMessage) {
+    setState(() {
+      _errorMessage = errorMessage;
+    });
+
+    // Auto-reconnect logic for certain errors
+    if (errorMessage.contains("connection") ||
+        errorMessage.contains("network")) {
+      _attemptReconnect();
+    }
+
+    // Show a snackbar with the error
+    if (mounted && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_errorMessage ?? "An error occurred"),
+          action: SnackBarAction(label: 'Retry', onPressed: _retryConnection),
+          duration: const Duration(seconds: 10),
+        ),
+      );
+    }
+  }
+
+  void _attemptReconnect() {
+    if (_isReconnecting) return;
+
+    setState(() {
+      _isReconnecting = true;
+    });
+
+    // Try to reconnect after a delay
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 5), () {
+      _retryConnection();
+    });
+  }
+
+  void _retryConnection() {
+    setState(() {
+      _errorMessage = null;
+      _isReconnecting = false;
+    });
+
+    // Force rebuild of the real-time translation widget
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _reconnectTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
@@ -52,25 +119,21 @@ class _LiveTranscriptViewState extends State<LiveTranscriptView> {
             // Header (optional)
             if (widget.showHeader) _buildHeader(),
 
+            // Error banner (new)
+            if (_errorMessage != null) _buildErrorBanner(),
+
+            // Reconnecting indicator (new)
+            if (_isReconnecting) _buildReconnectingIndicator(),
+
             // Real-time translation widget (main content)
-            Expanded(
-              child: RealTimeTranslationWidget(
-                sessionId: widget.sessionId,
-                sourceLanguage: widget.sourceLanguage,
-                targetLanguage: widget.targetLanguage,
-                showSourceText:
-                    widget.isSpeakerView ||
-                    widget.sourceLanguage.languageCode ==
-                        widget.targetLanguage.languageCode,
-                isSpeakerView: widget.isSpeakerView,
-              ),
-            ),
+            Expanded(child: _buildTranslationWidget()),
           ],
         ),
       ),
     );
   }
 
+  // Method to build the header
   Widget _buildHeader() {
     final headerText =
         widget.isSpeakerView ? 'Your Speech' : 'Live Translation';
@@ -109,4 +172,81 @@ class _LiveTranscriptViewState extends State<LiveTranscriptView> {
       ),
     );
   }
+
+  // Build translation widget with error handling
+  Widget _buildTranslationWidget() {
+    // We need to modify the RealTimeTranslationWidget to accept an onError callback
+    // For now, we'll use the basic widget and handle errors at this level
+    return NotificationListener<ErrorNotification>(
+      onNotification: (notification) {
+        _handleError(notification.message);
+        return true;
+      },
+      child: RealTimeTranslationWidget(
+        sessionId: widget.sessionId,
+        sourceLanguage: widget.sourceLanguage,
+        targetLanguage: widget.targetLanguage,
+        showSourceText:
+            widget.isSpeakerView ||
+            widget.sourceLanguage.languageCode ==
+                widget.targetLanguage.languageCode,
+        isSpeakerView: widget.isSpeakerView,
+      ),
+    );
+  }
+
+  // New method to show error banner
+  Widget _buildErrorBanner() {
+    return Container(
+      color: Colors.red.shade100,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, color: Colors.red.shade800),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _errorMessage ?? "An error occurred",
+              style: TextStyle(color: Colors.red.shade800),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _retryConnection,
+            tooltip: 'Retry',
+            color: Colors.red.shade800,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // New method to show reconnecting indicator
+  Widget _buildReconnectingIndicator() {
+    return Container(
+      color: Colors.amber.shade100,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.amber),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Text("Reconnecting...", style: TextStyle(color: Colors.amber)),
+        ],
+      ),
+    );
+  }
+}
+
+// Custom notification for error handling
+class ErrorNotification extends Notification {
+  final String message;
+
+  ErrorNotification(this.message);
 }

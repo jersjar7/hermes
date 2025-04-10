@@ -244,6 +244,34 @@ class SpeakerController with ChangeNotifier {
     stopListening();
     _transcriptionSubscription?.cancel();
     print("[CONTROLLER_DEBUG] Controller disposed");
+    // Ensure all resources are properly cleaned up
+    _cleanupResources();
     super.dispose();
+  }
+
+  // New method to centralize cleanup
+  Future<void> _cleanupResources() async {
+    try {
+      // Stop listening first to prevent new data from coming in
+      if (_isListening) {
+        await stopListening();
+      }
+
+      // Ensure subscription is properly canceled
+      if (_transcriptionSubscription != null) {
+        await _transcriptionSubscription?.cancel();
+        _transcriptionSubscription = null;
+        _logger.d("[CONTROLLER_DEBUG] Transcription subscription canceled");
+      }
+
+      // Explicitly mark as not listening
+      _isListening = false;
+    } catch (e, stacktrace) {
+      _logger.e(
+        'Error cleaning up resources',
+        error: e,
+        stackTrace: stacktrace,
+      );
+    }
   }
 }

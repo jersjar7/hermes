@@ -8,6 +8,8 @@ import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/presentation/pages/active_session_page.dart';
 import 'package:hermes/features/session/presentation/pages/join_session_page.dart';
 import 'package:hermes/features/session/presentation/pages/session_start_page.dart';
+import 'package:hermes/features/session/presentation/pages/session_summary_page.dart';
+import 'package:hermes/features/translation/domain/entities/transcript.dart';
 
 /// Route names used throughout the app
 class AppRoutes {
@@ -34,6 +36,9 @@ class AppRoutes {
 
   /// About route
   static const String about = '/about';
+
+  /// Summary route
+  static const String sessionSummary = '/session/summary';
 }
 
 /// App router handling app navigation
@@ -51,6 +56,18 @@ class AppRouter {
         final session = settings.arguments as Session;
         return MaterialPageRoute(
           builder: (_) => ActiveSessionPage(session: session),
+        );
+
+      case AppRoutes.sessionSummary:
+        final args = settings.arguments as Map<String, dynamic>;
+        return MaterialPageRoute(
+          builder:
+              (_) => SessionSummaryPage(
+                session: args['session'] as Session,
+                transcripts: args['transcripts'] as List<Transcript>,
+                audienceCount: args['audienceCount'] as int,
+                sessionDuration: args['sessionDuration'] as Duration,
+              ),
         );
 
       case AppRoutes.joinSession:

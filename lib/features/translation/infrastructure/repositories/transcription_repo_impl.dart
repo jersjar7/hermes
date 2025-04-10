@@ -25,6 +25,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
   final NetworkChecker _networkChecker;
   final Logger _logger;
   final _uuid = const Uuid();
+  bool _isStreamingActive = false;
 
   StreamSubscription? _transcriptionSubscription;
   StreamController<Either<Failure, Transcript>>? _transcriptStreamController;
@@ -48,27 +49,43 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
       "[REPO_DEBUG] streamTranscription called with languageCode=$languageCode",
     );
 
-    // Close existing stream if any
-    if (_transcriptStreamController != null) {
-      print("[REPO_DEBUG] Closing existing stream controller");
-      _transcriptStreamController?.close();
-    }
-
-    if (_transcriptionSubscription != null) {
-      print("[REPO_DEBUG] Cancelling existing subscription");
-      _transcriptionSubscription?.cancel();
-    }
+    // Prevent duplicate streams by cleaning up any existing stream
+    _cleanupExistingStream();
 
     // Create a new stream controller
     print("[REPO_DEBUG] Creating new stream controller");
     _transcriptStreamController =
         StreamController<Either<Failure, Transcript>>.broadcast();
+    _isStreamingActive = true;
 
     // Initialize the stream asynchronously
     print("[REPO_DEBUG] Starting _initializeTranscriptionStream");
     _initializeTranscriptionStream(sessionId, languageCode);
 
     return _transcriptStreamController!.stream;
+  }
+
+  // Add this method to clean up existing streams
+  void _cleanupExistingStream() {
+    if (_isStreamingActive) {
+      print("[REPO_DEBUG] Cleaning up existing stream");
+
+      // Cancel subscription first
+      if (_transcriptionSubscription != null) {
+        _transcriptionSubscription?.cancel();
+        _transcriptionSubscription = null;
+        print("[REPO_DEBUG] Existing subscription canceled");
+      }
+
+      // Then close controller if it exists and isn't already closed
+      if (_transcriptStreamController != null &&
+          !_transcriptStreamController!.isClosed) {
+        _transcriptStreamController?.close();
+        print("[REPO_DEBUG] Existing stream controller closed");
+      }
+
+      _isStreamingActive = false;
+    }
   }
 
   /// Initialize the transcription stream
@@ -165,17 +182,20 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     }
   }
 
+  // Also enhance stopTranscription to use the cleanup method
   @override
   Future<Either<Failure, void>> stopTranscription() async {
     print("[REPO_DEBUG] stopTranscription called");
+
     try {
+      // Stop STT service
       print("[REPO_DEBUG] Stopping STT service");
       await _sttService.stopStreaming();
-      print("[REPO_DEBUG] Cancelling subscription");
-      await _transcriptionSubscription?.cancel();
-      _transcriptionSubscription = null;
-      print("[REPO_DEBUG] Transcription stopped");
 
+      // Clean up stream resources
+      _cleanupExistingStream();
+
+      print("[REPO_DEBUG] Transcription stopped");
       return const Right(null);
     } catch (e, stacktrace) {
       print("[REPO_DEBUG] Exception in stopTranscription: $e");

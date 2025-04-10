@@ -9,6 +9,7 @@ import 'package:hermes/core/utils/extensions.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/domain/usecases/end_session.dart';
+import 'package:hermes/features/session/presentation/pages/session_summary_page.dart';
 import 'package:hermes/features/session/presentation/widgets/qr_code_display.dart';
 import 'package:hermes/features/session/presentation/widgets/session_code_card.dart';
 import 'package:hermes/features/translation/presentation/controllers/speaker_controller.dart';
@@ -167,6 +168,12 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
         await _speakerController.stopListening();
       }
 
+      // Calculate session duration
+      final sessionDuration = DateTime.now().difference(_session.createdAt);
+
+      // Get the most recent transcripts
+      final transcripts = _speakerController.transcripts;
+
       final params = EndSessionParams(sessionId: _session.id);
       final result = await _endSession(params);
 
@@ -178,11 +185,19 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
               _isEnding = false;
             });
           },
-          (session) {
-            Navigator.pushNamedAndRemoveUntil(
+          (endedSession) {
+            // Navigate to summary page instead of home
+            Navigator.pushReplacement(
               context,
-              AppRoutes.home,
-              (route) => false,
+              MaterialPageRoute(
+                builder:
+                    (context) => SessionSummaryPage(
+                      session: endedSession,
+                      transcripts: transcripts,
+                      audienceCount: _listenerCount,
+                      sessionDuration: sessionDuration,
+                    ),
+              ),
             );
           },
         );

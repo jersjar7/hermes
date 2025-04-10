@@ -1,5 +1,6 @@
 // lib/features/translation/presentation/widgets/transcript_list.dart
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
 import 'package:hermes/features/translation/domain/entities/transcript.dart';
@@ -49,18 +50,26 @@ class TranscriptList extends StatefulWidget {
 class _TranscriptListState extends State<TranscriptList> {
   final ScrollController _scrollController = ScrollController();
   bool _autoscroll = true;
+  // Add throttling for updates
+  DateTime _lastUpdate = DateTime.now();
+  static const _minimumUpdateInterval = Duration(milliseconds: 100);
+  Timer? _batchUpdateTimer;
+  List<Transcript> _visibleTranscripts = [];
+  List<Translation> _visibleTranslations = [];
+  String _visiblePartialTranscript = '';
 
   @override
   void initState() {
     super.initState();
-    // Set up scroll listener to detect manual scrolling
     _scrollController.addListener(_scrollListener);
+    _updateVisibleContent();
   }
 
   @override
   void dispose() {
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
+    _batchUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -68,54 +77,87 @@ class _TranscriptListState extends State<TranscriptList> {
   void didUpdateWidget(TranscriptList oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // Scroll to bottom when new content arrives if autoscroll is enabled
-    if (_autoscroll &&
-        (widget.transcripts.length > oldWidget.transcripts.length ||
-            widget.translations.length > oldWidget.translations.length ||
-            widget.partialTranscript != oldWidget.partialTranscript)) {
+    // Throttle updates to prevent excessive rebuilds
+    final now = DateTime.now();
+    if (now.difference(_lastUpdate) > _minimumUpdateInterval) {
+      _updateVisibleContentImmediately();
+    } else {
+      // Schedule a batched update
+      _batchUpdateTimer?.cancel();
+      _batchUpdateTimer = Timer(_minimumUpdateInterval, () {
+        if (mounted) {
+          _updateVisibleContentImmediately();
+        }
+      });
+    }
+  }
+
+  void _updateVisibleContentImmediately() {
+    setState(() {
+      _updateVisibleContent();
+      _lastUpdate = DateTime.now();
+    });
+
+    // Scroll to bottom if autoscroll is enabled
+    if (_autoscroll) {
       _scrollToBottom();
     }
   }
 
+  void _updateVisibleContent() {
+    _visibleTranscripts = List.from(widget.transcripts);
+    _visibleTranslations = List.from(widget.translations);
+    _visiblePartialTranscript = widget.partialTranscript;
+  }
+
   void _scrollListener() {
-    // Detect if user has manually scrolled up
     if (_scrollController.hasClients) {
       final position = _scrollController.position;
-      // Disable autoscroll if user scrolls up or more than 100 pixels from bottom
       _autoscroll = position.pixels >= position.maxScrollExtent - 100;
     }
   }
 
   void _scrollToBottom() {
+    // Only try to scroll if controller is attached and has clients
     if (_scrollController.hasClients) {
-      Future.delayed(const Duration(milliseconds: 100), () {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      });
+      try {
+        // Safely check if positions exist before accessing position
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (_scrollController.hasClients) {
+            // Check again after delay
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      } catch (e) {
+        // Log the error but don't crash the app
+        print("Scroll error: $e");
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     // Check if there's any content to display
-    if (widget.transcripts.isEmpty && widget.partialTranscript.isEmpty) {
+    if (_visibleTranscripts.isEmpty && _visiblePartialTranscript.isEmpty) {
       return _buildEmptyState();
     }
 
+    // Use AnimatedList for smoother addition of items
     return Stack(
       children: [
-        // The transcript list
         ListView.builder(
           controller: _scrollController,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           physics: const AlwaysScrollableScrollPhysics(),
-          itemCount: widget.transcripts.length + (_showPartial() ? 1 : 0),
+          // Use the cached visible lists instead of widget properties directly
+          itemCount: _visibleTranscripts.length + (_showPartial() ? 1 : 0),
           itemBuilder: (context, index) {
             // Check if this is the partial transcript item
-            if (_showPartial() && index == widget.transcripts.length) {
+            if (_showPartial() && index == _visibleTranscripts.length) {
               return _buildPartialItem();
             }
 
@@ -124,20 +166,25 @@ class _TranscriptListState extends State<TranscriptList> {
           },
         ),
 
-        // "Scroll to bottom" button that appears when not at the bottom
-        if (!_autoscroll)
-          Positioned(
-            right: 16,
-            bottom: 16,
-            child: FloatingActionButton.small(
-              onPressed: () {
-                _autoscroll = true;
-                _scrollToBottom();
-              },
-              backgroundColor: Colors.white,
-              child: const Icon(Icons.arrow_downward),
+        // "Scroll to bottom" button with fade animation
+        AnimatedOpacity(
+          opacity: _autoscroll ? 0.0 : 1.0,
+          duration: const Duration(milliseconds: 200),
+          child: Align(
+            alignment: Alignment.bottomRight,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: FloatingActionButton.small(
+                onPressed: () {
+                  _autoscroll = true;
+                  _scrollToBottom();
+                },
+                backgroundColor: Colors.white,
+                child: const Icon(Icons.arrow_downward),
+              ),
             ),
           ),
+        ),
       ],
     );
   }
@@ -156,16 +203,16 @@ class _TranscriptListState extends State<TranscriptList> {
   }
 
   bool _showPartial() {
-    return widget.partialTranscript.isNotEmpty && widget.isListening;
+    return _visiblePartialTranscript.isNotEmpty && widget.isListening;
   }
 
   Widget _buildTranscriptItem(int index) {
-    final transcript = widget.transcripts[index];
+    final transcript = _visibleTranscripts[index];
 
     // Find the corresponding translation (if any)
     final translation =
-        widget.translations.isNotEmpty && index < widget.translations.length
-            ? widget.translations[index]
+        _visibleTranslations.isNotEmpty && index < _visibleTranslations.length
+            ? _visibleTranslations[index]
             : null;
 
     return TranscriptItem(
@@ -182,7 +229,7 @@ class _TranscriptListState extends State<TranscriptList> {
     final partialTranslation = _findPartialTranslation();
 
     return PartialTranscriptItem(
-      partialText: widget.partialTranscript,
+      partialText: _visiblePartialTranscript,
       partialTranslation: partialTranslation,
       sourceLanguage: widget.sourceLanguage,
       targetLanguage: widget.targetLanguage,
@@ -191,15 +238,15 @@ class _TranscriptListState extends State<TranscriptList> {
   }
 
   Translation? _findPartialTranslation() {
-    if (widget.translations.isEmpty) {
+    if (_visibleTranslations.isEmpty) {
       return null;
     }
 
-    final lastTranslation = widget.translations.last;
+    final lastTranslation = _visibleTranslations.last;
 
     // Check if this translation corresponds to a final transcript
     // If it does, then it's not a translation of the partial transcript
-    final isForFinalTranscript = widget.transcripts.any(
+    final isForFinalTranscript = _visibleTranscripts.any(
       (t) => t.text == lastTranslation.sourceText,
     );
 

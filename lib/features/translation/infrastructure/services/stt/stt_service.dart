@@ -152,11 +152,11 @@ class SpeechToTextService {
       // Start audio recording
       _isRecording = true;
 
-      // For development/debugging - comment out in production
-      if (Env.isDevelopment) {
-        _startMockTranscriptionResults();
-        return;
-      }
+      // COMMENT OUT OR REMOVE THIS CONDITIONAL BLOCK
+      // if (Env.isDevelopment) {
+      //   _startMockTranscriptionResults();
+      //   return;
+      // }
 
       // Start audio handler and get audio stream
       final success = await _audioHandler.startStreaming();
@@ -204,11 +204,16 @@ class SpeechToTextService {
   void _startMockTranscriptionResults() {
     _logger.d("[STT_DEBUG] Starting mock transcription results");
 
-    // Send interim results every second
+    // Create the timer (no need for separate variable declaration)
     Timer.periodic(Duration(milliseconds: 500), (timer) {
-      if (!_isRecording ||
-          _resultStreamController == null ||
-          _resultStreamController!.isClosed) {
+      final isClosed = _resultStreamController?.isClosed ?? true;
+
+      _logger.d(
+        "[STT_DEBUG] Mock timer tick | _isRecording=$_isRecording | isClosed=$isClosed",
+      );
+
+      if (!_isRecording || _resultStreamController == null || isClosed) {
+        _logger.d("[STT_DEBUG] Cancelling mock timer");
         timer.cancel();
         return;
       }
@@ -217,19 +222,19 @@ class SpeechToTextService {
       final text =
           "This is a test transcription. Tap stop speaking when you're done.";
       final now = DateTime.now().millisecondsSinceEpoch;
-      final partialText = text.substring(0, (now % text.length).toInt());
+      final partialLength = (now % text.length).toInt();
+      final partialText = text.substring(0, partialLength);
 
-      // Create and emit result
-      final result = SpeechRecognitionResult(
+      // Emit an interim result
+      final interimResult = SpeechRecognitionResult(
         transcript: partialText,
         confidence: 0.9,
         isFinal: false,
         stability: 0.8,
       );
+      _resultStreamController?.add(interimResult);
 
-      _resultStreamController?.add(result);
-
-      // Every 5 seconds, send a "final" result
+      // Every ~5 seconds, emit a final result
       if (now % 5000 < 100) {
         final finalResult = SpeechRecognitionResult(
           transcript: "This is a test final transcription.${now % 10}",
