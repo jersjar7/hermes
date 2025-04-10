@@ -12,6 +12,7 @@ class AudioStreamHandler {
   final Logger _logger;
 
   bool _isStreaming = false;
+  bool _isPaused = false;
   StreamSubscription? _audioSubscription;
   StreamSubscription? _amplitudeSubscription;
 
@@ -23,6 +24,9 @@ class AudioStreamHandler {
 
   /// Whether currently streaming audio
   bool get isStreaming => _isStreaming;
+
+  /// Whether streaming is paused
+  bool get isPaused => _isPaused;
 
   /// Creates a new [AudioStreamHandler]
   AudioStreamHandler(this._recorder, this._logger);
@@ -38,6 +42,7 @@ class AudioStreamHandler {
 
     try {
       _isStreaming = true;
+      _isPaused = false;
 
       // Check if encoder is supported
       final isEncoderSupported = await _recorder.isEncoderSupported(
@@ -68,8 +73,9 @@ class AudioStreamHandler {
       // Subscribe to the stream
       _audioSubscription = audioStream.listen(
         (data) {
-          if (_isStreaming) {
+          if (_isStreaming && !_isPaused) {
             _audioStreamController.add(data);
+            _logger.d('Audio data received: ${data.length} bytes');
           }
         },
         onError: (error) {
@@ -81,11 +87,10 @@ class AudioStreamHandler {
         },
       );
 
-      // Monitor amplitude for debugging (optional)
+      // Monitor amplitude for debugging
       _amplitudeSubscription = _recorder
-          .onAmplitudeChanged(const Duration(milliseconds: 100))
+          .onAmplitudeChanged(const Duration(milliseconds: 300))
           .listen((amp) {
-            // You can log amplitude for debugging or UI feedback
             _logger.d('Amplitude: ${amp.current}, Max: ${amp.max}');
           });
 
@@ -103,9 +108,10 @@ class AudioStreamHandler {
 
   /// Pause streaming
   Future<void> pauseStreaming() async {
-    if (!_isStreaming) return;
+    if (!_isStreaming || _isPaused) return;
 
     try {
+      _isPaused = true;
       await _recorder.pause();
       _logger.d('Audio streaming paused');
     } catch (e, stackTrace) {
@@ -119,9 +125,10 @@ class AudioStreamHandler {
 
   /// Resume streaming
   Future<void> resumeStreaming() async {
-    if (!_isStreaming) return;
+    if (!_isStreaming || !_isPaused) return;
 
     try {
+      _isPaused = false;
       await _recorder.resume();
       _logger.d('Audio streaming resumed');
     } catch (e, stackTrace) {
@@ -136,6 +143,7 @@ class AudioStreamHandler {
   /// Stop streaming
   Future<void> stopStreaming() async {
     _isStreaming = false;
+    _isPaused = false;
 
     try {
       await _audioSubscription?.cancel();
@@ -144,7 +152,9 @@ class AudioStreamHandler {
       _audioSubscription = null;
       _amplitudeSubscription = null;
 
-      await _recorder.stop();
+      if (await _recorder.isRecording()) {
+        await _recorder.stop();
+      }
       _logger.d('Audio streaming stopped');
     } catch (e, stackTrace) {
       _logger.e(

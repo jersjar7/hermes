@@ -26,6 +26,7 @@ class SpeechToTextService {
 
   bool _isInitialized = false;
   bool _isRecording = false;
+  bool _isPaused = false;
 
   StreamController<SpeechRecognitionResult>? _resultStreamController;
   StreamSubscription? _recognitionSubscription;
@@ -151,12 +152,9 @@ class SpeechToTextService {
 
       // Start audio recording
       _isRecording = true;
+      _isPaused = false;
 
-      // COMMENT OUT OR REMOVE THIS CONDITIONAL BLOCK
-      // if (Env.isDevelopment) {
-      //   _startMockTranscriptionResults();
-      //   return;
-      // }
+      _logger.d("[STT_DEBUG] Using real microphone input");
 
       // Start audio handler and get audio stream
       final success = await _audioHandler.startStreaming();
@@ -200,53 +198,6 @@ class SpeechToTextService {
     }
   }
 
-  /// For development/debugging - creates mock transcription results
-  void _startMockTranscriptionResults() {
-    _logger.d("[STT_DEBUG] Starting mock transcription results");
-
-    // Create the timer (no need for separate variable declaration)
-    Timer.periodic(Duration(milliseconds: 500), (timer) {
-      final isClosed = _resultStreamController?.isClosed ?? true;
-
-      _logger.d(
-        "[STT_DEBUG] Mock timer tick | _isRecording=$_isRecording | isClosed=$isClosed",
-      );
-
-      if (!_isRecording || _resultStreamController == null || isClosed) {
-        _logger.d("[STT_DEBUG] Cancelling mock timer");
-        timer.cancel();
-        return;
-      }
-
-      // Generate some demo text
-      final text =
-          "This is a test transcription. Tap stop speaking when you're done.";
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final partialLength = (now % text.length).toInt();
-      final partialText = text.substring(0, partialLength);
-
-      // Emit an interim result
-      final interimResult = SpeechRecognitionResult(
-        transcript: partialText,
-        confidence: 0.9,
-        isFinal: false,
-        stability: 0.8,
-      );
-      _resultStreamController?.add(interimResult);
-
-      // Every ~5 seconds, emit a final result
-      if (now % 5000 < 100) {
-        final finalResult = SpeechRecognitionResult(
-          transcript: "This is a test final transcription.${now % 10}",
-          confidence: 0.95,
-          isFinal: true,
-          stability: 1.0,
-        );
-        _resultStreamController?.add(finalResult);
-      }
-    });
-  }
-
   /// Stop streaming audio
   Future<void> stopStreaming() async {
     _logger.d("[STT_DEBUG] stopStreaming called, _isRecording=$_isRecording");
@@ -262,6 +213,7 @@ class SpeechToTextService {
       _recognitionSubscription = null;
 
       _isRecording = false;
+      _isPaused = false;
 
       // Close the result stream controller
       await _resultStreamController?.close();
@@ -281,10 +233,12 @@ class SpeechToTextService {
   Future<void> pauseStreaming() async {
     _logger.d("[STT_DEBUG] pauseStreaming called, _isRecording=$_isRecording");
 
-    if (!_isRecording) return;
+    if (!_isRecording || _isPaused) return;
 
     try {
       await _audioHandler.pauseStreaming();
+      _isPaused = true;
+      _logger.d("[STT_DEBUG] Audio streaming paused");
     } catch (e, stacktrace) {
       _logger.e(
         'Error pausing STT streaming',
@@ -296,12 +250,16 @@ class SpeechToTextService {
 
   /// Resume streaming audio
   Future<void> resumeStreaming() async {
-    _logger.d("[STT_DEBUG] resumeStreaming called, _isRecording=$_isRecording");
+    _logger.d(
+      "[STT_DEBUG] resumeStreaming called, _isRecording=$_isRecording, _isPaused=$_isPaused",
+    );
 
-    if (!_isRecording) return;
+    if (!_isRecording || !_isPaused) return;
 
     try {
       await _audioHandler.resumeStreaming();
+      _isPaused = false;
+      _logger.d("[STT_DEBUG] Audio streaming resumed");
     } catch (e, stacktrace) {
       _logger.e(
         'Error resuming STT streaming',
@@ -310,6 +268,9 @@ class SpeechToTextService {
       );
     }
   }
+
+  /// Check if streaming is paused
+  bool get isPaused => _isPaused;
 
   /// Transcribe a single audio file (batch mode)
   Future<List<SpeechRecognitionResult>> transcribeAudio({
