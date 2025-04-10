@@ -144,9 +144,13 @@ class _TranscriptListState extends State<TranscriptList> {
 
   Widget _buildEmptyState() {
     return const Center(
-      child: Text(
-        'Waiting for speech...',
-        style: TextStyle(color: Colors.grey),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.mic_none, size: 48, color: Colors.grey),
+          SizedBox(height: 16),
+          Text('Waiting for speech...', style: TextStyle(color: Colors.grey)),
+        ],
       ),
     );
   }

@@ -30,12 +30,18 @@ class ActiveSessionPage extends StatefulWidget {
 
 class _ActiveSessionPageState extends State<ActiveSessionPage>
     with WidgetsBindingObserver {
+  // States
   bool _isListening = false;
   bool _isEnding = false;
   String? _errorMessage;
   int _listenerCount = 0;
   bool _hasCheckedPermission = false;
+  bool _showTranscription = true;
 
+  // UI state
+  PageState _currentState = PageState.preSpeaking;
+
+  // Services
   final _endSession = GetIt.instance<EndSession>();
   late Session _session;
   Timer? _listenerUpdateTimer;
@@ -86,13 +92,9 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
   }
 
   Future<bool> _checkMicrophonePermission() async {
-    print("[PERMISSION_DEBUG] Checking microphone permission...");
-
     final status = await Permission.microphone.status;
-    print("[PERMISSION_DEBUG] Initial status: $status");
 
     if (status.isGranted) {
-      print("[PERMISSION_DEBUG] Microphone already granted");
       setState(() {
         _hasCheckedPermission = true;
       });
@@ -100,36 +102,28 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
     }
 
     if (status.isPermanentlyDenied) {
-      print("[PERMISSION_DEBUG] Mic permanently denied - show settings dialog");
       _showPermissionSettingsDialog();
       return false;
     }
 
     if (status.isDenied || status.isRestricted) {
-      print("[PERMISSION_DEBUG] Requesting microphone permission now...");
       final requestResult = await Permission.microphone.request();
-      print("[PERMISSION_DEBUG] Result from system dialog: $requestResult");
 
       setState(() {
         _hasCheckedPermission = true;
       });
 
       if (requestResult.isGranted) {
-        print("[PERMISSION_DEBUG] Mic permission granted!");
         return true;
       }
 
       if (requestResult.isPermanentlyDenied) {
-        print("[PERMISSION_DEBUG] Mic permanently denied AFTER request");
         _showPermissionSettingsDialog();
-      } else {
-        print("[PERMISSION_DEBUG] Mic permission still denied after request");
       }
 
       return false;
     }
 
-    print("[PERMISSION_DEBUG] Reached unexpected state: $status");
     return false;
   }
 
@@ -137,28 +131,27 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Microphone Permission Required'),
-          content: const Text(
-            'Hermes needs microphone access to transcribe your speech. '
-            'Please enable microphone permission in settings.',
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Microphone Permission Required'),
+            content: const Text(
+              'Hermes needs microphone access to transcribe your speech. '
+              'Please enable microphone permission in settings.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Not Now'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  openAppSettings();
+                },
+                child: const Text('Open Settings'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Not Now'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                openAppSettings();
-              },
-              child: const Text('Open Settings'),
-            ),
-          ],
-        );
-      },
     );
   }
 
@@ -209,6 +202,7 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
       await _speakerController.stopListening();
       setState(() {
         _isListening = _speakerController.isListening;
+        _currentState = PageState.preSpeaking;
       });
     } else {
       // Check permission first
@@ -220,6 +214,7 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
           setState(() {
             _isListening = _speakerController.isListening;
             _errorMessage = _speakerController.errorMessage;
+            _currentState = PageState.speaking;
 
             if (!success && _errorMessage != null) {
               ScaffoldMessenger.of(
@@ -238,6 +233,12 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
         );
       }
     }
+  }
+
+  void _toggleTranscriptionVisibility() {
+    setState(() {
+      _showTranscription = !_showTranscription;
+    });
   }
 
   void _copySessionCode() {
@@ -264,8 +265,19 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Active Session'),
+        title: Text(_session.name),
         actions: [
+          // Show session code in app bar for quick access
+          if (_currentState == PageState.speaking)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: Text(
+                  'Code: ${_session.code}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.copy),
             onPressed: _copySessionCode,
@@ -276,165 +288,155 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
       body: SafeArea(
         child: Column(
           children: [
+            // Top bar with consistent info
+            _buildStatusBar(language),
+
+            // Body content based on current state
             Expanded(
-              child: Column(
-                children: [
-                  // Session info section
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        // Session name
-                        Text(
-                          _session.name,
-                          style: context.textTheme.headlineSmall,
-                          textAlign: TextAlign.center,
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        // Session language
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(language.flagEmoji),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Speaking in ${language.englishName}',
-                              style: context.textTheme.titleMedium,
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // Listeners count
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.people),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '$_listenerCount ${_listenerCount == 1 ? 'listener' : 'listeners'}',
-                                  style: context.textTheme.bodyLarge,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // Session code card
-                        SessionCodeCard(
-                          sessionCode: _session.code,
-                          onCopyTap: _copySessionCode,
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // QR code
-                        QrCodeDisplay(sessionCode: _session.code),
-
-                        const SizedBox(height: 8),
-
-                        Text(
-                          'Share this code or QR with your audience',
-                          style: context.textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Transcription section
-                  Expanded(
-                    child: LiveTranscriptView(
-                      sessionId: _session.id,
-                      sourceLanguage: language,
-                      targetLanguage:
-                          language, // Speaker sees own language by default
-                      isSpeakerView: true,
-                    ),
-                  ),
-
-                  // Error message (if any)
-                  if (_errorMessage != null)
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      margin: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        _errorMessage!,
-                        style: TextStyle(color: Colors.red.shade900),
-                      ),
-                    ),
-                ],
-              ),
+              child:
+                  _currentState == PageState.preSpeaking
+                      ? _buildPreSpeakingView(language)
+                      : _buildSpeakingView(language),
             ),
 
-            // Bottom action bar
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: context.theme.cardColor,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(26),
-                    blurRadius: 4,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
+            // Error message (if any)
+            if (_errorMessage != null)
+              Container(
+                padding: const EdgeInsets.all(8),
+                margin: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _errorMessage!,
+                  style: TextStyle(color: Colors.red.shade900),
+                ),
               ),
-              child: Row(
-                children: [
-                  // Microphone button
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _toggleListening,
-                      icon: Icon(_isListening ? Icons.mic : Icons.mic_off),
-                      label: Text(
-                        _isListening ? 'Stop Speaking' : 'Start Speaking',
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            _isListening
-                                ? Colors.red
-                                : context.theme.colorScheme.primary,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+
+            // Bottom action bar
+            _buildBottomActionBar(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Status bar that's visible in all states
+  Widget _buildStatusBar(LanguageSelection language) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      decoration: BoxDecoration(
+        color: context.theme.primaryColor.withOpacity(0.1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(26),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Status indicator (speaking/not speaking)
+          Row(
+            children: [
+              Icon(
+                _isListening ? Icons.mic : Icons.mic_off,
+                color: _isListening ? Colors.green : Colors.grey,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _isListening ? 'Speaking' : 'Not Speaking',
+                style: TextStyle(
+                  color: _isListening ? Colors.green : Colors.grey,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+
+          // Language indicator
+          Row(
+            children: [
+              Text(language.flagEmoji),
+              const SizedBox(width: 4),
+              Text(language.englishName),
+            ],
+          ),
+
+          // Listeners count
+          Row(
+            children: [
+              const Icon(Icons.people, size: 20),
+              const SizedBox(width: 4),
+              Text('$_listenerCount', style: context.textTheme.bodyMedium),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // View shown before the speaker starts speaking
+  Widget _buildPreSpeakingView(LanguageSelection language) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Session name
+            Text(
+              _session.name,
+              style: context.textTheme.headlineSmall,
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 16),
+
+            // Session code card
+            SessionCodeCard(
+              sessionCode: _session.code,
+              onCopyTap: _copySessionCode,
+            ),
+
+            const SizedBox(height: 24),
+
+            // QR code
+            QrCodeDisplay(sessionCode: _session.code),
+
+            const SizedBox(height: 8),
+
+            Text(
+              'Share this code or QR with your audience',
+              style: context.textTheme.bodyMedium,
+            ),
+
+            const SizedBox(height: 32),
+
+            // Start speaking guidance
+            Card(
+              elevation: 1,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Text(
+                      'Ready to Begin?',
+                      style: context.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
-
-                  const SizedBox(width: 16),
-
-                  // End session button
-                  ElevatedButton.icon(
-                    onPressed: _isEnding ? null : _handleEndSession,
-                    icon:
-                        _isEnding
-                            ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : const Icon(Icons.close),
-                    label: const Text('End Session'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey.shade800,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 12,
-                        horizontal: 16,
-                      ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Press the "Start Speaking" button below when you\'re ready to begin your session. Your speech will be transcribed and translated in real-time for your audience.',
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
@@ -442,4 +444,137 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
       ),
     );
   }
+
+  // View shown while the speaker is speaking
+  Widget _buildSpeakingView(LanguageSelection language) {
+    return Column(
+      children: [
+        // Upper part with minimal info and controls
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Session info
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Session: ${_session.name}',
+                    style: context.textTheme.titleMedium,
+                  ),
+                  Text(
+                    'Code: ${_session.code}',
+                    style: context.textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+
+              // Transcription visibility toggle
+              IconButton(
+                icon: Icon(
+                  _showTranscription ? Icons.visibility : Icons.visibility_off,
+                ),
+                onPressed: _toggleTranscriptionVisibility,
+                tooltip:
+                    _showTranscription
+                        ? 'Hide transcription'
+                        : 'Show transcription',
+              ),
+            ],
+          ),
+        ),
+
+        // Transcription view (if visible)
+        if (_showTranscription)
+          Expanded(
+            child: LiveTranscriptView(
+              sessionId: _session.id,
+              sourceLanguage: language,
+              targetLanguage: language,
+              isSpeakerView: true,
+            ),
+          )
+        else
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.mic, size: 64, color: Colors.green),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Actively Speaking',
+                    style: context.textTheme.headlineSmall,
+                  ),
+                  Text(
+                    '$_listenerCount ${_listenerCount == 1 ? 'listener' : 'listeners'} connected',
+                    style: context.textTheme.titleMedium,
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // Bottom action bar with primary button
+  Widget _buildBottomActionBar() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.theme.cardColor,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(26),
+            blurRadius: 4,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Microphone button (Start/Stop Speaking)
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _toggleListening,
+              icon: Icon(_isListening ? Icons.mic_off : Icons.mic),
+              label: Text(_isListening ? 'Stop Speaking' : 'Start Speaking'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    _isListening
+                        ? Colors.red
+                        : context.theme.colorScheme.primary,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 16),
+
+          // End session button
+          ElevatedButton.icon(
+            onPressed: _isEnding ? null : _handleEndSession,
+            icon:
+                _isEnding
+                    ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.close),
+            label: const Text('End Session'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey.shade800,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+/// Enum for the different UI states
+enum PageState { preSpeaking, speaking }

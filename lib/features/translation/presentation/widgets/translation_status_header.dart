@@ -65,15 +65,23 @@ class TranslationStatusHeader extends StatelessWidget {
     return Row(
       children: [
         Icon(
-          isListening ? Icons.mic : Icons.mic_off,
+          isListening ? Icons.record_voice_over : Icons.voice_over_off,
           color: isListening ? Colors.green : Colors.grey,
+          size: 18,
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 6),
         Text(
-          isListening ? 'Listening...' : 'Not listening',
+          isListening
+              ? isSpeakerView
+                  ? 'Speaking'
+                  : 'Listening'
+              : isSpeakerView
+              ? 'Not Speaking'
+              : 'Waiting',
           style: TextStyle(
             color: isListening ? Colors.green : Colors.grey,
             fontWeight: FontWeight.bold,
+            fontSize: 14,
           ),
         ),
       ],
@@ -82,21 +90,46 @@ class TranslationStatusHeader extends StatelessWidget {
 
   /// Build the language indicator showing source and target languages
   Widget _buildLanguageIndicator() {
+    // If source and target are the same (e.g. for speaker view), just show one flag
+    if (sourceLanguage.languageCode == targetLanguage.languageCode) {
+      return Row(
+        children: [
+          Text(sourceLanguage.flagEmoji, style: const TextStyle(fontSize: 14)),
+          const SizedBox(width: 4),
+          Text(
+            sourceLanguage.englishName,
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      );
+    }
+
+    // Otherwise show source → target
     return Row(
       children: [
-        Text(sourceLanguage.flagEmoji, style: const TextStyle(fontSize: 16)),
-        const Icon(Icons.arrow_forward, size: 12),
-        Text(targetLanguage.flagEmoji, style: const TextStyle(fontSize: 16)),
+        Text(sourceLanguage.flagEmoji, style: const TextStyle(fontSize: 14)),
+        const Icon(Icons.arrow_forward, size: 10),
+        Text(targetLanguage.flagEmoji, style: const TextStyle(fontSize: 14)),
+        const SizedBox(width: 4),
+        Text(targetLanguage.englishName, style: const TextStyle(fontSize: 12)),
       ],
     );
   }
 
   /// Build the control button for starting/stopping listening
   Widget _buildControlButton() {
-    return IconButton(
-      icon: Icon(isListening ? Icons.stop : Icons.play_arrow),
-      onPressed: onToggleListening,
-      tooltip: isListening ? 'Stop listening' : 'Start listening',
+    return SizedBox(
+      height: 30,
+      width: 30,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        icon: Icon(
+          isListening ? Icons.stop_circle : Icons.play_circle,
+          size: 24,
+        ),
+        onPressed: onToggleListening,
+        tooltip: isListening ? 'Stop listening' : 'Start listening',
+      ),
     );
   }
 }

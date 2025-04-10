@@ -86,53 +86,56 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
     // Use ChangeNotifierProvider to rebuild only when controller state changes
     return ChangeNotifierProvider.value(
       value: _controller,
-      child: SafeArea(child: _buildContent()),
-    );
-  }
+      child: Container(
+        color: Colors.grey.shade50,
+        child: Column(
+          children: [
+            // Optional compact header with status
+            Consumer<RealTimeTranslationController>(
+              builder:
+                  (context, controller, child) => TranslationStatusHeader(
+                    isListening: controller.isListening,
+                    sourceLanguage: widget.sourceLanguage,
+                    targetLanguage: widget.targetLanguage,
+                    isSpeakerView: widget.isSpeakerView,
+                    onToggleListening:
+                        widget.isSpeakerView
+                            ? controller.toggleListening
+                            : null,
+                  ),
+            ),
 
-  Widget _buildContent() {
-    return Column(
-      children: [
-        // Header with status and controls
-        Consumer<RealTimeTranslationController>(
-          builder:
-              (context, controller, child) => TranslationStatusHeader(
-                isListening: controller.isListening,
-                sourceLanguage: widget.sourceLanguage,
-                targetLanguage: widget.targetLanguage,
-                isSpeakerView: widget.isSpeakerView,
-                onToggleListening:
-                    widget.isSpeakerView ? controller.toggleListening : null,
+            // Error message (if any)
+            Consumer<RealTimeTranslationController>(
+              builder: (context, controller, child) {
+                if (controller.errorMessage == null) {
+                  return const SizedBox.shrink();
+                }
+                return TranslationErrorMessage(
+                  message: controller.errorMessage!,
+                );
+              },
+            ),
+
+            // Transcript list (takes remaining space)
+            Expanded(
+              child: Consumer<RealTimeTranslationController>(
+                builder: (context, controller, child) {
+                  return TranscriptList(
+                    transcripts: controller.transcripts,
+                    translations: controller.translations,
+                    partialTranscript: controller.currentPartialTranscript,
+                    isListening: controller.isListening,
+                    sourceLanguage: widget.sourceLanguage,
+                    targetLanguage: widget.targetLanguage,
+                    showSourceText: widget.showSourceText,
+                  );
+                },
               ),
+            ),
+          ],
         ),
-
-        // Error message (if any)
-        Consumer<RealTimeTranslationController>(
-          builder: (context, controller, child) {
-            if (controller.errorMessage == null) {
-              return const SizedBox.shrink();
-            }
-            return TranslationErrorMessage(message: controller.errorMessage!);
-          },
-        ),
-
-        // Transcript list (takes remaining space)
-        Expanded(
-          child: Consumer<RealTimeTranslationController>(
-            builder: (context, controller, child) {
-              return TranscriptList(
-                transcripts: controller.transcripts,
-                translations: controller.translations,
-                partialTranscript: controller.currentPartialTranscript,
-                isListening: controller.isListening,
-                sourceLanguage: widget.sourceLanguage,
-                targetLanguage: widget.targetLanguage,
-                showSourceText: widget.showSourceText,
-              );
-            },
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
