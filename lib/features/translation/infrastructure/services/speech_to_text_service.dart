@@ -55,19 +55,8 @@ class SpeechToTextService {
     if (_isInitialized) return true;
 
     try {
-      // Check microphone permission - don't request yet, just check status
-      final status = await Permission.microphone.status;
-      print("[STT_DEBUG] Microphone permission status: $status");
-
-      if (status != PermissionStatus.granted) {
-        _logger.w('Microphone permission not granted: $status');
-        print("[STT_DEBUG] Microphone permission not granted: $status");
-
-        // Don't request permission here, just return false
-        // The controller will handle requesting permissions
-        return false;
-      }
-
+      // IMPORTANT: We should NOT check permission here, just initialize
+      // the hardware components. Permission will be handled by the UI.
       _isInitialized = true;
       print("[STT_DEBUG] Service successfully initialized");
       return true;

@@ -8,6 +8,7 @@ import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/translation/domain/entities/transcript.dart';
 import 'package:hermes/features/translation/domain/usecases/stream_transcription.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Controller for speaker functionality
 @injectable
@@ -51,8 +52,9 @@ class SpeakerController with ChangeNotifier {
 
   /// Start listening for transcription
   Future<bool> startListening() async {
+    print("[CONTROLLER_DEBUG] startListening called");
     print(
-      "[CONTROLLER_DEBUG] startListening called, _isListening=$_isListening, _activeSession=${_activeSession != null}",
+      "[CONTROLLER_DEBUG] _isListening=$_isListening, _activeSession=${_activeSession != null}",
     );
 
     if (_isListening || _activeSession == null) {
@@ -63,6 +65,43 @@ class SpeakerController with ChangeNotifier {
     }
 
     _errorMessage = '';
+    notifyListeners();
+
+    // STEP 1: Check microphone permission
+    final permissionStatus = await Permission.microphone.status;
+    print(
+      "[CONTROLLER_DEBUG] Current microphone permission status: $permissionStatus",
+    );
+
+    if (permissionStatus.isPermanentlyDenied) {
+      print("[CONTROLLER_DEBUG] Microphone permission is permanently denied");
+      _errorMessage =
+          'Microphone permission is permanently denied. Please enable it in settings.';
+      notifyListeners();
+      return false;
+    }
+
+    if (permissionStatus.isDenied) {
+      print("[CONTROLLER_DEBUG] Requesting microphone permission");
+      final requestResult = await Permission.microphone.request();
+      print("[CONTROLLER_DEBUG] Permission request result: $requestResult");
+
+      if (!requestResult.isGranted) {
+        _errorMessage =
+            requestResult.isPermanentlyDenied
+                ? 'Microphone permission is permanently denied. Please enable it in settings.'
+                : 'Microphone permission is required to start listening.';
+        print("[CONTROLLER_DEBUG] Permission not granted: $_errorMessage");
+        notifyListeners();
+        return false;
+      }
+
+      print("[CONTROLLER_DEBUG] Permission granted after request");
+    } else {
+      print("[CONTROLLER_DEBUG] Microphone permission already granted");
+    }
+
+    // STEP 2: Begin transcription
     _isListening = true;
     _partialTranscript = '';
     notifyListeners();
@@ -72,16 +111,14 @@ class SpeakerController with ChangeNotifier {
       sessionId: _activeSession!.id,
       languageCode: _activeSession!.sourceLanguage,
     );
-    print(
-      "[CONTROLLER_DEBUG] Created StreamTranscriptionParams: sessionId=${params.sessionId}, languageCode=${params.languageCode}",
-    );
+    print("[CONTROLLER_DEBUG] Created StreamTranscriptionParams:");
+    print("  sessionId=${params.sessionId}");
+    print("  languageCode=${params.languageCode}");
 
     try {
-      print("[CONTROLLER_DEBUG] About to call _streamTranscription");
+      print("[CONTROLLER_DEBUG] Calling _streamTranscription");
       final transcriptionStream = _streamTranscription(params);
-      print(
-        "[CONTROLLER_DEBUG] Got transcriptionStream, now setting up subscription",
-      );
+      print("[CONTROLLER_DEBUG] StreamTranscription started");
 
       _transcriptionSubscription = transcriptionStream.listen(
         (result) {
@@ -97,17 +134,17 @@ class SpeakerController with ChangeNotifier {
             },
             (transcript) {
               print(
-                "[CONTROLLER_DEBUG] Transcription success: ${transcript.text}, isFinal=${transcript.isFinal}",
+                "[CONTROLLER_DEBUG] Transcription success: '${transcript.text}' (final: ${transcript.isFinal})",
               );
               if (transcript.isFinal) {
                 if (transcript.text.trim().isNotEmpty) {
-                  print("[CONTROLLER_DEBUG] Final transcript added to list");
                   _transcripts.add(transcript);
                   _partialTranscript = '';
+                  print("[CONTROLLER_DEBUG] Final transcript added");
                 }
               } else {
-                print("[CONTROLLER_DEBUG] Partial transcript updated");
                 _partialTranscript = transcript.text;
+                print("[CONTROLLER_DEBUG] Partial transcript updated");
               }
               notifyListeners();
             },
@@ -115,12 +152,14 @@ class SpeakerController with ChangeNotifier {
         },
         onError: (error) {
           print("[CONTROLLER_DEBUG] Transcription stream error: $error");
+
           if (error is MicrophonePermissionException) {
             _errorMessage =
-                'Microphone permission is required. Please grant access in settings.';
+                'Microphone permission is required. Please enable it in settings.';
           } else {
             _errorMessage = 'Error in transcription: ${error.toString()}';
           }
+
           _isListening = false;
           notifyListeners();
           _logger.e('Error in transcription stream', error: error);
@@ -131,21 +170,22 @@ class SpeakerController with ChangeNotifier {
           notifyListeners();
         },
       );
-      print("[CONTROLLER_DEBUG] Subscription set up successfully");
 
+      print("[CONTROLLER_DEBUG] Subscription successfully set up");
       return true;
     } catch (e, stacktrace) {
-      print("[CONTROLLER_DEBUG] Exception when starting listening: $e");
-      print("[CONTROLLER_DEBUG] Stack trace: $stacktrace");
+      print(
+        "[CONTROLLER_DEBUG] Exception caught while starting transcription: $e",
+      );
+      print("[CONTROLLER_DEBUG] Stacktrace: $stacktrace");
       _logger.e('Failed to start listening', error: e, stackTrace: stacktrace);
 
-      // Better error messages based on exception type
       if (e is MicrophonePermissionException) {
         _errorMessage =
-            'Microphone permission is required. Please grant access in settings.';
+            'Microphone permission is required. Please enable it in settings.';
       } else {
         _errorMessage =
-            "Failed to start speech recognition. Please check your internet connection and try again.";
+            'Failed to start speech recognition. Please check your internet connection and try again.';
       }
 
       _isListening = false;

@@ -48,7 +48,7 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
     _speakerController.setActiveSession(_session);
     _listenerCount = _session.listeners.length;
     _setupSessionListener();
-    _checkMicrophonePermission();
+    // _checkMicrophonePermission();
   }
 
   void _setupSessionListener() {
@@ -68,58 +68,46 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
 
   // Add this improved _checkMicrophonePermission method to your ActiveSessionPage class
   Future<bool> _checkMicrophonePermission() async {
-    final status = await Permission.microphone.status;
+    print("[PERMISSION_DEBUG] Checking microphone permission...");
 
-    // If permission is already granted, return true immediately
+    final status = await Permission.microphone.status;
+    print("[PERMISSION_DEBUG] Initial status: $status");
+
     if (status.isGranted) {
+      print("[PERMISSION_DEBUG] Microphone already granted");
       return true;
     }
 
-    // If permission is permanently denied, send user to settings
     if (status.isPermanentlyDenied) {
-      if (mounted) {
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder:
-              (context) => AlertDialog(
-                title: const Text('Microphone Permission Required'),
-                content: const Text(
-                  'Microphone access is permanently denied. Please enable it in your device settings to use this feature.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      openAppSettings();
-                    },
-                    child: const Text('Open Settings'),
-                  ),
-                ],
-              ),
-        );
-      }
+      print(
+        "[PERMISSION_DEBUG] Mic permanently denied BEFORE requesting — something is blocking this.",
+      );
       return false;
     }
 
-    // Directly request permission using the system dialog
-    final result = await Permission.microphone.request();
+    if (status.isDenied || status.isRestricted) {
+      print("[PERMISSION_DEBUG] Requesting microphone permission now...");
+      final requestResult = await Permission.microphone.request();
+      print("[PERMISSION_DEBUG] Result from system dialog: $requestResult");
 
-    // If still not granted after request, show a message
-    if (!result.isGranted && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Microphone permission is required to speak'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      if (requestResult.isGranted) {
+        print("[PERMISSION_DEBUG] Mic permission granted!");
+        return true;
+      }
+
+      if (requestResult.isPermanentlyDenied) {
+        print(
+          "[PERMISSION_DEBUG] Mic permission permanently denied AFTER request",
+        );
+      } else {
+        print("[PERMISSION_DEBUG] Mic permission still denied after request");
+      }
+
+      return false;
     }
 
-    return result.isGranted;
+    print("[PERMISSION_DEBUG] Reached unexpected state: $status");
+    return false;
   }
 
   Future<void> _handleEndSession() async {
@@ -290,6 +278,15 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
                         Text(
                           'Share this code or QR with your audience',
                           style: context.textTheme.bodyMedium,
+                        ),
+                        ElevatedButton(
+                          onPressed: () async {
+                            final allowed = await _checkMicrophonePermission();
+                            print(
+                              "[PERMISSION_DEBUG] Final result of permission flow: $allowed",
+                            );
+                          },
+                          child: const Text("Request Mic Permission"),
                         ),
                       ],
                     ),

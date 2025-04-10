@@ -65,7 +65,7 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
     super.initState();
     if (widget.isSpeakerView) {
       // Auto-start listening for speaker view
-      _startListening();
+      // _startListening();
     }
   }
 
