@@ -25,15 +25,15 @@ class NetworkChecker {
   /// FOR DEBUGGING: This is temporarily hardcoded to return true
   /// to isolate other issues during development
   Future<bool> hasConnection() async {
-    print(
-      "[NETWORK_DEBUG] hasConnection called - returning true for debugging",
-    );
+    // print(
+    //   "[NETWORK_DEBUG] hasConnection called - returning true for debugging",
+    // );
 
     // DEBUG: Return true for debugging purposes
-    return true;
+    // return true;
 
     // Actual implementation (commented out for debugging)
-    /*
+
     try {
       final result = await _connectivity.checkConnectivity();
       print("[NETWORK_DEBUG] Connectivity result: $result");
@@ -42,7 +42,6 @@ class NetworkChecker {
       print("[NETWORK_DEBUG] Error checking connectivity: $e");
       return false;
     }
-    */
   }
 
   /// Stream of connectivity changes

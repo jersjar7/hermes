@@ -158,7 +158,7 @@ class SpeechToTextService {
       _logger.d("[STT_DEBUG] Session ID: $sessionId");
       _logger.d("[STT_DEBUG] Language code: $languageCode");
       _logger.d(
-        "[STT_DEBUG] STT API URL: https://speech.googleapis.com/v2/projects/${Env.firebaseProjectId}/locations/global:recognizeStream",
+        "[STT_DEBUG] STT API URL: https://speech.googleapis.com/v1p1beta1/speech:streamingRecognize",
       );
 
       // Initialize if needed
@@ -188,7 +188,9 @@ class SpeechToTextService {
       );
 
       // After creating SttConfig:
-      _logger.d("[STT_DEBUG] STT Config: ${config.toJson()}");
+      _logger.d(
+        "[STT_DEBUG] STT Streaming Config: ${config.toStreamingConfig()}",
+      );
 
       // Start audio recording
       _isRecording = true;
@@ -207,7 +209,6 @@ class SpeechToTextService {
       final sttStream = _apiClient.streamingRecognize(
         audioStream: _audioHandler.audioStream,
         config: config,
-        projectId: Env.firebaseProjectId,
       );
 
       // Forward results to our stream controller
