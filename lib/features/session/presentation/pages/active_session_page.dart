@@ -65,7 +65,7 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
   }
 
   /// Show permission settings dialog
-  void _showPermissionSettingsDialog() {
+  void showPermissionSettingsDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
