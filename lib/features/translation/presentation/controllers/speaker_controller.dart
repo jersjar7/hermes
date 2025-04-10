@@ -22,6 +22,7 @@ class SpeakerController with ChangeNotifier {
   Session? _activeSession;
   final List<Transcript> _transcripts = [];
   String _partialTranscript = '';
+  bool _hasPermission = false;
 
   /// Creates a new [SpeakerController]
   SpeakerController(this._streamTranscription, this._logger) {
@@ -47,7 +48,35 @@ class SpeakerController with ChangeNotifier {
   void setActiveSession(Session session) {
     print("[CONTROLLER_DEBUG] Setting active session: ${session.id}");
     _activeSession = session;
-    notifyListeners();
+
+    // Proactively check for microphone permission
+    _checkMicrophonePermission().then((hasPermission) {
+      _hasPermission = hasPermission;
+      if (!hasPermission) {
+        _errorMessage =
+            'Microphone permission is required. Please grant it in settings.';
+      }
+      notifyListeners();
+    });
+  }
+
+  /// Check if microphone permission is granted
+  Future<bool> _checkMicrophonePermission() async {
+    print("[CONTROLLER_DEBUG] Checking microphone permission");
+    final status = await Permission.microphone.status;
+
+    print("[CONTROLLER_DEBUG] Current permission status: $status");
+
+    if (status.isGranted) {
+      return true;
+    }
+
+    if (status.isDenied) {
+      final requestResult = await Permission.microphone.request();
+      return requestResult.isGranted;
+    }
+
+    return false;
   }
 
   /// Start listening for transcription
@@ -65,43 +94,22 @@ class SpeakerController with ChangeNotifier {
     }
 
     _errorMessage = '';
-    notifyListeners();
 
-    // STEP 1: Check microphone permission
-    final permissionStatus = await Permission.microphone.status;
-    print(
-      "[CONTROLLER_DEBUG] Current microphone permission status: $permissionStatus",
-    );
+    // Check microphone permission
+    if (!_hasPermission) {
+      print("[CONTROLLER_DEBUG] Checking microphone permission");
+      _hasPermission = await _checkMicrophonePermission();
 
-    if (permissionStatus.isPermanentlyDenied) {
-      print("[CONTROLLER_DEBUG] Microphone permission is permanently denied");
-      _errorMessage =
-          'Microphone permission is permanently denied. Please enable it in settings.';
-      notifyListeners();
-      return false;
-    }
-
-    if (permissionStatus.isDenied) {
-      print("[CONTROLLER_DEBUG] Requesting microphone permission");
-      final requestResult = await Permission.microphone.request();
-      print("[CONTROLLER_DEBUG] Permission request result: $requestResult");
-
-      if (!requestResult.isGranted) {
+      if (!_hasPermission) {
+        print("[CONTROLLER_DEBUG] Microphone permission not granted");
         _errorMessage =
-            requestResult.isPermanentlyDenied
-                ? 'Microphone permission is permanently denied. Please enable it in settings.'
-                : 'Microphone permission is required to start listening.';
-        print("[CONTROLLER_DEBUG] Permission not granted: $_errorMessage");
+            'Microphone permission is required. Please grant it in settings.';
         notifyListeners();
         return false;
       }
-
-      print("[CONTROLLER_DEBUG] Permission granted after request");
-    } else {
-      print("[CONTROLLER_DEBUG] Microphone permission already granted");
     }
 
-    // STEP 2: Begin transcription
+    // Set state to listening
     _isListening = true;
     _partialTranscript = '';
     notifyListeners();
@@ -156,6 +164,7 @@ class SpeakerController with ChangeNotifier {
           if (error is MicrophonePermissionException) {
             _errorMessage =
                 'Microphone permission is required. Please enable it in settings.';
+            _hasPermission = false;
           } else {
             _errorMessage = 'Error in transcription: ${error.toString()}';
           }
@@ -183,6 +192,7 @@ class SpeakerController with ChangeNotifier {
       if (e is MicrophonePermissionException) {
         _errorMessage =
             'Microphone permission is required. Please enable it in settings.';
+        _hasPermission = false;
       } else {
         _errorMessage =
             'Failed to start speech recognition. Please check your internet connection and try again.';

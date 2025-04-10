@@ -28,15 +28,18 @@ class ActiveSessionPage extends StatefulWidget {
   State<ActiveSessionPage> createState() => _ActiveSessionPageState();
 }
 
-class _ActiveSessionPageState extends State<ActiveSessionPage> {
+class _ActiveSessionPageState extends State<ActiveSessionPage>
+    with WidgetsBindingObserver {
   bool _isListening = false;
   bool _isEnding = false;
   String? _errorMessage;
   int _listenerCount = 0;
+  bool _hasCheckedPermission = false;
 
   final _endSession = GetIt.instance<EndSession>();
   late Session _session;
-  late StreamSubscription? _sessionSubscription;
+  Timer? _listenerUpdateTimer;
+  StreamSubscription? _sessionSubscription;
 
   final SpeakerController _speakerController =
       GetIt.instance<SpeakerController>();
@@ -47,26 +50,41 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
     _session = widget.session;
     _speakerController.setActiveSession(_session);
     _listenerCount = _session.listeners.length;
-    _setupSessionListener();
-    // _checkMicrophonePermission();
+    _setupListenerUpdates();
+
+    // Add as observer to handle app lifecycle changes
+    WidgetsBinding.instance.addObserver(this);
+
+    // Check microphone permission on start
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkMicrophonePermission();
+    });
   }
 
-  void _setupSessionListener() {
-    // In a real implementation, you would subscribe to session updates
-    // and update the UI when listeners join/leave
-    // This would be implemented in the repository
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // If returning to foreground, check permission again
+    // This helps handle the case where user grants permission in settings
+    if (state == AppLifecycleState.resumed && !_hasCheckedPermission) {
+      _checkMicrophonePermission();
+    }
+  }
 
-    // For now, we'll simulate some listeners joining
-    Timer.periodic(const Duration(seconds: 5), (timer) {
+  void _setupListenerUpdates() {
+    // Update listener count periodically
+    _listenerUpdateTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (mounted) {
         setState(() {
           _listenerCount = _session.listeners.length;
         });
       }
     });
+
+    // In a real implementation, you would subscribe to session updates
+    // and update the UI when listeners join/leave
+    // This would be implemented in the repository
   }
 
-  // Add this improved _checkMicrophonePermission method to your ActiveSessionPage class
   Future<bool> _checkMicrophonePermission() async {
     print("[PERMISSION_DEBUG] Checking microphone permission...");
 
@@ -75,13 +93,15 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
 
     if (status.isGranted) {
       print("[PERMISSION_DEBUG] Microphone already granted");
+      setState(() {
+        _hasCheckedPermission = true;
+      });
       return true;
     }
 
     if (status.isPermanentlyDenied) {
-      print(
-        "[PERMISSION_DEBUG] Mic permanently denied BEFORE requesting — something is blocking this.",
-      );
+      print("[PERMISSION_DEBUG] Mic permanently denied - show settings dialog");
+      _showPermissionSettingsDialog();
       return false;
     }
 
@@ -90,15 +110,18 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
       final requestResult = await Permission.microphone.request();
       print("[PERMISSION_DEBUG] Result from system dialog: $requestResult");
 
+      setState(() {
+        _hasCheckedPermission = true;
+      });
+
       if (requestResult.isGranted) {
         print("[PERMISSION_DEBUG] Mic permission granted!");
         return true;
       }
 
       if (requestResult.isPermanentlyDenied) {
-        print(
-          "[PERMISSION_DEBUG] Mic permission permanently denied AFTER request",
-        );
+        print("[PERMISSION_DEBUG] Mic permanently denied AFTER request");
+        _showPermissionSettingsDialog();
       } else {
         print("[PERMISSION_DEBUG] Mic permission still denied after request");
       }
@@ -110,6 +133,35 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
     return false;
   }
 
+  void _showPermissionSettingsDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Microphone Permission Required'),
+          content: const Text(
+            'Hermes needs microphone access to transcribe your speech. '
+            'Please enable microphone permission in settings.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Not Now'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                openAppSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _handleEndSession() async {
     setState(() {
       _isEnding = true;
@@ -117,6 +169,11 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
     });
 
     try {
+      // Stop listening if active
+      if (_isListening) {
+        await _speakerController.stopListening();
+      }
+
       final params = EndSessionParams(sessionId: _session.id);
       final result = await _endSession(params);
 
@@ -149,7 +206,7 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
 
   void _toggleListening() async {
     if (_isListening) {
-      _speakerController.stopListening();
+      await _speakerController.stopListening();
       setState(() {
         _isListening = _speakerController.isListening;
       });
@@ -171,6 +228,14 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
             }
           });
         }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Microphone permission is required to use this feature',
+            ),
+          ),
+        );
       }
     }
   }
@@ -184,7 +249,9 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
 
   @override
   void dispose() {
+    _listenerUpdateTimer?.cancel();
     _sessionSubscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -279,15 +346,6 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
                           'Share this code or QR with your audience',
                           style: context.textTheme.bodyMedium,
                         ),
-                        ElevatedButton(
-                          onPressed: () async {
-                            final allowed = await _checkMicrophonePermission();
-                            print(
-                              "[PERMISSION_DEBUG] Final result of permission flow: $allowed",
-                            );
-                          },
-                          child: const Text("Request Mic Permission"),
-                        ),
                       ],
                     ),
                   ),
@@ -328,7 +386,7 @@ class _ActiveSessionPageState extends State<ActiveSessionPage> {
                 color: context.theme.cardColor,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
+                    color: Colors.black.withAlpha(26),
                     blurRadius: 4,
                     offset: const Offset(0, -2),
                   ),

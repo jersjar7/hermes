@@ -63,9 +63,13 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
   @override
   void initState() {
     super.initState();
+
+    // This fixes the issue where the widget doesn't auto-start in speaker view
     if (widget.isSpeakerView) {
-      // Auto-start listening for speaker view
-      // _startListening();
+      // Delay slightly to ensure the widget is fully built
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startListening();
+      });
     }
   }
 
@@ -96,6 +100,15 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
         _isListening) {
       _stopListening();
       _startListening();
+    }
+
+    // Handle speaker view state change
+    if (!oldWidget.isSpeakerView && widget.isSpeakerView && !_isListening) {
+      _startListening();
+    } else if (oldWidget.isSpeakerView &&
+        !widget.isSpeakerView &&
+        _isListening) {
+      _stopListening();
     }
   }
 
@@ -213,30 +226,32 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
 
     final result = await _translateTextChunk(params);
 
-    result.fold(
-      (failure) {
-        setState(() {
-          // Only show error for final translations
-          if (!isPartial) {
-            _errorMessage = failure.message;
-          }
-        });
-      },
-      (translation) {
-        setState(() {
-          // For partial translations, replace the last one if it exists
-          if (isPartial && _translations.isNotEmpty) {
-            _translations.removeLast();
-          }
+    if (mounted) {
+      result.fold(
+        (failure) {
+          setState(() {
+            // Only show error for final translations
+            if (!isPartial) {
+              _errorMessage = failure.message;
+            }
+          });
+        },
+        (translation) {
+          setState(() {
+            // For partial translations, replace the last one if it exists
+            if (isPartial && _translations.isNotEmpty) {
+              _translations.removeLast();
+            }
 
-          _translations.add(translation);
-          _lastTranslatedText = transcript.text;
+            _translations.add(translation);
+            _lastTranslatedText = transcript.text;
 
-          // Scroll to bottom
-          _scrollToBottom();
-        });
-      },
-    );
+            // Scroll to bottom
+            _scrollToBottom();
+          });
+        },
+      );
+    }
   }
 
   void _stopListening() async {

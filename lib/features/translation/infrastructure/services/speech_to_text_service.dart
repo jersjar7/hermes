@@ -32,6 +32,7 @@ class SpeechToTextService {
   StreamController<Uint8List>? _audioStreamController;
   StreamSubscription? _audioSubscription;
   StreamSubscription? _amplitudeSubscription;
+  StreamController<SpeechRecognitionResult>? _resultStreamController;
 
   final String _apiKey = Env.googleCloudApiKey;
   final String _apiBaseUrl = 'speech.googleapis.com';
@@ -55,8 +56,15 @@ class SpeechToTextService {
     if (_isInitialized) return true;
 
     try {
-      // IMPORTANT: We should NOT check permission here, just initialize
-      // the hardware components. Permission will be handled by the UI.
+      // Check recorder availability
+      final isAvailable = await _recorder.isEncoderSupported(
+        AudioEncoder.pcm16bits,
+      );
+      if (!isAvailable) {
+        _logger.e('Recorder not available or encoder not supported');
+        return false;
+      }
+
       _isInitialized = true;
       print("[STT_DEBUG] Service successfully initialized");
       return true;
@@ -78,39 +86,62 @@ class SpeechToTextService {
   Stream<SpeechRecognitionResult> startStreaming({
     required String sessionId,
     required String languageCode,
-  }) async* {
+  }) {
     print("[STT_DEBUG] startStreaming called with languageCode=$languageCode");
 
-    // Check permissions first
-    final permissionStatus = await Permission.microphone.status;
-    print("[STT_DEBUG] Microphone permission status: $permissionStatus");
+    // Create a result stream controller if none exists
+    _resultStreamController?.close();
+    _resultStreamController =
+        StreamController<SpeechRecognitionResult>.broadcast();
 
-    // If permission is denied or permanently denied, throw a more specific exception
-    if (permissionStatus != PermissionStatus.granted) {
-      print("[STT_DEBUG] Permission not granted, throwing exception");
-      throw MicrophonePermissionException(
-        'Microphone permission is required for speech transcription.',
-        permissionStatus: permissionStatus,
-      );
-    }
+    // Start the streaming process in a separate async function
+    _startStreamingProcess(sessionId, languageCode);
 
-    print("[STT_DEBUG] Checking if initialized: $_isInitialized");
-    if (!_isInitialized) {
-      print("[STT_DEBUG] Not initialized, calling init()");
-      final initialized = await init();
-      if (!initialized) {
-        print("[STT_DEBUG] Init failed");
-        throw Exception('STT Service could not be initialized');
-      }
-    }
+    // Return the stream immediately
+    return _resultStreamController!.stream;
+  }
 
-    print("[STT_DEBUG] Checking if recording: $_isRecording");
-    if (_isRecording) {
-      print("[STT_DEBUG] Already recording, stopping first");
-      await stopStreaming();
-    }
-
+  Future<void> _startStreamingProcess(
+    String sessionId,
+    String languageCode,
+  ) async {
     try {
+      // Check permissions
+      final permissionStatus = await Permission.microphone.status;
+      print("[STT_DEBUG] Microphone permission status: $permissionStatus");
+
+      if (permissionStatus != PermissionStatus.granted) {
+        print("[STT_DEBUG] Permission not granted");
+
+        final exception = MicrophonePermissionException(
+          'Microphone permission is required for speech transcription.',
+          permissionStatus: permissionStatus,
+        );
+
+        _resultStreamController?.addError(exception);
+        return;
+      }
+
+      // Initialize if needed
+      if (!_isInitialized) {
+        print("[STT_DEBUG] Not initialized, calling init()");
+        final initialized = await init();
+        if (!initialized) {
+          print("[STT_DEBUG] Init failed");
+          _resultStreamController?.addError(
+            Exception('STT Service could not be initialized'),
+          );
+          return;
+        }
+      }
+
+      // Stop any existing recording
+      if (_isRecording) {
+        print("[STT_DEBUG] Already recording, stopping first");
+        await stopStreaming();
+      }
+
+      // Set up audio stream
       print("[STT_DEBUG] Setting up audio stream controller");
       _audioStreamController = StreamController<Uint8List>.broadcast();
       _isRecording = true;
@@ -120,15 +151,11 @@ class SpeechToTextService {
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
         numChannels: 1,
+        autoGain: true,
+        echoCancel: true,
+        noiseSuppress: true,
       );
       print("[STT_DEBUG] Recording config created");
-
-      // Check if recorder is available
-      print("[STT_DEBUG] Checking if recorder is available");
-      final isAvailable = await _recorder.isEncoderSupported(
-        AudioEncoder.pcm16bits,
-      );
-      print("[STT_DEBUG] Recorder is available: $isAvailable");
 
       // Start recording with data stream
       print("[STT_DEBUG] Starting record stream");
@@ -139,12 +166,12 @@ class SpeechToTextService {
       print("[STT_DEBUG] Setting up audio subscription");
       _audioSubscription = audioStream.listen(
         (data) {
-          print("[STT_DEBUG] Audio data received: ${data.length} bytes");
           if (!_isRecording) return;
           _audioStreamController?.add(data);
         },
         onError: (error) {
           print("[STT_DEBUG] Audio stream error: $error");
+          _resultStreamController?.addError(error);
         },
         onDone: () {
           print("[STT_DEBUG] Audio stream done");
@@ -156,35 +183,104 @@ class SpeechToTextService {
       _amplitudeSubscription = _recorder
           .onAmplitudeChanged(const Duration(milliseconds: 100))
           .listen((amp) {
-            // You can log amplitude or use it for UI feedback
             print("[STT_DEBUG] Amplitude: ${amp.current}, Max: ${amp.max}");
           });
 
-      // Create a stream to send audio data to Google STT
-      print("[STT_DEBUG] Creating STT stream with Google API");
-      print(
-        "[STT_DEBUG] API Key starts with: ${_apiKey.substring(0, min(5, _apiKey.length))}...",
-      );
-      print("[STT_DEBUG] Project ID: ${Env.firebaseProjectId}");
+      // Create mock/test results while Google API integration is fixed
+      // Remove this section once the Google API integration is working
+      _startMockTranscriptionResults();
 
+      // Uncomment this when ready to use the actual Google STT API
+      // _startRealSttStream(sessionId, languageCode);
+    } catch (e, stacktrace) {
+      print("[STT_DEBUG] Error in _startStreamingProcess: $e");
+      print("[STT_DEBUG] Stack trace: $stacktrace");
+      _logger.e('Error in STT streaming', error: e, stackTrace: stacktrace);
+      _resultStreamController?.addError(
+        Exception('Error starting STT streaming: $e'),
+      );
+      await stopStreaming();
+    }
+  }
+
+  // Temporary method to simulate transcription results
+  void _startMockTranscriptionResults() {
+    print("[STT_DEBUG] Starting mock transcription results");
+
+    // Send interim results every second
+    Timer.periodic(Duration(milliseconds: 500), (timer) {
+      if (!_isRecording ||
+          _resultStreamController == null ||
+          _resultStreamController!.isClosed) {
+        timer.cancel();
+        return;
+      }
+
+      // Generate some demo text
+      final text =
+          "This is a test transcription. Tap stop speaking when you're done.";
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final partialText = text.substring(0, (now % text.length).toInt());
+
+      // Create and emit result
+      final result = SpeechRecognitionResult(
+        transcript: partialText,
+        confidence: 0.9,
+        isFinal: false,
+        stability: 0.8,
+      );
+
+      _resultStreamController?.add(result);
+
+      // Every 5 seconds, send a "final" result
+      if (now % 5000 < 100) {
+        final finalResult = SpeechRecognitionResult(
+          transcript: "This is a test final transcription.${now % 10}",
+          confidence: 0.95,
+          isFinal: true,
+          stability: 1.0,
+        );
+        _resultStreamController?.add(finalResult);
+      }
+    });
+  }
+
+  // This method will be used when the Google API integration is fixed
+  Future<void> _startRealSttStream(
+    String sessionId,
+    String languageCode,
+  ) async {
+    try {
+      print("[STT_DEBUG] Starting real STT stream with Google API");
+
+      // Create a stream to send audio data to Google STT
       final sttStream = _createSttStream(
         sessionId: sessionId,
         languageCode: languageCode,
         audioStream: _audioStreamController!.stream,
       );
 
-      // Yield recognition results
-      print("[STT_DEBUG] Yielding results from STT stream");
-      await for (final result in sttStream) {
-        print("[STT_DEBUG] Got result: ${result.transcript}");
-        yield result;
-      }
+      // Forward results to the result stream controller
+      sttStream.listen(
+        (result) {
+          print("[STT_DEBUG] Got result: ${result.transcript}");
+          _resultStreamController?.add(result);
+        },
+        onError: (error) {
+          print("[STT_DEBUG] STT stream error: $error");
+          _resultStreamController?.addError(error);
+        },
+        onDone: () {
+          print("[STT_DEBUG] STT stream done");
+        },
+      );
     } catch (e, stacktrace) {
-      _logger.e('Error in STT streaming', error: e, stackTrace: stacktrace);
-      print("[STT_DEBUG] Error in startStreaming: $e");
+      print("[STT_DEBUG] Error in _startRealSttStream: $e");
       print("[STT_DEBUG] Stack trace: $stacktrace");
-      await stopStreaming();
-      throw Exception('Error in STT streaming: $e');
+      _logger.e('Error in STT streaming', error: e, stackTrace: stacktrace);
+      _resultStreamController?.addError(
+        Exception('Error in STT streaming: $e'),
+      );
     }
   }
 
@@ -212,6 +308,10 @@ class SpeechToTextService {
       _amplitudeSubscription = null;
       _audioStreamController = null;
       print("[STT_DEBUG] Streaming stopped successfully");
+
+      // Close the result stream controller
+      await _resultStreamController?.close();
+      _resultStreamController = null;
     } catch (e, stacktrace) {
       _logger.e(
         'Error stopping STT streaming',
