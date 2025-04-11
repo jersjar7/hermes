@@ -26,6 +26,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
   final Logger _logger;
   final _uuid = const Uuid();
   bool _isStreamingActive = false;
+  DateTime? _streamStartTime;
 
   StreamSubscription? _transcriptionSubscription;
   StreamController<Either<Failure, Transcript>>? _transcriptStreamController;
@@ -37,7 +38,24 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     this._networkChecker,
     this._logger,
   ) {
-    print("[REPO_DEBUG] TranscriptionRepositoryImpl constructor called");
+    _logger.d("[REPO_DEBUG] TranscriptionRepositoryImpl constructor called");
+
+    // Initialize STT service early
+    _initializeSTTService();
+  }
+
+  // Initialize the STT service at creation time
+  Future<void> _initializeSTTService() async {
+    _logger.d("[REPO_DEBUG] Pre-initializing STT service");
+    try {
+      final initialized = await _sttService.init();
+      _logger.d(
+        "[REPO_DEBUG] STT service pre-initialization result: $initialized",
+      );
+    } catch (e) {
+      _logger.e("[REPO_DEBUG] Error pre-initializing STT service", error: e);
+      // Don't throw - just log the error
+    }
   }
 
   @override
@@ -49,13 +67,26 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
       "[REPO_DEBUG] streamTranscription called with languageCode=$languageCode",
     );
 
+    _streamStartTime = DateTime.now();
+
     // Prevent duplicate streams by cleaning up any existing stream
     _cleanupExistingStream();
 
     // Create a new stream controller
     _logger.d("[REPO_DEBUG] Creating new stream controller");
     _transcriptStreamController =
-        StreamController<Either<Failure, Transcript>>.broadcast();
+        StreamController<Either<Failure, Transcript>>.broadcast(
+          onListen: () {
+            _logger.d(
+              "[REPO_DEBUG] First listener subscribed to transcript stream",
+            );
+          },
+          onCancel: () {
+            _logger.d(
+              "[REPO_DEBUG] Last listener unsubscribed from transcript stream",
+            );
+          },
+        );
     _isStreamingActive = true;
 
     // Initialize the stream asynchronously
@@ -104,8 +135,29 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
       _logger.d("[REPO_DEBUG] Network connection available");
 
       try {
+        // First ensure STT service is initialized
+        _logger.d("[REPO_DEBUG] Ensuring STT service is initialized");
+        final initialized = await _sttService.init();
+        if (!initialized) {
+          _logger.e("[REPO_DEBUG] Failed to initialize STT service");
+          _transcriptStreamController?.add(
+            Left(
+              SpeechRecognitionFailure(
+                message: 'Failed to initialize speech recognition service',
+              ),
+            ),
+          );
+          return;
+        }
+        _logger.d("[REPO_DEBUG] STT service initialized successfully");
+
+        // Add a delay to ensure initialization completes
+        await Future.delayed(const Duration(milliseconds: 100));
+
         // Start the STT service
-        _logger.d("[REPO_DEBUG] Starting STT service");
+        _logger.d(
+          "[REPO_DEBUG] Starting STT service with sessionId=$sessionId, languageCode=$languageCode",
+        );
         final sttStream = _sttService.startStreaming(
           sessionId: sessionId,
           languageCode: languageCode,
@@ -116,13 +168,20 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
         _logger.d("[REPO_DEBUG] Subscribing to STT results");
         _transcriptionSubscription = sttStream.listen(
           (result) async {
+            final elapsed =
+                _streamStartTime != null
+                    ? DateTime.now()
+                        .difference(_streamStartTime!)
+                        .inMilliseconds
+                    : 0;
+
             _logger.d(
-              '[REPO_DEBUG] STT result received: confidence=${result.confidence}, isFinal=${result.isFinal}',
+              '[REPO_DEBUG] [+${elapsed}ms] STT result received: confidence=${result.confidence}, isFinal=${result.isFinal}',
             );
-            _logger.d('[REPO_DEBUG] Transcript text: "${result.transcript}"');
             _logger.d(
-              "[REPO_DEBUG] Received result: transcript='${result.transcript}', isFinal=${result.isFinal}",
+              '[REPO_DEBUG] [+${elapsed}ms] Transcript text: "${result.transcript}"',
             );
+
             final transcript = Transcript(
               id: _uuid.v4(),
               sessionId: sessionId,
@@ -132,30 +191,65 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
               isFinal: result.isFinal,
             );
 
-            _logger.d("[REPO_DEBUG] Adding transcript to stream");
+            _logger.d(
+              "[REPO_DEBUG] [+${elapsed}ms] Adding transcript to stream",
+            );
             _transcriptStreamController?.add(Right(transcript));
 
             if (result.isFinal && result.transcript.isNotEmpty) {
-              _logger.d("[REPO_DEBUG] Final transcript, saving to Firestore");
+              _logger.d(
+                "[REPO_DEBUG] [+${elapsed}ms] Final transcript, saving to Firestore",
+              );
               await saveTranscript(transcript);
             }
           },
           onError: (error) {
-            _logger.d("[REPO_DEBUG] Error in STT stream: $error");
-            _logger.e('Error in STT stream', error: error);
+            final elapsed =
+                _streamStartTime != null
+                    ? DateTime.now()
+                        .difference(_streamStartTime!)
+                        .inMilliseconds
+                    : 0;
+
+            _logger.d(
+              "[REPO_DEBUG] [+${elapsed}ms] Error in STT stream: $error",
+            );
+            _logger.e('[REPO_DEBUG] Error in STT stream', error: error);
+
+            final errorMessage =
+                error is MicrophonePermissionException
+                    ? 'Microphone permission denied. Please grant access.'
+                    : 'Error in speech recognition: ${error.toString()}';
+
             _transcriptStreamController?.add(
-              Left(SpeechRecognitionFailure(message: error.toString())),
+              Left(SpeechRecognitionFailure(message: errorMessage)),
             );
           },
           onDone: () {
-            _logger.d("[REPO_DEBUG] STT stream closed");
+            final elapsed =
+                _streamStartTime != null
+                    ? DateTime.now()
+                        .difference(_streamStartTime!)
+                        .inMilliseconds
+                    : 0;
+
+            _logger.d("[REPO_DEBUG] [+${elapsed}ms] STT stream closed");
             _logger.i('STT stream closed');
           },
         );
       } catch (e) {
-        _logger.d("[REPO_DEBUG] Exception when starting STT service: $e");
+        final elapsed =
+            _streamStartTime != null
+                ? DateTime.now().difference(_streamStartTime!).inMilliseconds
+                : 0;
+
+        _logger.d(
+          "[REPO_DEBUG] [+${elapsed}ms] Exception when starting STT service: $e",
+        );
         if (e is MicrophonePermissionException) {
-          _logger.d("[REPO_DEBUG] Microphone permission exception");
+          _logger.d(
+            "[REPO_DEBUG] [+${elapsed}ms] Microphone permission exception",
+          );
           _transcriptStreamController?.add(
             Left(
               SpeechRecognitionFailure(
@@ -165,7 +259,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
             ),
           );
         } else {
-          _logger.d("[REPO_DEBUG] General exception: $e");
+          _logger.d("[REPO_DEBUG] [+${elapsed}ms] General exception: $e");
           _transcriptStreamController?.add(
             Left(SpeechRecognitionFailure(message: e.toString())),
           );
@@ -173,8 +267,15 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
         _logger.e('Failed to start STT service', error: e);
       }
     } catch (e, stacktrace) {
-      _logger.d("[REPO_DEBUG] Exception in _initializeTranscriptionStream: $e");
-      _logger.d("[REPO_DEBUG] Stack trace: $stacktrace");
+      final elapsed =
+          _streamStartTime != null
+              ? DateTime.now().difference(_streamStartTime!).inMilliseconds
+              : 0;
+
+      _logger.d(
+        "[REPO_DEBUG] [+${elapsed}ms] Exception in _initializeTranscriptionStream: $e",
+      );
+      _logger.d("[REPO_DEBUG] [+${elapsed}ms] Stack trace: $stacktrace");
       _logger.e(
         'Failed to initialize transcription stream',
         error: e,
@@ -186,7 +287,6 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     }
   }
 
-  // Also enhance stopTranscription to use the cleanup method
   @override
   Future<Either<Failure, void>> stopTranscription() async {
     _logger.d("[REPO_DEBUG] stopTranscription called");

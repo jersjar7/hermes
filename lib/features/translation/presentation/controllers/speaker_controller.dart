@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:hermes/core/errors/failure.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_exceptions.dart';
 import 'package:injectable/injectable.dart';
 import 'package:hermes/core/utils/logger.dart';
@@ -20,10 +21,13 @@ class SpeakerController with ChangeNotifier {
   bool _isListening = false;
   bool _isPaused = false;
   String _errorMessage = '';
+  PermissionStatus? _permissionStatus;
   Session? _activeSession;
   final List<Transcript> _transcripts = [];
   String _partialTranscript = '';
   bool _hasPermission = false;
+  bool _isInitializing = false; // New flag to track initialization
+  DateTime? _startListeningTime; // Track when listening started
 
   /// Creates a new [SpeakerController]
   SpeakerController(this._streamTranscription, this._logger) {
@@ -39,6 +43,13 @@ class SpeakerController with ChangeNotifier {
   /// Error message, if any
   String get errorMessage => _errorMessage;
 
+  /// Get the current permission status
+  PermissionStatus? get permissionStatus => _permissionStatus;
+
+  /// Check if permission error
+  bool get isPermissionError =>
+      _permissionStatus != null && !_permissionStatus!.isGranted;
+
   /// Active session
   Session? get activeSession => _activeSession;
 
@@ -48,14 +59,20 @@ class SpeakerController with ChangeNotifier {
   /// Current partial transcript
   String get partialTranscript => _partialTranscript;
 
+  /// Whether controller is initializing audio
+  bool get isInitializing => _isInitializing;
+
   /// Set the active session
   void setActiveSession(Session session) {
     _logger.d("[CONTROLLER_DEBUG] Setting active session: ${session.id}");
     _activeSession = session;
 
     // Proactively check for microphone permission
-    _checkMicrophonePermission().then((hasPermission) {
+    _checkMicrophonePermission().then((permissionResult) {
+      final (hasPermission, status) = permissionResult;
       _hasPermission = hasPermission;
+      _permissionStatus = status;
+
       if (!hasPermission) {
         _errorMessage =
             'Microphone permission is required. Please grant it in settings.';
@@ -65,59 +82,77 @@ class SpeakerController with ChangeNotifier {
   }
 
   /// Check if microphone permission is granted
-  Future<bool> _checkMicrophonePermission() async {
+  /// Returns a tuple with (hasPermission, permissionStatus)
+  Future<(bool, PermissionStatus)> _checkMicrophonePermission() async {
     _logger.d("[CONTROLLER_DEBUG] Checking microphone permission");
     final status = await Permission.microphone.status;
 
     _logger.d("[CONTROLLER_DEBUG] Current permission status: $status");
 
     if (status.isGranted) {
-      return true;
+      return (true, status);
     }
 
     if (status.isDenied) {
       final requestResult = await Permission.microphone.request();
-      return requestResult.isGranted;
+      return (requestResult.isGranted, requestResult);
     }
 
-    return false;
+    return (false, status);
   }
 
   /// Start listening for transcription
   Future<bool> startListening() async {
     _logger.d("[CONTROLLER_DEBUG] startListening called");
     _logger.d(
-      "[CONTROLLER_DEBUG] _isListening=$_isListening, _activeSession=${_activeSession != null}",
+      "[CONTROLLER_DEBUG] State: _isListening=$_isListening, _activeSession=${_activeSession != null}, _isInitializing=$_isInitializing",
     );
 
-    if (_isListening || _activeSession == null) {
+    // Prevent multiple initialization attempts
+    if (_isListening || _activeSession == null || _isInitializing) {
       _logger.d(
-        "[CONTROLLER_DEBUG] Cannot start listening: ${_isListening ? 'already listening' : 'no active session'}",
+        "[CONTROLLER_DEBUG] Cannot start listening: ${_isListening
+            ? 'already listening'
+            : _isInitializing
+            ? 'initializing'
+            : 'no active session'}",
       );
       return false;
     }
 
     _errorMessage = '';
+    _isInitializing = true;
+    notifyListeners();
 
     // Check microphone permission
     if (!_hasPermission) {
       _logger.d("[CONTROLLER_DEBUG] Checking microphone permission");
-      _hasPermission = await _checkMicrophonePermission();
+      final permissionResult = await _checkMicrophonePermission();
+      _hasPermission = permissionResult.$1;
+      _permissionStatus = permissionResult.$2;
 
       if (!_hasPermission) {
-        _logger.d("[CONTROLLER_DEBUG] Microphone permission not granted");
+        _logger.d(
+          "[CONTROLLER_DEBUG] Microphone permission not granted: $_permissionStatus",
+        );
         _errorMessage =
             'Microphone permission is required. Please grant it in settings.';
+        _isInitializing = false;
         notifyListeners();
         return false;
       }
     }
 
+    // Start listening timestamp
+    _startListeningTime = DateTime.now();
+
     // Set state to listening
     _isListening = true;
     _isPaused = false;
     _partialTranscript = '';
+    _isInitializing = false;
     notifyListeners();
+
     _logger.d(
       "[CONTROLLER_DEBUG] Set state to listening and notified listeners",
     );
@@ -126,26 +161,40 @@ class SpeakerController with ChangeNotifier {
       sessionId: _activeSession!.id,
       languageCode: _activeSession!.sourceLanguage,
     );
+
     _logger.d("[CONTROLLER_DEBUG] Created StreamTranscriptionParams:");
     _logger.d("  sessionId=${params.sessionId}");
     _logger.d("  languageCode=${params.languageCode}");
 
     try {
-      _logger.d("[CONTROLLER_DEBUG] Calling _streamTranscription");
+      _logger.d("[CONTROLLER_DEBUG] Calling _streamTranscription with params");
       final transcriptionStream = _streamTranscription(params);
       _logger.d("[CONTROLLER_DEBUG] StreamTranscription started");
 
       _transcriptionSubscription = transcriptionStream.listen(
         (result) {
+          final elapsed =
+              DateTime.now().difference(_startListeningTime!).inMilliseconds;
           _logger.d(
-            "[CONTROLLER_DEBUG] Received transcription result: $result",
+            "[CONTROLLER_DEBUG] [+${elapsed}ms] Received transcription result",
           );
+
           result.fold(
             (failure) {
               _logger.d(
-                "[CONTROLLER_DEBUG] Transcription failure: ${failure.message}",
+                "[CONTROLLER_DEBUG] [+${elapsed}ms] Transcription failure: ${failure.message}",
               );
               _errorMessage = failure.message;
+
+              // Check if the error was due to permission issues
+              if (failure is SpeechRecognitionFailure &&
+                  failure.message.contains('permission')) {
+                _checkMicrophonePermission().then((result) {
+                  _permissionStatus = result.$2;
+                  notifyListeners();
+                });
+              }
+
               _isListening = false;
               _isPaused = false;
               notifyListeners();
@@ -154,8 +203,9 @@ class SpeakerController with ChangeNotifier {
               if (!_isListening) return; // Skip if no longer listening
 
               _logger.d(
-                "[CONTROLLER_DEBUG] Transcription success: '${transcript.text}' (final: ${transcript.isFinal})",
+                "[CONTROLLER_DEBUG] [+${elapsed}ms] Transcription: '${transcript.text}' (final: ${transcript.isFinal})",
               );
+
               if (transcript.isFinal) {
                 if (transcript.text.trim().isNotEmpty) {
                   _transcripts.add(transcript);
@@ -171,12 +221,25 @@ class SpeakerController with ChangeNotifier {
           );
         },
         onError: (error) {
-          _logger.d("[CONTROLLER_DEBUG] Transcription stream error: $error");
+          final elapsed =
+              _startListeningTime != null
+                  ? DateTime.now()
+                      .difference(_startListeningTime!)
+                      .inMilliseconds
+                  : 0;
+
+          _logger.d(
+            "[CONTROLLER_DEBUG] [+${elapsed}ms] Transcription stream error: $error",
+          );
 
           if (error is MicrophonePermissionException) {
             _errorMessage =
                 'Microphone permission is required. Please enable it in settings.';
             _hasPermission = false;
+            _checkMicrophonePermission().then((result) {
+              _permissionStatus = result.$2;
+              notifyListeners();
+            });
           } else {
             _errorMessage = 'Error in transcription: ${error.toString()}';
           }
@@ -187,7 +250,16 @@ class SpeakerController with ChangeNotifier {
           _logger.e('Error in transcription stream', error: error);
         },
         onDone: () {
-          _logger.d("[CONTROLLER_DEBUG] Transcription stream done");
+          final elapsed =
+              _startListeningTime != null
+                  ? DateTime.now()
+                      .difference(_startListeningTime!)
+                      .inMilliseconds
+                  : 0;
+
+          _logger.d(
+            "[CONTROLLER_DEBUG] [+${elapsed}ms] Transcription stream done",
+          );
           _isListening = false;
           _isPaused = false;
           notifyListeners();
@@ -197,8 +269,13 @@ class SpeakerController with ChangeNotifier {
       _logger.d("[CONTROLLER_DEBUG] Subscription successfully set up");
       return true;
     } catch (e, stacktrace) {
+      final elapsed =
+          _startListeningTime != null
+              ? DateTime.now().difference(_startListeningTime!).inMilliseconds
+              : 0;
+
       _logger.d(
-        "[CONTROLLER_DEBUG] Exception caught while starting transcription: $e",
+        "[CONTROLLER_DEBUG] [+${elapsed}ms] Exception caught while starting transcription: $e",
       );
       _logger.d("[CONTROLLER_DEBUG] Stacktrace: $stacktrace");
       _logger.e('Failed to start listening', error: e, stackTrace: stacktrace);
@@ -207,13 +284,17 @@ class SpeakerController with ChangeNotifier {
         _errorMessage =
             'Microphone permission is required. Please enable it in settings.';
         _hasPermission = false;
+        _checkMicrophonePermission().then((result) {
+          _permissionStatus = result.$2;
+          notifyListeners();
+        });
       } else {
-        _errorMessage =
-            'Failed to start speech recognition. Please check your internet connection and try again.';
+        _errorMessage = 'Failed to start speech recognition: ${e.toString()}';
       }
 
       _isListening = false;
       _isPaused = false;
+      _isInitializing = false;
       notifyListeners();
       return false;
     }
@@ -321,11 +402,33 @@ class SpeakerController with ChangeNotifier {
     _logger.d("[CONTROLLER_DEBUG] Transcripts cleared");
   }
 
+  /// Clear error message
+  void clearError() {
+    _errorMessage = '';
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _logger.d("[CONTROLLER_DEBUG] dispose called");
     _cleanupResources();
     super.dispose();
+  }
+
+  /// Stream that emits whenever the controller changes state
+  Stream<void> get listenerStream => _listenerStreamController.stream;
+
+  // Create a stream controller for notifying listeners of state changes
+  final StreamController<void> _listenerStreamController =
+      StreamController<void>.broadcast();
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    // Also notify through stream
+    if (!_listenerStreamController.isClosed) {
+      _listenerStreamController.add(null);
+    }
   }
 
   /// Clean up resources
@@ -346,6 +449,10 @@ class SpeakerController with ChangeNotifier {
       // Explicitly mark as not listening and not paused
       _isListening = false;
       _isPaused = false;
+      _isInitializing = false;
+
+      // Close stream controller
+      await _listenerStreamController.close();
     } catch (e, stacktrace) {
       _logger.e(
         'Error cleaning up resources',

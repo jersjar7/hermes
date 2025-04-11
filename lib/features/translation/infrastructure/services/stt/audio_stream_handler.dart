@@ -4,17 +4,19 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
 import 'package:hermes/core/utils/logger.dart';
-import 'package:hermes/features/translation/infrastructure/services/stt/stt_exceptions.dart';
 
 /// Handles streaming of audio data from the microphone
 class AudioStreamHandler {
   final AudioRecorder _recorder;
   final Logger _logger;
 
+  bool _isInitialized = false;
+  bool _isInitializing = false;
   bool _isStreaming = false;
   bool _isPaused = false;
   StreamSubscription? _audioSubscription;
   StreamSubscription? _amplitudeSubscription;
+  DateTime? _startTime;
 
   final StreamController<Uint8List> _audioStreamController =
       StreamController<Uint8List>.broadcast();
@@ -28,31 +30,140 @@ class AudioStreamHandler {
   /// Whether streaming is paused
   bool get isPaused => _isPaused;
 
+  /// Whether the handler is initialized
+  bool get isInitialized => _isInitialized;
+
   /// Creates a new [AudioStreamHandler]
-  AudioStreamHandler(this._recorder, this._logger);
+  AudioStreamHandler(this._recorder, this._logger) {
+    _startTime = DateTime.now();
+    _logger.d("[AUDIO_DEBUG] AudioStreamHandler created");
+  }
+
+  /// Initialize the audio handler
+  Future<bool> init() async {
+    final elapsed =
+        _startTime != null
+            ? DateTime.now().difference(_startTime!).inMilliseconds
+            : 0;
+
+    _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] init() called");
+
+    if (_isInitialized) {
+      _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] Already initialized");
+      return true;
+    }
+
+    if (_isInitializing) {
+      _logger.d(
+        "[AUDIO_DEBUG] [+${elapsed}ms] Already initializing, waiting...",
+      );
+      // Wait for initialization to complete
+      int attempts = 0;
+      while (_isInitializing && attempts < 10) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        attempts++;
+      }
+      return _isInitialized;
+    }
+
+    _isInitializing = true;
+
+    try {
+      // Check if encoder is supported
+      _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] Checking encoder support");
+      final isEncoderSupported = await _recorder.isEncoderSupported(
+        AudioEncoder.pcm16bits,
+      );
+
+      if (!isEncoderSupported) {
+        _logger.e(
+          "[AUDIO_DEBUG] [+${elapsed}ms] PCM16 encoder not supported on this device",
+        );
+        _isInitializing = false;
+        return false;
+      }
+
+      _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] Encoder supported");
+
+      // Verify recorder can be initialized
+      _logger.d(
+        "[AUDIO_DEBUG] [+${elapsed}ms] Checking recorder initialization",
+      );
+      try {
+        // Do a quick check on recorder availability
+        if (await _recorder.isRecording()) {
+          _logger.d(
+            "[AUDIO_DEBUG] [+${elapsed}ms] Recorder is already recording, stopping first",
+          );
+          await _recorder.stop();
+        }
+        _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] Recorder check complete");
+      } catch (e) {
+        _logger.e(
+          "[AUDIO_DEBUG] [+${elapsed}ms] Error checking recorder",
+          error: e,
+        );
+        _isInitializing = false;
+        return false;
+      }
+
+      _isInitialized = true;
+      _isInitializing = false;
+      _logger.d(
+        "[AUDIO_DEBUG] [+${elapsed}ms] Initialization completed successfully",
+      );
+      return true;
+    } catch (e) {
+      _logger.e(
+        "[AUDIO_DEBUG] [+${elapsed}ms] Error during initialization",
+        error: e,
+      );
+      _isInitializing = false;
+      return false;
+    }
+  }
 
   /// Start streaming audio in chunks
   Future<bool> startStreaming({
     int sampleRate = 16000,
     int numChannels = 1,
   }) async {
+    final elapsed =
+        _startTime != null
+            ? DateTime.now().difference(_startTime!).inMilliseconds
+            : 0;
+
+    _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] startStreaming called");
+
     if (_isStreaming) {
+      _logger.d(
+        "[AUDIO_DEBUG] [+${elapsed}ms] Already streaming, stopping first",
+      );
       await stopStreaming();
+    }
+
+    // Ensure initialized
+    if (!_isInitialized) {
+      _logger.d(
+        "[AUDIO_DEBUG] [+${elapsed}ms] Not initialized, initializing first",
+      );
+      final initialized = await init();
+      if (!initialized) {
+        _logger.e("[AUDIO_DEBUG] [+${elapsed}ms] Failed to initialize");
+        return false;
+      }
     }
 
     try {
       _isStreaming = true;
       _isPaused = false;
 
-      // Check if encoder is supported
-      final isEncoderSupported = await _recorder.isEncoderSupported(
-        AudioEncoder.pcm16bits,
-      );
-
-      if (!isEncoderSupported) {
-        throw AudioProcessingException(
-          'PCM16 encoder not supported on this device',
+      // Check if already recording and stop if needed
+      if (await _recorder.isRecording()) {
+        _logger.d(
+          "[AUDIO_DEBUG] [+${elapsed}ms] Already recording, stopping first",
         );
+        await _recorder.stop();
       }
 
       // Configure recording
@@ -65,34 +176,41 @@ class AudioStreamHandler {
         noiseSuppress: true, // Good for speech
       );
 
-      _logger.d('Starting audio recording with config: $config');
+      _logger.d(
+        "[AUDIO_DEBUG] [+${elapsed}ms] Starting audio stream with config: $config",
+      );
 
       // Start recording stream
       final audioStream = await _recorder.startStream(config);
+      _logger.d(
+        "[AUDIO_DEBUG] [+${elapsed}ms] Recording stream started successfully",
+      );
 
       // Subscribe to the stream
       _audioSubscription = audioStream.listen(
         (data) {
           if (_isStreaming && !_isPaused) {
-            _audioStreamController.add(data);
+            if (!_audioStreamController.isClosed) {
+              _audioStreamController.add(data);
+            }
 
-            // Add more detailed audio data logging
-            _logger.d(
-              'Audio data received: ${data.length} bytes, first few bytes: ${data.take(10).toList()}',
-            );
-
-            // Add amplitude logging on each data chunk
-            _recorder.getAmplitude().then((amp) {
-              _logger.d('Current amplitude: ${amp.current}, Max: ${amp.max}');
-            });
+            // Log data occasionally but not for every chunk to avoid excessive logging
+            if (DateTime.now().millisecondsSinceEpoch % 1000 < 200) {
+              // Log ~20% of chunks
+              _logger.d(
+                "[AUDIO_DEBUG] Audio data: ${data.length} bytes, first few bytes: ${data.take(4).toList()}",
+              );
+            }
           }
         },
         onError: (error) {
-          _logger.e('Error in audio stream', error: error);
-          _audioStreamController.addError(error);
+          _logger.e("[AUDIO_DEBUG] Error in audio stream", error: error);
+          if (!_audioStreamController.isClosed) {
+            _audioStreamController.addError(error);
+          }
         },
         onDone: () {
-          _logger.d('Audio stream done');
+          _logger.d("[AUDIO_DEBUG] Audio stream finished");
         },
       );
 
@@ -100,13 +218,21 @@ class AudioStreamHandler {
       _amplitudeSubscription = _recorder
           .onAmplitudeChanged(const Duration(milliseconds: 300))
           .listen((amp) {
-            _logger.d('Amplitude: ${amp.current}, Max: ${amp.max}');
+            if (DateTime.now().millisecondsSinceEpoch % 3000 < 300) {
+              // Log less frequently
+              _logger.d(
+                "[AUDIO_DEBUG] Amplitude: ${amp.current}, Max: ${amp.max}",
+              );
+            }
           });
 
+      _logger.d(
+        "[AUDIO_DEBUG] [+${elapsed}ms] Audio streaming started successfully",
+      );
       return true;
     } catch (e, stackTrace) {
       _logger.e(
-        'Failed to start streaming audio',
+        "[AUDIO_DEBUG] [+${elapsed}ms] Failed to start streaming audio",
         error: e,
         stackTrace: stackTrace,
       );
@@ -117,15 +243,28 @@ class AudioStreamHandler {
 
   /// Pause streaming
   Future<void> pauseStreaming() async {
+    final elapsed =
+        _startTime != null
+            ? DateTime.now().difference(_startTime!).inMilliseconds
+            : 0;
+
+    _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] pauseStreaming called");
+
     if (!_isStreaming || _isPaused) return;
 
     try {
       _isPaused = true;
-      await _recorder.pause();
-      _logger.d('Audio streaming paused');
+      if (await _recorder.isRecording()) {
+        await _recorder.pause();
+        _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] Recorder paused");
+      } else {
+        _logger.d(
+          "[AUDIO_DEBUG] [+${elapsed}ms] Recorder not running, nothing to pause",
+        );
+      }
     } catch (e, stackTrace) {
       _logger.e(
-        'Error pausing audio streaming',
+        "[AUDIO_DEBUG] [+${elapsed}ms] Error pausing audio streaming",
         error: e,
         stackTrace: stackTrace,
       );
@@ -134,15 +273,22 @@ class AudioStreamHandler {
 
   /// Resume streaming
   Future<void> resumeStreaming() async {
+    final elapsed =
+        _startTime != null
+            ? DateTime.now().difference(_startTime!).inMilliseconds
+            : 0;
+
+    _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] resumeStreaming called");
+
     if (!_isStreaming || !_isPaused) return;
 
     try {
       _isPaused = false;
       await _recorder.resume();
-      _logger.d('Audio streaming resumed');
+      _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] Recorder resumed");
     } catch (e, stackTrace) {
       _logger.e(
-        'Error resuming audio streaming',
+        "[AUDIO_DEBUG] [+${elapsed}ms] Error resuming audio streaming",
         error: e,
         stackTrace: stackTrace,
       );
@@ -151,23 +297,36 @@ class AudioStreamHandler {
 
   /// Stop streaming
   Future<void> stopStreaming() async {
+    final elapsed =
+        _startTime != null
+            ? DateTime.now().difference(_startTime!).inMilliseconds
+            : 0;
+
+    _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] stopStreaming called");
+
     _isStreaming = false;
     _isPaused = false;
 
     try {
+      // Cancel subscriptions first
       await _audioSubscription?.cancel();
       await _amplitudeSubscription?.cancel();
-
       _audioSubscription = null;
       _amplitudeSubscription = null;
+      _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] Audio subscriptions canceled");
 
+      // Stop recorder if recording
       if (await _recorder.isRecording()) {
         await _recorder.stop();
+        _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] Recorder stopped");
+      } else {
+        _logger.d(
+          "[AUDIO_DEBUG] [+${elapsed}ms] Recorder not running, nothing to stop",
+        );
       }
-      _logger.d('Audio streaming stopped');
     } catch (e, stackTrace) {
       _logger.e(
-        'Error stopping audio streaming',
+        "[AUDIO_DEBUG] [+${elapsed}ms] Error stopping audio streaming",
         error: e,
         stackTrace: stackTrace,
       );
@@ -176,8 +335,22 @@ class AudioStreamHandler {
 
   /// Dispose resources
   Future<void> dispose() async {
+    final elapsed =
+        _startTime != null
+            ? DateTime.now().difference(_startTime!).inMilliseconds
+            : 0;
+
+    _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] dispose called");
+
     await stopStreaming();
-    await _audioStreamController.close();
-    _logger.d('AudioStreamHandler disposed');
+
+    // Close stream controller if not already closed
+    if (!_audioStreamController.isClosed) {
+      await _audioStreamController.close();
+      _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] Audio stream controller closed");
+    }
+
+    _isInitialized = false;
+    _logger.d("[AUDIO_DEBUG] [+${elapsed}ms] AudioStreamHandler disposed");
   }
 }
