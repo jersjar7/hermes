@@ -97,24 +97,25 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
   }
 
   // Add this method to clean up existing streams
-  void _cleanupExistingStream() {
+  Future<void> _cleanupExistingStream() async {
     if (_isStreamingActive) {
       _logger.d("[REPO_DEBUG] Cleaning up existing stream");
 
-      // Cancel subscription first
+      // Cancel subscription if active
       if (_transcriptionSubscription != null) {
-        _transcriptionSubscription?.cancel();
+        await _transcriptionSubscription!.cancel();
         _transcriptionSubscription = null;
         _logger.d("[REPO_DEBUG] Existing subscription canceled");
       }
 
-      // Then close controller if it exists and isn't already closed
+      // Close the stream controller if it's not already closed
       if (_transcriptStreamController != null &&
           !_transcriptStreamController!.isClosed) {
-        _transcriptStreamController?.close();
+        await _transcriptStreamController!.close();
         _logger.d("[REPO_DEBUG] Existing stream controller closed");
       }
 
+      _transcriptStreamController = null;
       _isStreamingActive = false;
     }
   }
@@ -297,7 +298,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
       await _sttService.stopStreaming();
 
       // Clean up stream resources
-      _cleanupExistingStream();
+      await _cleanupExistingStream();
 
       _logger.d("[REPO_DEBUG] Transcription stopped");
       return const Right(null);

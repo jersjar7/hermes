@@ -313,8 +313,9 @@ class AudioStreamHandler {
     try {
       // Cancel subscriptions first
       await _audioSubscription?.cancel();
-      await _amplitudeSubscription?.cancel();
       _audioSubscription = null;
+
+      await _amplitudeSubscription?.cancel();
       _amplitudeSubscription = null;
       _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] Audio subscriptions canceled");
 
