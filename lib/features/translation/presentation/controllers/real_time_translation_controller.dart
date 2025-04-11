@@ -12,6 +12,7 @@ import 'package:hermes/features/translation/domain/usecases/translate_text_chunk
 
 /// Controller that manages real-time transcription and translation business logic
 class RealTimeTranslationController with ChangeNotifier {
+  bool _isDisposed = false;
   // Dependencies
   final StreamTranscription _streamTranscription;
   final TranslateTextChunk _translateTextChunk;
@@ -75,7 +76,7 @@ class RealTimeTranslationController with ChangeNotifier {
     _logger.d("[DEBUG] Starting to listen for transcription");
     _isListening = true;
     _errorMessage = null;
-    notifyListeners();
+    _safeNotifyListeners();
 
     final params = StreamTranscriptionParams(
       sessionId: _sessionId,
@@ -96,7 +97,7 @@ class RealTimeTranslationController with ChangeNotifier {
               _logger.d("[DEBUG] Transcription failure: ${failure.message}");
               _errorMessage = failure.message;
               _isListening = false;
-              notifyListeners();
+              _safeNotifyListeners();
             },
             (transcript) {
               _logger.d("[DEBUG] Transcription success: ${transcript.text}");
@@ -108,7 +109,7 @@ class RealTimeTranslationController with ChangeNotifier {
                   _transcripts.add(transcript);
                   _translateTranscript(transcript);
                   _currentPartialTranscript = '';
-                  notifyListeners();
+                  _safeNotifyListeners();
                 }
               } else {
                 // Update partial transcript
@@ -116,7 +117,7 @@ class RealTimeTranslationController with ChangeNotifier {
 
                 // Debounce translation of partial transcripts
                 _debouncedTranslate(transcript);
-                notifyListeners();
+                _safeNotifyListeners();
               }
             },
           );
@@ -125,12 +126,12 @@ class RealTimeTranslationController with ChangeNotifier {
           _logger.d("[DEBUG] Transcription stream error: $error");
           _errorMessage = error.toString();
           _isListening = false;
-          notifyListeners();
+          _safeNotifyListeners();
         },
         onDone: () {
           _logger.d("[DEBUG] Transcription stream closed");
           _isListening = false;
-          notifyListeners();
+          _safeNotifyListeners();
         },
       );
 
@@ -139,7 +140,7 @@ class RealTimeTranslationController with ChangeNotifier {
       _logger.d("[DEBUG] Exception when starting transcription: $e");
       _errorMessage = "Error starting transcription: $e";
       _isListening = false;
-      notifyListeners();
+      _safeNotifyListeners();
       return false;
     }
   }
@@ -154,7 +155,7 @@ class RealTimeTranslationController with ChangeNotifier {
     await _streamTranscription.stop();
 
     _isListening = false;
-    notifyListeners();
+    _safeNotifyListeners();
   }
 
   /// Toggle listening state
@@ -171,7 +172,7 @@ class RealTimeTranslationController with ChangeNotifier {
     _transcripts.clear();
     _translations.clear();
     _currentPartialTranscript = '';
-    notifyListeners();
+    _safeNotifyListeners();
   }
 
   /// Called when target language changes
@@ -183,7 +184,7 @@ class RealTimeTranslationController with ChangeNotifier {
     _targetLanguage = language;
     _translations.clear();
     _lastTranslatedText = '';
-    notifyListeners();
+    _safeNotifyListeners();
 
     // Re-translate existing transcripts with new target language
     for (final transcript in _transcripts) {
@@ -233,7 +234,7 @@ class RealTimeTranslationController with ChangeNotifier {
         // Only show error for final translations
         if (!isPartial) {
           _errorMessage = failure.message;
-          notifyListeners();
+          _safeNotifyListeners();
         }
       },
       (translation) {
@@ -244,13 +245,18 @@ class RealTimeTranslationController with ChangeNotifier {
 
         _translations.add(translation);
         _lastTranslatedText = transcript.text;
-        notifyListeners();
+        _safeNotifyListeners();
       },
     );
   }
 
+  void _safeNotifyListeners() {
+    if (!_isDisposed) notifyListeners();
+  }
+
   @override
   void dispose() {
+    _isDisposed = true;
     stopListening();
     _translationDebounceTimer?.cancel();
     super.dispose();

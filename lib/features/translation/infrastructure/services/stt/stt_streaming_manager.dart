@@ -18,6 +18,7 @@ class SttStreamingManager {
   final SttApiClient _apiClient;
   final AudioStreamHandler _audioHandler;
 
+  bool _isStreaming = false;
   bool _isRecording = false;
   bool _isPaused = false;
   DateTime? _startTime;
@@ -51,11 +52,22 @@ class SttStreamingManager {
       "[STT_STREAM] [+${elapsed}ms] startStreaming called with languageCode=$languageCode",
     );
 
+    // Create a new stream controller
+    if (_isStreaming) {
+      _logger.w("[STT_STREAM] startStreaming called while already streaming");
+      return _resultStreamController?.stream ??
+          Stream<SpeechRecognitionResult>.error(
+            StateError(
+              "Streaming already in progress, no active stream available.",
+            ),
+          );
+    }
+    _isStreaming = true;
+
     // Close existing stream if any
     _resultStreamController?.close();
     _recognitionSubscription?.cancel();
 
-    // Create a new stream controller
     _logger.d(
       "[STT_STREAM] [+${elapsed}ms] Creating new result stream controller",
     );
@@ -206,7 +218,8 @@ class SttStreamingManager {
             "[STT_STREAM] [+${listenElapsed}ms] Received STT result: '${result.transcript}' (final: ${result.isFinal})",
           );
 
-          if (!_resultStreamController!.isClosed) {
+          if (_resultStreamController != null &&
+              !_resultStreamController!.isClosed) {
             _resultStreamController!.add(result);
           } else {
             _logger.d(
@@ -225,7 +238,8 @@ class SttStreamingManager {
             error: error,
           );
 
-          if (!_resultStreamController!.isClosed) {
+          if (_resultStreamController != null &&
+              !_resultStreamController!.isClosed) {
             _resultStreamController!.addError(error);
           }
         },
@@ -255,7 +269,8 @@ class SttStreamingManager {
         stackTrace: stacktrace,
       );
 
-      if (!_resultStreamController!.isClosed) {
+      if (_resultStreamController != null &&
+          !_resultStreamController!.isClosed) {
         if (e is MicrophonePermissionException) {
           _resultStreamController!.addError(e);
         } else {
@@ -266,6 +281,7 @@ class SttStreamingManager {
       }
 
       await stopStreaming();
+      _isStreaming = false;
     }
   }
 
@@ -293,6 +309,7 @@ class SttStreamingManager {
         "[STT_STREAM] [+${elapsed}ms] Cancelling recognition subscription",
       );
       await _recognitionSubscription?.cancel();
+      _isStreaming = false;
       _recognitionSubscription = null;
       _logger.d(
         "[STT_STREAM] [+${elapsed}ms] Recognition subscription cancelled",
