@@ -204,33 +204,59 @@ class SttStreamingManager {
     }
   }
 
+  /// Stop streaming audio
   Future<void> stopStreaming() async {
     final elapsed =
         _startTime != null
             ? DateTime.now().difference(_startTime!).inMilliseconds
             : 0;
 
-    if (!_isRecording || _state == StreamingState.idle) return;
+    _logger.d(
+      "[STT_STREAM] [+${elapsed}ms] stopStreaming called, _isRecording=$_isRecording",
+    );
 
-    _logger.d("[STT_STREAM] [+${elapsed}ms] stopStreaming called");
-    _state = StreamingState.stopping;
+    if (!_isRecording) {
+      _logger.d("[STT_STREAM] [+${elapsed}ms] Not recording, nothing to stop");
+      return;
+    }
 
     try {
-      await _audioHandler.stopStreaming();
-      await _recognitionSubscription?.cancel();
-      _recognitionSubscription = null;
+      // Stop audio streaming
+      if (_audioHandler.isStreaming) {
+        _logger.d("[STT_STREAM] [+${elapsed}ms] Stopping audio handler");
+        await _audioHandler.stopStreaming();
+        _logger.d("[STT_STREAM] [+${elapsed}ms] Audio handler stopped");
+      }
+
+      // Cancel STT recognition stream subscription
+      if (_recognitionSubscription != null) {
+        _logger.d(
+          "[STT_STREAM] [+${elapsed}ms] Cancelling recognition subscription",
+        );
+        await _recognitionSubscription!.cancel();
+        _recognitionSubscription = null;
+        _logger.d(
+          "[STT_STREAM] [+${elapsed}ms] Recognition subscription cancelled",
+        );
+      }
+
+      // Close result stream controller if open
+      if (_resultStreamController != null &&
+          !_resultStreamController!.isClosed) {
+        _logger.d(
+          "[STT_STREAM] [+${elapsed}ms] Closing result stream controller",
+        );
+        await _resultStreamController!.close();
+        _resultStreamController = null;
+      }
 
       _isRecording = false;
       _isPaused = false;
-      _state = StreamingState.idle;
-
-      await _resultStreamController?.close();
-      _resultStreamController = null;
 
       _logger.d("[STT_STREAM] [+${elapsed}ms] Streaming stopped successfully");
     } catch (e, stacktrace) {
       _logger.e(
-        '[STT_STREAM] Error stopping STT streaming',
+        '[STT_STREAM] [+${elapsed}ms] Error stopping STT streaming',
         error: e,
         stackTrace: stacktrace,
       );
