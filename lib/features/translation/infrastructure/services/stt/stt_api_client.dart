@@ -49,6 +49,9 @@ class SttApiClient {
     audioStream.listen(
       (audioData) {
         final base64Audio = base64Encode(audioData);
+        _logger.d(
+          '[STT_CLIENT] Sending audio chunk: ${audioData.length} bytes',
+        );
         final audioJson = jsonEncode({'audioContent': base64Audio});
         streamedRequest.sink.add(utf8.encode('$audioJson\n'));
       },
@@ -66,23 +69,29 @@ class SttApiClient {
     if (response.statusCode != 200) {
       final errorBody = await response.stream.bytesToString();
       throw SttApiException(
-        'STT API error: \${response.statusCode}',
+        'STT API error: ${response.statusCode}',
         statusCode: response.statusCode,
         responseBody: errorBody,
       );
     }
 
-    await for (final chunk in response.stream.transform(utf8.decoder)) {
-      for (final line in chunk.split('\n')) {
-        if (line.trim().isEmpty) continue;
-        try {
-          final json = jsonDecode(line);
-          final result = SpeechRecognitionResult.fromJson(json);
-          yield result;
-        } catch (e) {
-          _logger.e('Error parsing STT chunk: \$line', error: e);
+    try {
+      await for (final chunk in response.stream.transform(utf8.decoder)) {
+        for (final line in chunk.split('\n')) {
+          if (line.trim().isEmpty) continue;
+          try {
+            _logger.d('[STT_CLIENT] Received line: $line');
+            final json = jsonDecode(line);
+            final result = SpeechRecognitionResult.fromJson(json);
+            yield result;
+          } catch (e) {
+            _logger.e('Error parsing STT chunk: $line', error: e);
+          }
         }
       }
+    } finally {
+      streamedRequest.sink
+          .close(); // ensures sink is closed if something goes wrong
     }
   }
 

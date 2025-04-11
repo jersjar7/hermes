@@ -1,6 +1,7 @@
 // lib/features/translation/infrastructure/services/stt/stt_service.dart
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -189,7 +190,7 @@ class SpeechToTextService {
 
       // After creating SttConfig:
       _logger.d(
-        "[STT_DEBUG] STT Streaming Config: ${config.toStreamingConfig()}",
+        "[STT_DEBUG] STT Streaming Config: ${jsonEncode(config.toStreamingConfig())}",
       );
 
       // Start audio recording
