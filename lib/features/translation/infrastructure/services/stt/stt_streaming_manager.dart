@@ -1,7 +1,6 @@
 // lib/features/translation/infrastructure/services/stt/stt_streaming_manager.dart
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:permission_handler/permission_handler.dart';
 
@@ -12,13 +11,16 @@ import 'package:hermes/features/translation/infrastructure/services/stt/models/s
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_api_client.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_exceptions.dart';
 
+/// Represents the state of the STT streaming process
+enum StreamingState { idle, initializing, streaming, paused, stopping }
+
 /// Manages the streaming of audio for speech-to-text recognition
 class SttStreamingManager {
   final Logger _logger;
   final SttApiClient _apiClient;
   final AudioStreamHandler _audioHandler;
 
-  bool _isStreaming = false;
+  StreamingState _state = StreamingState.idle;
   bool _isRecording = false;
   bool _isPaused = false;
   DateTime? _startTime;
@@ -34,9 +36,10 @@ class SttStreamingManager {
   /// Whether streaming is paused
   bool get isPaused => _isPaused;
 
+  /// Current state for debugging
+  StreamingState get currentState => _state;
+
   /// Start streaming audio for transcription
-  ///
-  /// Returns a stream of transcription results
   Stream<SpeechRecognitionResult> startStreaming({
     required String sessionId,
     required String languageCode,
@@ -52,19 +55,12 @@ class SttStreamingManager {
       "[STT_STREAM] [+${elapsed}ms] startStreaming called with languageCode=$languageCode",
     );
 
-    // Create a new stream controller
-    if (_isStreaming) {
-      _logger.w("[STT_STREAM] startStreaming called while already streaming");
-      return _resultStreamController?.stream ??
-          Stream<SpeechRecognitionResult>.error(
-            StateError(
-              "Streaming already in progress, no active stream available.",
-            ),
-          );
+    if (_state != StreamingState.idle) {
+      _logger.w("[STT_STREAM] startStreaming called but state is $_state");
+      return _resultStreamController?.stream ?? const Stream.empty();
     }
-    _isStreaming = true;
+    _state = StreamingState.initializing;
 
-    // Close existing stream if any
     _resultStreamController?.close();
     _recognitionSubscription?.cancel();
 
@@ -73,7 +69,6 @@ class SttStreamingManager {
     );
     _resultStreamController =
         StreamController<SpeechRecognitionResult>.broadcast(
-          // Add lifecycle callbacks for better debugging
           onListen: () {
             _logger.d("[STT_STREAM] First listener attached to result stream");
           },
@@ -84,7 +79,6 @@ class SttStreamingManager {
           },
         );
 
-    // Start the streaming process asynchronously
     _startStreamingProcess(
       sessionId,
       languageCode,
@@ -92,11 +86,9 @@ class SttStreamingManager {
       initFunction,
     );
 
-    // Return the stream immediately
     return _resultStreamController!.stream;
   }
 
-  /// Internal method to start the streaming process
   Future<void> _startStreamingProcess(
     String sessionId,
     String languageCode,
@@ -109,21 +101,11 @@ class SttStreamingManager {
             : 0;
 
     try {
-      // Check permissions first
       _logger.d("[STT_STREAM] [+${elapsed}ms] Checking microphone permission");
       final permissionStatus = await Permission.microphone.status;
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] Microphone permission status: $permissionStatus",
-      );
 
       if (permissionStatus != PermissionStatus.granted) {
-        _logger.d("[STT_STREAM] [+${elapsed}ms] Permission not granted");
-
         final requestResult = await Permission.microphone.request();
-        _logger.d(
-          "[STT_STREAM] [+${elapsed}ms] Permission request result: $requestResult",
-        );
-
         if (requestResult != PermissionStatus.granted) {
           throw MicrophonePermissionException(
             'Microphone permission is required for speech transcription.',
@@ -132,21 +114,7 @@ class SttStreamingManager {
         }
       }
 
-      // After permission check and before initializing:
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] Starting audio with following parameters:",
-      );
-      _logger.d("[STT_STREAM] [+${elapsed}ms] Session ID: $sessionId");
-      _logger.d("[STT_STREAM] [+${elapsed}ms] Language code: $languageCode");
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] STT API URL: https://speech.googleapis.com/v1p1beta1/speech:streamingRecognize",
-      );
-
-      // Initialize if needed
       if (!isInitialized) {
-        _logger.d(
-          "[STT_STREAM] [+${elapsed}ms] Not initialized, calling init()",
-        );
         final initialized = await initFunction();
         if (!initialized) {
           throw SttServiceInitializationException(
@@ -155,15 +123,10 @@ class SttStreamingManager {
         }
       }
 
-      // Stop any existing recording
       if (_isRecording) {
-        _logger.d(
-          "[STT_STREAM] [+${elapsed}ms] Already recording, stopping first",
-        );
         await stopStreaming();
       }
 
-      // Create STT config
       final config = SttConfig(
         languageCode: languageCode,
         enableAutomaticPunctuation: true,
@@ -172,41 +135,20 @@ class SttStreamingManager {
         sampleRateHertz: 16000,
       );
 
-      // After creating SttConfig:
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] STT Streaming Config: ${jsonEncode(config.toStreamingConfig())}",
-      );
-
-      // Start audio recording
       _isRecording = true;
       _isPaused = false;
+      _state = StreamingState.streaming;
 
-      _logger.d("[STT_STREAM] [+${elapsed}ms] Using real microphone input");
-
-      // Start audio handler and get audio stream
-      _logger.d("[STT_STREAM] [+${elapsed}ms] Starting audio streaming");
       final success = await _audioHandler.startStreaming();
-
       if (!success) {
         throw AudioProcessingException('Failed to start audio streaming');
       }
 
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] Audio streaming started successfully",
-      );
-
-      // Connect audio stream to STT API
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] Connecting audio stream to STT API",
-      );
       final sttStream = _apiClient.streamingRecognize(
         audioStream: _audioHandler.audioStream,
         config: config,
       );
 
-      _logger.d("[STT_STREAM] [+${elapsed}ms] STT API stream established");
-
-      // Forward results to our stream controller
       _recognitionSubscription = sttStream.listen(
         (result) {
           final listenElapsed =
@@ -221,10 +163,6 @@ class SttStreamingManager {
           if (_resultStreamController != null &&
               !_resultStreamController!.isClosed) {
             _resultStreamController!.add(result);
-          } else {
-            _logger.d(
-              "[STT_STREAM] [+${listenElapsed}ms] Stream controller closed, discarding result",
-            );
           }
         },
         onError: (error) {
@@ -244,145 +182,100 @@ class SttStreamingManager {
           }
         },
         onDone: () {
-          final listenElapsed =
-              _startTime != null
-                  ? DateTime.now().difference(_startTime!).inMilliseconds
-                  : 0;
-
-          _logger.d('[STT_STREAM] [+${listenElapsed}ms] STT API stream closed');
-          // Don't close the controller here, as we might want to restart streaming
+          _logger.d('[STT_STREAM] STT API stream closed');
         },
       );
-
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] Successfully set up transcription pipeline",
-      );
     } catch (e, stacktrace) {
-      final catchElapsed =
-          _startTime != null
-              ? DateTime.now().difference(_startTime!).inMilliseconds
-              : 0;
-
       _logger.e(
-        '[STT_STREAM] [+${catchElapsed}ms] Error starting STT process',
+        '[STT_STREAM] Error starting STT process',
         error: e,
         stackTrace: stacktrace,
       );
 
       if (_resultStreamController != null &&
           !_resultStreamController!.isClosed) {
-        if (e is MicrophonePermissionException) {
-          _resultStreamController!.addError(e);
-        } else {
-          _resultStreamController!.addError(
-            e is Exception ? e : Exception('Error starting STT process: $e'),
-          );
-        }
+        _resultStreamController!.addError(
+          e is Exception ? e : Exception('Error: $e'),
+        );
       }
 
+      _state = StreamingState.idle;
       await stopStreaming();
-      _isStreaming = false;
     }
   }
 
-  /// Stop streaming audio
   Future<void> stopStreaming() async {
     final elapsed =
         _startTime != null
             ? DateTime.now().difference(_startTime!).inMilliseconds
             : 0;
 
-    _logger.d(
-      "[STT_STREAM] [+${elapsed}ms] stopStreaming called, _isRecording=$_isRecording",
-    );
+    if (!_isRecording || _state == StreamingState.idle) return;
 
-    if (!_isRecording) return;
+    _logger.d("[STT_STREAM] [+${elapsed}ms] stopStreaming called");
+    _state = StreamingState.stopping;
 
     try {
-      // Stop audio handling
-      _logger.d("[STT_STREAM] [+${elapsed}ms] Stopping audio handler");
       await _audioHandler.stopStreaming();
-      _logger.d("[STT_STREAM] [+${elapsed}ms] Audio handler stopped");
-
-      // Cancel recognition subscription
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] Cancelling recognition subscription",
-      );
       await _recognitionSubscription?.cancel();
-      _isStreaming = false;
       _recognitionSubscription = null;
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] Recognition subscription cancelled",
-      );
 
       _isRecording = false;
       _isPaused = false;
+      _state = StreamingState.idle;
 
-      // Close the result stream controller
-      _logger.d(
-        "[STT_STREAM] [+${elapsed}ms] Closing result stream controller",
-      );
       await _resultStreamController?.close();
       _resultStreamController = null;
 
       _logger.d("[STT_STREAM] [+${elapsed}ms] Streaming stopped successfully");
     } catch (e, stacktrace) {
       _logger.e(
-        '[STT_STREAM] [+${elapsed}ms] Error stopping STT streaming',
+        '[STT_STREAM] Error stopping STT streaming',
         error: e,
         stackTrace: stacktrace,
       );
     }
   }
 
-  /// Pause streaming audio
   Future<void> pauseStreaming() async {
     final elapsed =
         _startTime != null
             ? DateTime.now().difference(_startTime!).inMilliseconds
             : 0;
 
-    _logger.d(
-      "[STT_STREAM] [+${elapsed}ms] pauseStreaming called, _isRecording=$_isRecording",
-    );
-
-    if (!_isRecording || _isPaused) return;
+    if (!_isRecording || _isPaused || _state != StreamingState.streaming)
+      return;
 
     try {
-      _logger.d("[STT_STREAM] [+${elapsed}ms] Pausing audio handler");
       await _audioHandler.pauseStreaming();
       _isPaused = true;
+      _state = StreamingState.paused;
       _logger.d("[STT_STREAM] [+${elapsed}ms] Audio streaming paused");
     } catch (e, stacktrace) {
       _logger.e(
-        '[STT_STREAM] [+${elapsed}ms] Error pausing STT streaming',
+        '[STT_STREAM] Error pausing STT streaming',
         error: e,
         stackTrace: stacktrace,
       );
     }
   }
 
-  /// Resume streaming audio
   Future<void> resumeStreaming() async {
     final elapsed =
         _startTime != null
             ? DateTime.now().difference(_startTime!).inMilliseconds
             : 0;
 
-    _logger.d(
-      "[STT_STREAM] [+${elapsed}ms] resumeStreaming called, _isRecording=$_isRecording, _isPaused=$_isPaused",
-    );
-
-    if (!_isRecording || !_isPaused) return;
+    if (!_isRecording || !_isPaused || _state != StreamingState.paused) return;
 
     try {
-      _logger.d("[STT_STREAM] [+${elapsed}ms] Resuming audio handler");
       await _audioHandler.resumeStreaming();
       _isPaused = false;
+      _state = StreamingState.streaming;
       _logger.d("[STT_STREAM] [+${elapsed}ms] Audio streaming resumed");
     } catch (e, stacktrace) {
       _logger.e(
-        '[STT_STREAM] [+${elapsed}ms] Error resuming STT streaming',
+        '[STT_STREAM] Error resuming STT streaming',
         error: e,
         stackTrace: stacktrace,
       );

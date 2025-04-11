@@ -10,15 +10,12 @@ import 'package:hermes/features/translation/domain/entities/translation.dart';
 import 'package:hermes/features/translation/domain/usecases/stream_transcription.dart';
 import 'package:hermes/features/translation/domain/usecases/translate_text_chunk.dart';
 
-/// Controller that manages real-time transcription and translation business logic
 class RealTimeTranslationController with ChangeNotifier {
   bool _isDisposed = false;
-  // Dependencies
   final StreamTranscription _streamTranscription;
   final TranslateTextChunk _translateTextChunk;
   final Logger _logger;
 
-  // State
   String _sessionId = '';
   LanguageSelection _sourceLanguage = LanguageSelections.english;
   LanguageSelection _targetLanguage = LanguageSelections.english;
@@ -29,18 +26,15 @@ class RealTimeTranslationController with ChangeNotifier {
   bool _isListening = false;
   String? _errorMessage;
 
-  // Streams and subscriptions
   StreamSubscription? _transcriptionSubscription;
   Timer? _translationDebounceTimer;
 
-  // Getters
   List<Transcript> get transcripts => List.unmodifiable(_transcripts);
   List<Translation> get translations => List.unmodifiable(_translations);
   String get currentPartialTranscript => _currentPartialTranscript;
   bool get isListening => _isListening;
   String? get errorMessage => _errorMessage;
 
-  /// Creates a new [RealTimeTranslationController]
   RealTimeTranslationController({
     StreamTranscription? streamTranscription,
     TranslateTextChunk? translateTextChunk,
@@ -51,7 +45,6 @@ class RealTimeTranslationController with ChangeNotifier {
            translateTextChunk ?? GetIt.instance<TranslateTextChunk>(),
        _logger = logger ?? GetIt.instance<Logger>();
 
-  /// Initialize the controller with session and language settings
   void initialize({
     required String sessionId,
     required LanguageSelection sourceLanguage,
@@ -67,11 +60,8 @@ class RealTimeTranslationController with ChangeNotifier {
     }
   }
 
-  /// Start listening for transcription
   Future<bool> startListening() async {
-    if (_isListening || _sessionId.isEmpty) {
-      return false;
-    }
+    if (_isDisposed || _isListening || _sessionId.isEmpty) return false;
 
     _logger.d("[DEBUG] Starting to listen for transcription");
     _isListening = true;
@@ -83,28 +73,22 @@ class RealTimeTranslationController with ChangeNotifier {
       languageCode: _sourceLanguage.languageCode,
     );
 
-    // Start streaming transcription
     try {
-      _logger.d("[DEBUG] About to call _streamTranscription");
       final transcriptionStream = _streamTranscription(params);
-      _logger.d("[DEBUG] Got transcription stream");
-
       _transcriptionSubscription = transcriptionStream.listen(
         (result) {
-          _logger.d("[DEBUG] Received transcription result: $result");
+          if (_isDisposed) return;
+
           result.fold(
             (failure) {
-              _logger.d("[DEBUG] Transcription failure: ${failure.message}");
               _errorMessage = failure.message;
               _isListening = false;
               _safeNotifyListeners();
             },
             (transcript) {
-              _logger.d("[DEBUG] Transcription success: ${transcript.text}");
+              if (_isDisposed) return;
 
-              // For final transcripts, add to list and translate
               if (transcript.isFinal) {
-                // Only add if text is not empty
                 if (transcript.text.trim().isNotEmpty) {
                   _transcripts.add(transcript);
                   _translateTranscript(transcript);
@@ -112,10 +96,7 @@ class RealTimeTranslationController with ChangeNotifier {
                   _safeNotifyListeners();
                 }
               } else {
-                // Update partial transcript
                 _currentPartialTranscript = transcript.text;
-
-                // Debounce translation of partial transcripts
                 _debouncedTranslate(transcript);
                 _safeNotifyListeners();
               }
@@ -123,13 +104,13 @@ class RealTimeTranslationController with ChangeNotifier {
           );
         },
         onError: (error) {
-          _logger.d("[DEBUG] Transcription stream error: $error");
+          if (_isDisposed) return;
           _errorMessage = error.toString();
           _isListening = false;
           _safeNotifyListeners();
         },
         onDone: () {
-          _logger.d("[DEBUG] Transcription stream closed");
+          if (_isDisposed) return;
           _isListening = false;
           _safeNotifyListeners();
         },
@@ -137,7 +118,7 @@ class RealTimeTranslationController with ChangeNotifier {
 
       return true;
     } catch (e) {
-      _logger.d("[DEBUG] Exception when starting transcription: $e");
+      if (_isDisposed) return false;
       _errorMessage = "Error starting transcription: $e";
       _isListening = false;
       _safeNotifyListeners();
@@ -145,21 +126,19 @@ class RealTimeTranslationController with ChangeNotifier {
     }
   }
 
-  /// Stop listening for transcription
   Future<void> stopListening() async {
-    if (!_isListening) return;
+    if (_isDisposed || !_isListening) return;
 
     await _transcriptionSubscription?.cancel();
     _transcriptionSubscription = null;
 
     await _streamTranscription.stop();
-
     _isListening = false;
     _safeNotifyListeners();
   }
 
-  /// Toggle listening state
   void toggleListening() {
+    if (_isDisposed) return;
     if (_isListening) {
       stopListening();
     } else {
@@ -167,58 +146,47 @@ class RealTimeTranslationController with ChangeNotifier {
     }
   }
 
-  /// Clear all transcripts and translations
   void clearTranscripts() {
+    if (_isDisposed) return;
     _transcripts.clear();
     _translations.clear();
     _currentPartialTranscript = '';
     _safeNotifyListeners();
   }
 
-  /// Called when target language changes
   void changeTargetLanguage(LanguageSelection language) {
-    if (_targetLanguage.languageCode == language.languageCode) {
-      return;
-    }
+    if (_isDisposed) return;
+    if (_targetLanguage.languageCode == language.languageCode) return;
 
     _targetLanguage = language;
     _translations.clear();
     _lastTranslatedText = '';
     _safeNotifyListeners();
 
-    // Re-translate existing transcripts with new target language
     for (final transcript in _transcripts) {
       _translateTranscript(transcript);
     }
   }
 
-  /// Translate a transcript after a delay (for partial transcripts)
   void _debouncedTranslate(Transcript transcript) {
     _translationDebounceTimer?.cancel();
-
-    // Only translate partial transcripts if they're stable enough
     if (transcript.text.length > 10) {
       _translationDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+        if (_isDisposed) return;
         _translateTranscript(transcript, isPartial: true);
       });
     }
   }
 
-  /// Translate a transcript
   Future<void> _translateTranscript(
     Transcript transcript, {
     bool isPartial = false,
   }) async {
-    // Skip translation if target language is the same as source language
-    if (_targetLanguage.languageCode == _sourceLanguage.languageCode) {
+    if (_isDisposed ||
+        _targetLanguage.languageCode == _sourceLanguage.languageCode ||
+        transcript.text.trim().isEmpty ||
+        transcript.text == _lastTranslatedText)
       return;
-    }
-
-    // Skip if text is empty or the same as the last translated text
-    if (transcript.text.trim().isEmpty ||
-        transcript.text == _lastTranslatedText) {
-      return;
-    }
 
     final params = TranslateTextChunkParams(
       sessionId: _sessionId,
@@ -229,20 +197,19 @@ class RealTimeTranslationController with ChangeNotifier {
 
     final result = await _translateTextChunk(params);
 
+    if (_isDisposed) return;
+
     result.fold(
       (failure) {
-        // Only show error for final translations
         if (!isPartial) {
           _errorMessage = failure.message;
           _safeNotifyListeners();
         }
       },
       (translation) {
-        // For partial translations, replace the last one if it exists
         if (isPartial && _translations.isNotEmpty) {
           _translations.removeLast();
         }
-
         _translations.add(translation);
         _lastTranslatedText = transcript.text;
         _safeNotifyListeners();
@@ -251,7 +218,11 @@ class RealTimeTranslationController with ChangeNotifier {
   }
 
   void _safeNotifyListeners() {
-    if (!_isDisposed) notifyListeners();
+    if (_isDisposed) {
+      assert(false, "Tried to notifyListeners after controller was disposed.");
+      return;
+    }
+    notifyListeners();
   }
 
   @override

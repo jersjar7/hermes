@@ -8,24 +8,13 @@ import 'package:hermes/features/translation/presentation/widgets/transcript_list
 import 'package:hermes/features/translation/presentation/widgets/translation_error_message.dart';
 import 'package:hermes/features/translation/presentation/widgets/translation_status_header.dart';
 
-/// Widget that provides real-time transcription and translation
 class RealTimeTranslationWidget extends StatefulWidget {
-  /// The session ID
   final String sessionId;
-
-  /// Source language of the speaker
   final LanguageSelection sourceLanguage;
-
-  /// Target language for translation
   final LanguageSelection targetLanguage;
-
-  /// Whether to show the source language text
   final bool showSourceText;
-
-  /// Whether this widget is for the speaker view
   final bool isSpeakerView;
 
-  /// Creates a new [RealTimeTranslationWidget]
   const RealTimeTranslationWidget({
     super.key,
     required this.sessionId,
@@ -41,15 +30,13 @@ class RealTimeTranslationWidget extends StatefulWidget {
 }
 
 class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
-  late RealTimeTranslationController _controller;
+  RealTimeTranslationController? _controller;
 
   @override
   void initState() {
     super.initState();
-
-    // Initialize controller
     _controller = RealTimeTranslationController();
-    _controller.initialize(
+    _controller?.initialize(
       sessionId: widget.sessionId,
       sourceLanguage: widget.sourceLanguage,
       targetLanguage: widget.targetLanguage,
@@ -60,37 +47,38 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
   @override
   void didUpdateWidget(RealTimeTranslationWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (_controller == null) return;
 
-    // Handle language changes
     if (oldWidget.sourceLanguage.languageCode !=
         widget.sourceLanguage.languageCode) {
-      _controller.initialize(
+      _controller?.initialize(
         sessionId: widget.sessionId,
         sourceLanguage: widget.sourceLanguage,
         targetLanguage: widget.targetLanguage,
       );
     } else if (oldWidget.targetLanguage.languageCode !=
         widget.targetLanguage.languageCode) {
-      _controller.changeTargetLanguage(widget.targetLanguage);
+      _controller?.changeTargetLanguage(widget.targetLanguage);
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
+    _controller = null;
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Use ChangeNotifierProvider to rebuild only when controller state changes
+    if (_controller == null) return const SizedBox.shrink();
+
     return ChangeNotifierProvider.value(
-      value: _controller,
+      value: _controller!,
       child: Container(
         color: Colors.grey.shade50,
         child: Column(
           children: [
-            // Optional compact header with status
             Consumer<RealTimeTranslationController>(
               builder:
                   (context, controller, child) => TranslationStatusHeader(
@@ -104,20 +92,15 @@ class _RealTimeTranslationWidgetState extends State<RealTimeTranslationWidget> {
                             : null,
                   ),
             ),
-
-            // Error message (if any)
             Consumer<RealTimeTranslationController>(
               builder: (context, controller, child) {
-                if (controller.errorMessage == null) {
+                if (controller.errorMessage == null)
                   return const SizedBox.shrink();
-                }
                 return TranslationErrorMessage(
                   message: controller.errorMessage!,
                 );
               },
             ),
-
-            // Transcript list (takes remaining space)
             Expanded(
               child: Consumer<RealTimeTranslationController>(
                 builder: (context, controller, child) {
