@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
 import 'package:hermes/features/translation/domain/entities/transcript.dart';
 import 'package:hermes/features/translation/domain/entities/translation.dart';
-import 'package:hermes/features/translation/presentation/widgets/partial_transcript_item.dart';
 import 'package:hermes/features/translation/presentation/widgets/transcript_item.dart';
+import 'package:hermes/features/translation/presentation/widgets/partial_transcript_item.dart';
 
 /// Widget to display the list of transcripts and translations
 class TranscriptList extends StatefulWidget {
@@ -50,10 +50,6 @@ class TranscriptList extends StatefulWidget {
 class _TranscriptListState extends State<TranscriptList> {
   final ScrollController _scrollController = ScrollController();
   bool _autoscroll = true;
-  // Add throttling for updates
-  DateTime _lastUpdate = DateTime.now();
-  static const _minimumUpdateInterval = Duration(milliseconds: 100);
-  Timer? _batchUpdateTimer;
   List<Transcript> _visibleTranscripts = [];
   List<Translation> _visibleTranslations = [];
   String _visiblePartialTranscript = '';
@@ -69,34 +65,13 @@ class _TranscriptListState extends State<TranscriptList> {
   void dispose() {
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
-    _batchUpdateTimer?.cancel();
     super.dispose();
   }
 
   @override
   void didUpdateWidget(TranscriptList oldWidget) {
     super.didUpdateWidget(oldWidget);
-
-    // Throttle updates to prevent excessive rebuilds
-    final now = DateTime.now();
-    if (now.difference(_lastUpdate) > _minimumUpdateInterval) {
-      _updateVisibleContentImmediately();
-    } else {
-      // Schedule a batched update
-      _batchUpdateTimer?.cancel();
-      _batchUpdateTimer = Timer(_minimumUpdateInterval, () {
-        if (mounted) {
-          _updateVisibleContentImmediately();
-        }
-      });
-    }
-  }
-
-  void _updateVisibleContentImmediately() {
-    setState(() {
-      _updateVisibleContent();
-      _lastUpdate = DateTime.now();
-    });
+    _updateVisibleContent();
 
     // Scroll to bottom if autoscroll is enabled
     if (_autoscroll) {
@@ -105,9 +80,11 @@ class _TranscriptListState extends State<TranscriptList> {
   }
 
   void _updateVisibleContent() {
-    _visibleTranscripts = List.from(widget.transcripts);
-    _visibleTranslations = List.from(widget.translations);
-    _visiblePartialTranscript = widget.partialTranscript;
+    setState(() {
+      _visibleTranscripts = List.from(widget.transcripts);
+      _visibleTranslations = List.from(widget.translations);
+      _visiblePartialTranscript = widget.partialTranscript;
+    });
   }
 
   void _scrollListener() {
@@ -134,7 +111,7 @@ class _TranscriptListState extends State<TranscriptList> {
         });
       } catch (e) {
         // Log the error but don't crash the app
-        print("Scroll error: $e");
+        debugPrint("Scroll error: $e");
       }
     }
   }
@@ -146,7 +123,6 @@ class _TranscriptListState extends State<TranscriptList> {
       return _buildEmptyState();
     }
 
-    // Use AnimatedList for smoother addition of items
     return Stack(
       children: [
         ListView.builder(
@@ -190,13 +166,16 @@ class _TranscriptListState extends State<TranscriptList> {
   }
 
   Widget _buildEmptyState() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.mic_none, size: 48, color: Colors.grey),
-          SizedBox(height: 16),
-          Text('Waiting for speech...', style: TextStyle(color: Colors.grey)),
+          Icon(Icons.mic_none, size: 48, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            'Waiting for speech...',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
         ],
       ),
     );

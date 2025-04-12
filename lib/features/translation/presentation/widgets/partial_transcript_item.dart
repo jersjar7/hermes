@@ -39,7 +39,7 @@ class PartialTranscriptItem extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.only(bottom: 16.0, top: 8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -54,6 +54,7 @@ class PartialTranscriptItem extends StatelessWidget {
                 border: Border.all(
                   color: Colors.grey.shade400,
                   style: BorderStyle.solid,
+                  width: 1,
                 ),
               ),
               child: Row(
@@ -65,13 +66,22 @@ class PartialTranscriptItem extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      partialText,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontStyle: FontStyle.italic,
-                        color: Colors.grey,
-                      ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            partialText,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontStyle: FontStyle.italic,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        _buildTypingIndicator(),
+                      ],
                     ),
                   ),
                 ],
@@ -81,15 +91,16 @@ class PartialTranscriptItem extends StatelessWidget {
           // Translation (if available)
           if (_shouldShowPartialTranslation())
             Padding(
-              padding: const EdgeInsets.only(top: 8.0),
+              padding: const EdgeInsets.only(top: 4.0),
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
+                  color: Colors.blue.shade100,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Colors.blue.shade200,
+                    color: Colors.blue.shade300,
                     style: BorderStyle.solid,
+                    width: 1,
                   ),
                 ),
                 child: Row(
@@ -103,10 +114,10 @@ class PartialTranscriptItem extends StatelessWidget {
                     Expanded(
                       child: Text(
                         partialTranslation!.targetText,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontStyle: FontStyle.italic,
-                          color: Colors.blue,
+                          color: Colors.blue.shade700,
                         ),
                       ),
                     ),
@@ -116,6 +127,44 @@ class PartialTranscriptItem extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+
+  /// Animated typing indicator
+  Widget _buildTypingIndicator() {
+    return SizedBox(
+      width: 32,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildPulsatingDot(delay: const Duration(milliseconds: 0)),
+          _buildPulsatingDot(delay: const Duration(milliseconds: 200)),
+          _buildPulsatingDot(delay: const Duration(milliseconds: 400)),
+        ],
+      ),
+    );
+  }
+
+  /// Single pulsating dot for typing indicator
+  Widget _buildPulsatingDot({required Duration delay}) {
+    return TweenAnimationBuilder(
+      tween: Tween<double>(begin: 0.3, end: 1.0),
+      duration: const Duration(milliseconds: 600),
+      builder: (context, double value, child) {
+        return Opacity(
+          opacity: value,
+          child: Container(
+            height: 5,
+            width: 5,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade600,
+              shape: BoxShape.circle,
+            ),
+          ),
+        );
+      },
+      onEnd: () {},
+      curve: Curves.easeInOut,
     );
   }
 

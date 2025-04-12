@@ -45,25 +45,45 @@ class RealTimeTranslationController with ChangeNotifier {
            translateTextChunk ?? GetIt.instance<TranslateTextChunk>(),
        _logger = logger ?? GetIt.instance<Logger>();
 
-  void initialize({
+  /// Initialize the controller
+  /// Returns a Future to allow error handling in the widget
+  Future<void> initialize({
     required String sessionId,
     required LanguageSelection sourceLanguage,
     required LanguageSelection targetLanguage,
     bool autoStart = false,
-  }) {
-    _sessionId = sessionId;
-    _sourceLanguage = sourceLanguage;
-    _targetLanguage = targetLanguage;
+  }) async {
+    try {
+      _sessionId = sessionId;
+      _sourceLanguage = sourceLanguage;
+      _targetLanguage = targetLanguage;
 
-    if (autoStart) {
-      startListening();
+      _logger.d(
+        "[RT_CONTROLLER] Initialized with sessionId=$sessionId, "
+        "sourceLanguage=${sourceLanguage.languageCode}, "
+        "targetLanguage=${targetLanguage.languageCode}",
+      );
+
+      if (autoStart) {
+        await startListening();
+      }
+    } catch (e, stackTrace) {
+      _logger.e(
+        "[RT_CONTROLLER] Error during initialization",
+        error: e,
+        stackTrace: stackTrace,
+      );
+      _errorMessage = "Initialization error: $e";
+
+      // Rethrow to allow caller to handle
+      rethrow;
     }
   }
 
   Future<bool> startListening() async {
     if (_isDisposed || _isListening || _sessionId.isEmpty) return false;
 
-    _logger.d("[DEBUG] Starting to listen for transcription");
+    _logger.d("[RT_CONTROLLER] Starting to listen for transcription");
     _isListening = true;
     _errorMessage = null;
     _safeNotifyListeners();
@@ -108,41 +128,74 @@ class RealTimeTranslationController with ChangeNotifier {
           _errorMessage = error.toString();
           _isListening = false;
           _safeNotifyListeners();
+          _logger.e(
+            "[RT_CONTROLLER] Error in transcription stream",
+            error: error,
+          );
         },
         onDone: () {
           if (_isDisposed) return;
           _isListening = false;
           _safeNotifyListeners();
+          _logger.d("[RT_CONTROLLER] Transcription stream completed");
         },
       );
 
       return true;
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (_isDisposed) return false;
       _errorMessage = "Error starting transcription: $e";
       _isListening = false;
       _safeNotifyListeners();
-      return false;
+      _logger.e(
+        "[RT_CONTROLLER] Failed to start listening",
+        error: e,
+        stackTrace: stackTrace,
+      );
+
+      // Rethrow to allow caller to handle
+      rethrow;
     }
   }
 
   Future<void> stopListening() async {
     if (_isDisposed || !_isListening) return;
 
-    await _transcriptionSubscription?.cancel();
-    _transcriptionSubscription = null;
+    _logger.d("[RT_CONTROLLER] Stopping listening");
 
-    await _streamTranscription.stop();
-    _isListening = false;
-    _safeNotifyListeners();
+    try {
+      await _transcriptionSubscription?.cancel();
+      _transcriptionSubscription = null;
+
+      await _streamTranscription.stop();
+      _isListening = false;
+      _safeNotifyListeners();
+
+      _logger.d("[RT_CONTROLLER] Listening stopped successfully");
+    } catch (e, stackTrace) {
+      _logger.e(
+        "[RT_CONTROLLER] Error stopping listening",
+        error: e,
+        stackTrace: stackTrace,
+      );
+      _errorMessage = "Error stopping transcription: $e";
+      _safeNotifyListeners();
+
+      // Rethrow to allow caller to handle
+      rethrow;
+    }
   }
 
-  void toggleListening() {
+  void toggleListening() async {
     if (_isDisposed) return;
-    if (_isListening) {
-      stopListening();
-    } else {
-      startListening();
+    try {
+      if (_isListening) {
+        await stopListening();
+      } else {
+        await startListening();
+      }
+    } catch (e) {
+      _logger.e("[RT_CONTROLLER] Error toggling listening state", error: e);
     }
   }
 
@@ -154,17 +207,29 @@ class RealTimeTranslationController with ChangeNotifier {
     _safeNotifyListeners();
   }
 
-  void changeTargetLanguage(LanguageSelection language) {
+  Future<void> changeTargetLanguage(LanguageSelection language) async {
     if (_isDisposed) return;
     if (_targetLanguage.languageCode == language.languageCode) return;
+
+    _logger.d(
+      "[RT_CONTROLLER] Changing target language from ${_targetLanguage.languageCode} to ${language.languageCode}",
+    );
 
     _targetLanguage = language;
     _translations.clear();
     _lastTranslatedText = '';
     _safeNotifyListeners();
 
+    // Re-translate existing transcripts with new target language
     for (final transcript in _transcripts) {
-      _translateTranscript(transcript);
+      try {
+        await _translateTranscript(transcript);
+      } catch (e) {
+        _logger.e(
+          "[RT_CONTROLLER] Error translating transcript to new language",
+          error: e,
+        );
+      }
     }
   }
 
@@ -195,31 +260,50 @@ class RealTimeTranslationController with ChangeNotifier {
       targetLanguage: _targetLanguage.languageCode,
     );
 
-    final result = await _translateTextChunk(params);
+    try {
+      final result = await _translateTextChunk(params);
 
-    if (_isDisposed) return;
+      if (_isDisposed) return;
 
-    result.fold(
-      (failure) {
-        if (!isPartial) {
-          _errorMessage = failure.message;
+      result.fold(
+        (failure) {
+          if (!isPartial) {
+            _errorMessage = failure.message;
+            _safeNotifyListeners();
+          }
+          _logger.e("[RT_CONTROLLER] Translation failure", error: failure);
+        },
+        (translation) {
+          if (isPartial && _translations.isNotEmpty) {
+            _translations.removeLast();
+          }
+          _translations.add(translation);
+          _lastTranslatedText = transcript.text;
           _safeNotifyListeners();
-        }
-      },
-      (translation) {
-        if (isPartial && _translations.isNotEmpty) {
-          _translations.removeLast();
-        }
-        _translations.add(translation);
-        _lastTranslatedText = transcript.text;
+
+          _logger.d(
+            "[RT_CONTROLLER] Translation successful: ${translation.sourceText.substring(0, min(20, translation.sourceText.length))}... => ${translation.targetText.substring(0, min(20, translation.targetText.length))}...",
+          );
+        },
+      );
+    } catch (e, stackTrace) {
+      _logger.e(
+        "[RT_CONTROLLER] Error translating transcript",
+        error: e,
+        stackTrace: stackTrace,
+      );
+      if (!isPartial) {
+        _errorMessage = "Translation error: $e";
         _safeNotifyListeners();
-      },
-    );
+      }
+    }
   }
 
   void _safeNotifyListeners() {
     if (_isDisposed) {
-      assert(false, "Tried to notifyListeners after controller was disposed.");
+      _logger.w(
+        "[RT_CONTROLLER] Attempted to notify listeners after controller was disposed.",
+      );
       return;
     }
     notifyListeners();
@@ -228,8 +312,17 @@ class RealTimeTranslationController with ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
-    stopListening();
+    _logger.d("[RT_CONTROLLER] Disposing controller");
+
+    // Cancel any ongoing operations
     _translationDebounceTimer?.cancel();
+    stopListening().catchError((e) {
+      _logger.e("[RT_CONTROLLER] Error during disposal", error: e);
+    });
+
     super.dispose();
   }
+
+  // Helper function for safe string truncation
+  int min(int a, int b) => a < b ? a : b;
 }

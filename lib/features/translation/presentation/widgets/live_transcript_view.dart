@@ -30,7 +30,7 @@ class LiveTranscriptView extends StatefulWidget {
     required this.sourceLanguage,
     required this.targetLanguage,
     this.isSpeakerView = false,
-    this.showHeader = true,
+    this.showHeader = false, // Changed to false by default for minimalism
   });
 
   @override
@@ -45,7 +45,6 @@ class _LiveTranscriptViewState extends State<LiveTranscriptView> {
   @override
   void initState() {
     super.initState();
-    // No need to set up error listener yet since we'll handle errors directly
   }
 
   void _handleError(String errorMessage) {
@@ -65,7 +64,7 @@ class _LiveTranscriptViewState extends State<LiveTranscriptView> {
         SnackBar(
           content: Text(_errorMessage ?? "An error occurred"),
           action: SnackBarAction(label: 'Retry', onPressed: _retryConnection),
-          duration: const Duration(seconds: 10),
+          duration: const Duration(seconds: 5),
         ),
       );
     }
@@ -116,16 +115,13 @@ class _LiveTranscriptViewState extends State<LiveTranscriptView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Header (optional)
-            if (widget.showHeader) _buildHeader(),
-
-            // Error banner (new)
+            // Error banner (if present)
             if (_errorMessage != null) _buildErrorBanner(),
 
-            // Reconnecting indicator (new)
+            // Reconnecting indicator
             if (_isReconnecting) _buildReconnectingIndicator(),
 
-            // Real-time translation widget (main content)
+            // Main content
             Expanded(child: _buildTranslationWidget()),
           ],
         ),
@@ -133,50 +129,9 @@ class _LiveTranscriptViewState extends State<LiveTranscriptView> {
     );
   }
 
-  // Method to build the header
-  Widget _buildHeader() {
-    final headerText =
-        widget.isSpeakerView ? 'Your Speech' : 'Live Translation';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      color: Colors.grey.shade200,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            headerText,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade800,
-            ),
-          ),
-          Row(
-            children: [
-              Text(
-                '${widget.sourceLanguage.flagEmoji} → ${widget.targetLanguage.flagEmoji}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: Colors.green,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   // Build translation widget with error handling
   Widget _buildTranslationWidget() {
-    // We need to modify the RealTimeTranslationWidget to accept an onError callback
-    // For now, we'll use the basic widget and handle errors at this level
+    // Handle errors via notifications
     return NotificationListener<ErrorNotification>(
       onNotification: (notification) {
         _handleError(notification.message);
@@ -186,16 +141,38 @@ class _LiveTranscriptViewState extends State<LiveTranscriptView> {
         sessionId: widget.sessionId,
         sourceLanguage: widget.sourceLanguage,
         targetLanguage: widget.targetLanguage,
-        showSourceText:
-            widget.isSpeakerView ||
-            widget.sourceLanguage.languageCode ==
-                widget.targetLanguage.languageCode,
+        showSourceText: true, // Always show source text for speaker
         isSpeakerView: widget.isSpeakerView,
       ),
     );
   }
 
-  // New method to show error banner
+  // Reconnecting indicator
+  Widget _buildReconnectingIndicator() {
+    return Container(
+      color: Colors.amber.shade100,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.amber.shade800),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            "Reconnecting...",
+            style: TextStyle(color: Colors.amber.shade800),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Error banner
   Widget _buildErrorBanner() {
     return Container(
       color: Colors.red.shade100,
@@ -216,28 +193,6 @@ class _LiveTranscriptViewState extends State<LiveTranscriptView> {
             tooltip: 'Retry',
             color: Colors.red.shade800,
           ),
-        ],
-      ),
-    );
-  }
-
-  // New method to show reconnecting indicator
-  Widget _buildReconnectingIndicator() {
-    return Container(
-      color: Colors.amber.shade100,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.amber),
-            ),
-          ),
-          const SizedBox(width: 8),
-          const Text("Reconnecting...", style: TextStyle(color: Colors.amber)),
         ],
       ),
     );

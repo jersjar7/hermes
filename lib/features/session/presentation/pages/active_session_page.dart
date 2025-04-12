@@ -3,23 +3,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
-import 'package:hermes/core/utils/debug_log_helper.dart';
+import 'package:provider/provider.dart';
+import 'package:hermes/core/utils/extensions.dart';
 import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/session/domain/entities/language_selection.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/domain/usecases/end_session.dart';
 import 'package:hermes/features/session/presentation/controllers/active_session_controller.dart';
 import 'package:hermes/features/session/presentation/pages/session_summary_page.dart';
-import 'package:hermes/features/session/presentation/widgets/pre_speaking_view.dart';
-import 'package:hermes/features/session/presentation/widgets/session_action_bar.dart';
-import 'package:hermes/features/session/presentation/widgets/session_status_bar.dart';
-import 'package:hermes/features/session/presentation/widgets/speaking_view.dart';
 import 'package:hermes/features/translation/infrastructure/utils/permission_handler_util.dart';
 import 'package:hermes/features/translation/presentation/controllers/speaker_controller.dart';
-import 'package:hermes/features/translation/presentation/widgets/audio_diagnostic_widget.dart';
-import 'package:hermes/features/translation/presentation/widgets/translation_error_message.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:provider/provider.dart';
+import 'package:hermes/features/translation/presentation/widgets/audio_level_indicator.dart';
+import 'package:hermes/features/translation/presentation/widgets/live_transcript_view.dart';
 
 /// Page for active session for speaker
 class ActiveSessionPage extends StatefulWidget {
@@ -37,9 +32,6 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
     with WidgetsBindingObserver {
   late ActiveSessionController _controller;
   late PermissionHandlerUtil _permissionHandler;
-  late DebugLogHelper _debugLogHelper;
-
-  bool _showDiagnostics = false; // Toggle for showing diagnostic tools
 
   @override
   void initState() {
@@ -53,14 +45,6 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
     );
 
     _permissionHandler = PermissionHandlerUtil(GetIt.instance<Logger>());
-    _debugLogHelper = DebugLogHelper(GetIt.instance<Logger>());
-
-    // Start collecting logs for diagnostics
-    _debugLogHelper.startLogging();
-    _debugLogHelper.log('ActiveSessionPage initialized');
-    _debugLogHelper.log('Session ID: ${widget.session.id}');
-    _debugLogHelper.log('Session name: ${widget.session.name}');
-    _debugLogHelper.log('System info: ${_debugLogHelper.collectSystemInfo()}');
 
     // Add as observer to handle app lifecycle changes
     WidgetsBinding.instance.addObserver(this);
@@ -68,29 +52,15 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Log lifecycle changes
-    _debugLogHelper.log('App lifecycle state changed to: $state');
-
     // If returning to foreground, check permission again
     if (state == AppLifecycleState.resumed &&
         !_controller.hasCheckedPermission) {
-      _debugLogHelper.log('Rechecking microphone permission after resuming');
       _controller.checkMicrophonePermission();
     }
   }
 
   @override
   void dispose() {
-    _debugLogHelper.log('ActiveSessionPage disposing');
-    _debugLogHelper.stopLogging();
-
-    // Save logs before closing
-    _debugLogHelper.saveLogsToFile().then((path) {
-      if (path != null) {
-        print('Debug logs saved to: $path');
-      }
-    });
-
     WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
@@ -98,30 +68,16 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
 
   /// Handle main button (start/pause/resume) press
   void _handleMainButtonPress() async {
-    _debugLogHelper.log(
-      'Main button pressed, isListening=${_controller.isListening}',
-    );
-
     if (_controller.isListening) {
-      _debugLogHelper.log('Toggling pause/resume');
       await _controller.togglePauseResume();
     } else {
-      _debugLogHelper.log('Starting listening');
       final success = await _controller.toggleListening();
-      _debugLogHelper.log('Start listening result: $success');
 
       if (!success && _controller.errorMessage != null) {
-        _debugLogHelper.log('Error occurred: ${_controller.errorMessage}');
-
         if (_controller.isPermissionError && mounted) {
-          _debugLogHelper.log(
-            'Permission error detected, showing settings dialog',
-          );
           _permissionHandler.showPermissionSettingsDialog(
             context,
-            onCancel: () {
-              _debugLogHelper.log('User canceled permission dialog');
-            },
+            onCancel: () {},
           );
         }
       }
@@ -130,14 +86,11 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
 
   /// Handle end session
   void _handleEndSession() async {
-    _debugLogHelper.log('End session button pressed');
     final success = await _controller.endSession();
-    _debugLogHelper.log('End session result: $success');
 
     if (success && mounted) {
       // Calculate session duration
       final sessionDuration = _controller.getSessionDuration();
-      _debugLogHelper.log('Session duration: $sessionDuration');
 
       // Navigate to summary page
       Navigator.pushReplacement(
@@ -157,31 +110,10 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
 
   /// Copy session code to clipboard
   void _copySessionCode() {
-    _debugLogHelper.log('Copy session code button pressed');
     Clipboard.setData(ClipboardData(text: _controller.session.code));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Session code copied to clipboard')),
     );
-  }
-
-  /// Handle retry after error
-  void _handleRetry() async {
-    _debugLogHelper.log('Retry button pressed');
-    await _controller.retryAfterError();
-  }
-
-  /// Open app settings
-  void _handleOpenSettings() async {
-    _debugLogHelper.log('Open settings button pressed');
-    await openAppSettings();
-  }
-
-  /// Toggle diagnostic view
-  void _toggleDiagnosticView() {
-    setState(() {
-      _showDiagnostics = !_showDiagnostics;
-    });
-    _debugLogHelper.log('Diagnostic view toggled: $_showDiagnostics');
   }
 
   @override
@@ -196,45 +128,10 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
       value: _controller,
       child: Consumer<ActiveSessionController>(
         builder: (context, controller, child) {
-          // Log diagnostic data
-          _debugLogHelper.log(
-            'State update: isListening=${controller.isListening}, '
-            'isPaused=${controller.isPaused}, '
-            'isInitializing=${controller.isInitializing}, '
-            'viewState=${controller.viewState}',
-          );
-
-          if (controller.errorMessage != null) {
-            _debugLogHelper.log('Error present: ${controller.errorMessage}');
-          }
-
           return Scaffold(
             appBar: AppBar(
               title: Text(controller.session.name),
               actions: [
-                // Show diagnostics toggle (long press to activate)
-                IconButton(
-                  icon: Icon(
-                    _showDiagnostics ? Icons.bug_report : Icons.info_outline,
-                  ),
-                  onPressed: _toggleDiagnosticView,
-                  tooltip:
-                      _showDiagnostics
-                          ? 'Hide Diagnostics'
-                          : 'Show Diagnostics',
-                ),
-
-                // Show session code in app bar for quick access
-                if (controller.viewState == SessionViewState.speaking)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                      child: Text(
-                        'Code: ${controller.session.code}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
                 IconButton(
                   icon: const Icon(Icons.copy),
                   onPressed: _copySessionCode,
@@ -245,44 +142,38 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
             body: SafeArea(
               child: Column(
                 children: [
-                  // Top bar with consistent info
-                  SessionStatusBar(
-                    isListening: controller.isListening,
-                    isPaused: controller.isPaused,
-                    language: language,
-                    listenerCount: controller.listenerCount,
-                  ),
+                  // Top status bar with language flag and listener count
+                  _buildStatusBar(controller, language),
 
-                  // Diagnostic view if enabled
-                  if (_showDiagnostics)
-                    AudioDiagnosticWidget(
-                      hasMicPermission:
-                          controller.permissionStatus?.isGranted ?? false,
-                      isRecording: controller.isListening,
-                      hasError: controller.errorMessage != null,
-                      errorMessage: controller.errorMessage,
-                      onRequestPermission: _handleOpenSettings,
-                      onRetry: _handleRetry,
-                    ),
+                  // Session details
+                  _buildSessionDetails(controller),
 
-                  // Error message (if any)
+                  // Microphone level indicator (always visible)
+                  _buildMicrophoneIndicator(controller),
+
+                  // Error message if any
                   if (controller.errorMessage != null)
-                    TranslationErrorMessage(
-                      message: controller.errorMessage!,
-                      isPermissionError: controller.isPermissionError,
-                      onRetry: _handleRetry,
-                      onOpenSettings:
-                          controller.isPermissionError
-                              ? _handleOpenSettings
-                              : null,
+                    _buildErrorMessage(controller),
+
+                  // Live transcript (optional/toggleable)
+                  if (controller.isListening && !controller.isInitializing)
+                    Expanded(
+                      child:
+                          controller.showTranscription
+                              ? _buildTranscriptView(controller, language)
+                              : _buildMinimalView(controller),
                     ),
 
-                  // Loading indicator during initialization
+                  // Initial state or when not listening
+                  if (!controller.isListening && !controller.isInitializing)
+                    Expanded(child: _buildPreSpeakingView(controller)),
+
+                  // Loading state
                   if (controller.isInitializing)
-                    const Padding(
-                      padding: EdgeInsets.all(16.0),
+                    const Expanded(
                       child: Center(
                         child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             CircularProgressIndicator(),
                             SizedBox(height: 16),
@@ -292,18 +183,8 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
                       ),
                     ),
 
-                  // Body content based on current state
-                  if (!controller.isInitializing)
-                    Expanded(child: _buildMainContent(controller, language)),
-
                   // Bottom action bar
-                  SessionActionBar(
-                    isListening: controller.isListening,
-                    isPaused: controller.isPaused,
-                    isEnding: controller.isEnding,
-                    onMainActionPressed: _handleMainButtonPress,
-                    onEndSessionPressed: _handleEndSession,
-                  ),
+                  _buildActionBar(controller),
                 ],
               ),
             ),
@@ -313,71 +194,339 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
     );
   }
 
-  Widget _buildMainContent(
+  Widget _buildStatusBar(
     ActiveSessionController controller,
     LanguageSelection language,
   ) {
-    switch (controller.viewState) {
-      case SessionViewState.preSpeaking:
-        return PreSpeakingView(
-          sessionName: controller.session.name,
-          sessionCode: controller.session.code,
-          onCopyTap: _copySessionCode,
-        );
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Speaker's language
+          Row(
+            children: [
+              Text(language.flagEmoji, style: const TextStyle(fontSize: 20)),
+              const SizedBox(width: 8),
+              Text(
+                language.englishName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
 
-      case SessionViewState.speaking:
-        return SpeakingView(
-          sessionId: controller.session.id,
-          sessionName: controller.session.name,
-          sessionCode: controller.session.code,
-          language: language,
-          showTranscription: controller.showTranscription,
-          listenerCount: controller.listenerCount,
-          onToggleTranscriptionVisibility:
-              controller.toggleTranscriptionVisibility,
-        );
+          // Listeners count
+          Row(
+            children: [
+              const Icon(Icons.people, size: 20),
+              const SizedBox(width: 6),
+              Text(
+                '${controller.listenerCount} ${controller.listenerCount == 1 ? 'listener' : 'listeners'}',
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
-      case SessionViewState.error:
-        // Show a simplified view when in error state
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildSessionDetails(ActiveSessionController controller) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Session name
+          Text(
+            'Session: ${controller.session.name}',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            overflow: TextOverflow.ellipsis,
+          ),
+
+          // Session code with copy option
+          InkWell(
+            onTap: _copySessionCode,
+            child: Row(
               children: [
-                const Icon(Icons.mic_off, size: 64, color: Colors.grey),
-                const SizedBox(height: 16),
-                const Text(
-                  'Microphone is not active',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
                 Text(
-                  'Please retry by tapping "Start Speaking" again.',
-                  textAlign: TextAlign.center,
+                  'Code: ${controller.session.code}',
+                  style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
                 ),
-                if (controller.errorDetails != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16.0),
-                    child: Text(
-                      controller.errorDetails!,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                  ),
-
-                // Add a retry button
-                Padding(
-                  padding: const EdgeInsets.only(top: 24.0),
-                  child: ElevatedButton.icon(
-                    onPressed: _handleRetry,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Retry'),
-                  ),
-                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.copy, size: 16),
               ],
             ),
           ),
-        );
-    }
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMicrophoneIndicator(ActiveSessionController controller) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Status indicator and toggle transcript visibility
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Status indicator (speaking/paused/not speaking)
+              Row(
+                children: [
+                  Icon(
+                    controller.isListening
+                        ? controller.isPaused
+                            ? Icons.pause
+                            : Icons.mic
+                        : Icons.mic_off,
+                    color:
+                        controller.isListening
+                            ? controller.isPaused
+                                ? Colors.amber
+                                : Colors.green
+                            : Colors.grey,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    controller.isListening
+                        ? controller.isPaused
+                            ? 'Paused'
+                            : 'Speaking'
+                        : 'Not Speaking',
+                    style: TextStyle(
+                      color:
+                          controller.isListening
+                              ? controller.isPaused
+                                  ? Colors.amber
+                                  : Colors.green
+                              : Colors.grey,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+
+              // Toggle transcript visibility
+              if (controller.isListening)
+                IconButton(
+                  icon: Icon(
+                    controller.showTranscription
+                        ? Icons.visibility
+                        : Icons.visibility_off,
+                    size: 20,
+                  ),
+                  onPressed: controller.toggleTranscriptionVisibility,
+                  tooltip:
+                      controller.showTranscription
+                          ? 'Hide transcription'
+                          : 'Show transcription',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // Audio level visualization
+          AudioLevelIndicator(isListening: controller.isListening),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorMessage(ActiveSessionController controller) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              controller.errorMessage ?? 'An error occurred',
+              style: TextStyle(color: Colors.red.shade700),
+            ),
+          ),
+          TextButton(
+            onPressed: controller.retryAfterError,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(60, 36),
+            ),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTranscriptView(
+    ActiveSessionController controller,
+    LanguageSelection language,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: LiveTranscriptView(
+        sessionId: controller.session.id,
+        sourceLanguage: language,
+        targetLanguage: language,
+        isSpeakerView: true,
+      ),
+    );
+  }
+
+  Widget _buildMinimalView(ActiveSessionController controller) {
+    // Shown when transcript is hidden but speaking is active
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.mic, size: 48, color: Colors.green),
+          const SizedBox(height: 16),
+          const Text(
+            'Actively Speaking',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Your speech is being transcribed and translated',
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${controller.listenerCount} ${controller.listenerCount == 1 ? 'listener' : 'listeners'} connected',
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.visibility),
+            label: const Text('Show Live Transcript'),
+            onPressed: controller.toggleTranscriptionVisibility,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreSpeakingView(ActiveSessionController controller) {
+    // Initial view with instructions
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.record_voice_over, size: 64, color: Colors.grey),
+          const SizedBox(height: 16),
+          const Text(
+            'Ready to Begin?',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+            child: Text(
+              'Press the "Start Speaking" button below when you\'re ready to begin your session.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+            child: Text(
+              'Your speech will be transcribed and translated in real-time for your audience.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionBar(ActiveSessionController controller) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(26),
+            blurRadius: 4,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Start/Pause/Resume button
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _handleMainButtonPress,
+              icon: Icon(_getButtonIcon(controller)),
+              label: Text(_getButtonLabel(controller)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _getButtonColor(controller),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 16),
+
+          // End session button
+          ElevatedButton.icon(
+            onPressed: controller.isEnding ? null : _handleEndSession,
+            icon:
+                controller.isEnding
+                    ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.close),
+            label: const Text('End Session'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey.shade800,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper methods for action bar button
+  IconData _getButtonIcon(ActiveSessionController controller) {
+    if (!controller.isListening) return Icons.mic;
+    return controller.isPaused ? Icons.play_arrow : Icons.pause;
+  }
+
+  String _getButtonLabel(ActiveSessionController controller) {
+    if (!controller.isListening) return 'Start Speaking';
+    return controller.isPaused ? 'Resume Speaking' : 'Pause Speaking';
+  }
+
+  Color _getButtonColor(ActiveSessionController controller) {
+    if (!controller.isListening) return context.theme.colorScheme.primary;
+    return controller.isPaused ? Colors.amber : Colors.green;
   }
 }

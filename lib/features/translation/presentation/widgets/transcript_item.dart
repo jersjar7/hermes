@@ -37,16 +37,8 @@ class TranscriptItem extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Timestamp
-          Text(
-            _formatTimestamp(transcript.timestamp),
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-
-          const SizedBox(height: 4),
-
           // Source text (if enabled)
           if (showSourceText ||
               sourceLanguage.languageCode == targetLanguage.languageCode)
@@ -57,28 +49,49 @@ class TranscriptItem extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.grey.shade300),
               ),
-              child: Row(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    sourceLanguage.flagEmoji,
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
+                  // Small timestamp at the top
+                  Align(
+                    alignment: Alignment.topRight,
                     child: Text(
-                      transcript.text,
-                      style: const TextStyle(fontSize: 16),
+                      _formatTimestamp(transcript.timestamp),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade600,
+                        fontFamily: 'monospace',
+                      ),
                     ),
+                  ),
+                  const SizedBox(height: 4),
+
+                  // Content row with flag and text
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        sourceLanguage.flagEmoji,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          transcript.text,
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
 
-          // Translation (if available)
-          if (translation != null)
+          // Translation (if available and languages differ)
+          if (translation != null &&
+              sourceLanguage.languageCode != targetLanguage.languageCode)
             Padding(
-              padding: EdgeInsets.only(top: showSourceText ? 8.0 : 0.0),
+              padding: const EdgeInsets.only(top: 4.0),
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
