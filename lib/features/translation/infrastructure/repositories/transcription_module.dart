@@ -35,12 +35,4 @@ abstract class TranscriptionModule {
     NetworkChecker networkChecker,
     Logger logger,
   ) => TranscriptionAudioHandler(sttService, networkChecker, logger);
-
-  // Remove this method since we'll register SpeechToTextService directly
-  /*
-  @lazySingleton
-  SpeechToTextService provideSpeechToTextService(Logger logger) {
-    return SpeechToTextService.create(logger);
-  }
-  */
 }
