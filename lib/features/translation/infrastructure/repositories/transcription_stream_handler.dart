@@ -30,8 +30,13 @@ class TranscriptionStreamHandler {
   int _connectionAttempts = 0;
   bool _isRecovering = false;
 
+  // Track ongoing operations
+  final Map<String, Completer<void>> _pendingOperations = {};
+
   /// Creates a new [TranscriptionStreamHandler]
-  TranscriptionStreamHandler(this._sttService, this._networkChecker);
+  TranscriptionStreamHandler(this._sttService, this._networkChecker) {
+    print("[STREAM_HANDLER] TranscriptionStreamHandler created");
+  }
 
   /// Initialize the stream handler and related services
   Future<bool> initialize() async {
@@ -69,6 +74,18 @@ class TranscriptionStreamHandler {
     );
 
     _streamStartTime = DateTime.now();
+
+    // Check for existing session and clean it up first
+    if (_activeSessionIds.containsKey(sessionId) &&
+        _activeSessionIds[sessionId] == true) {
+      print(
+        "[STREAM_HANDLER] Session $sessionId already active, cleaning up first",
+      );
+      cleanupSession(sessionId);
+
+      // Add a small delay to ensure cleanup completes
+      Future.delayed(const Duration(milliseconds: 500), () {});
+    }
 
     // Track this session as active
     _activeSessionIds[sessionId] = true;
@@ -122,7 +139,12 @@ class TranscriptionStreamHandler {
       // Cancel subscription if active
       if (_transcriptionSubscription != null) {
         try {
-          await _transcriptionSubscription!.cancel();
+          await _transcriptionSubscription!.cancel().timeout(
+            const Duration(seconds: 2),
+            onTimeout: () {
+              print("[STREAM_HANDLER] Subscription cancel timed out");
+            },
+          );
           print("[STREAM_HANDLER] Existing subscription canceled");
         } catch (e) {
           print("[STREAM_HANDLER] Error canceling subscription: $e");
@@ -255,6 +277,22 @@ class TranscriptionStreamHandler {
             "[STREAM_HANDLER] Session $sessionId is no longer active after delay, aborting",
           );
           return;
+        }
+
+        // Check if STT service is already streaming and stop it
+        try {
+          await _sttService.stopStreaming().timeout(
+            const Duration(seconds: 1),
+            onTimeout: () {
+              print(
+                "[STREAM_HANDLER] Pre-cleanup stopStreaming timed out (expected)",
+              );
+            },
+          );
+        } catch (e) {
+          print(
+            "[STREAM_HANDLER] Error in pre-cleanup stopStreaming (expected): $e",
+          );
         }
 
         // Start the STT service
@@ -467,10 +505,34 @@ class TranscriptionStreamHandler {
   Future<Either<Failure, void>> stopTranscription() async {
     print("[STREAM_HANDLER] stopTranscription called");
 
+    // Create an operation ID and completer for this operation
+    final operationId = "stop-${DateTime.now().millisecondsSinceEpoch}";
+    final completer = Completer<Either<Failure, void>>();
+    _pendingOperations[operationId] = Completer<void>();
+
+    // Set a timeout to ensure this completes
+    Timer(const Duration(seconds: 5), () {
+      if (!completer.isCompleted) {
+        print("[STREAM_HANDLER] stopTranscription timed out after 5 seconds");
+        completer.complete(const Right(null));
+      }
+      _pendingOperations.remove(operationId);
+    });
+
     try {
       // Stop STT service
       print("[STREAM_HANDLER] Stopping STT service");
-      await _sttService.stopStreaming();
+      try {
+        await _sttService.stopStreaming().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () {
+            print("[STREAM_HANDLER] STT service stop timed out");
+          },
+        );
+      } catch (e) {
+        print("[STREAM_HANDLER] Error stopping STT service: $e");
+        // Continue with cleanup despite errors
+      }
 
       // Clean up stream resources
       await _cleanupExistingStream();
@@ -479,13 +541,28 @@ class TranscriptionStreamHandler {
       _activeSessionIds.clear();
 
       print("[STREAM_HANDLER] Transcription stopped");
-      return const Right(null);
+      if (!completer.isCompleted) {
+        completer.complete(const Right(null));
+      }
     } catch (e, stacktrace) {
       print("[STREAM_HANDLER] Exception in stopTranscription: $e");
       print("[STREAM_HANDLER] Stack trace: $stacktrace");
 
-      return Left(SpeechRecognitionFailure(message: e.toString()));
+      if (!completer.isCompleted) {
+        completer.complete(
+          Left(SpeechRecognitionFailure(message: e.toString())),
+        );
+      }
+    } finally {
+      // Ensure operation is marked complete
+      if (_pendingOperations.containsKey(operationId) &&
+          !_pendingOperations[operationId]!.isCompleted) {
+        _pendingOperations[operationId]!.complete();
+      }
+      _pendingOperations.remove(operationId);
     }
+
+    return completer.future;
   }
 
   /// Pause transcription
@@ -523,13 +600,63 @@ class TranscriptionStreamHandler {
   /// Cleanup a specific session
   void cleanupSession(String sessionId) {
     print("[STREAM_HANDLER] Cleaning up session $sessionId");
+
+    // Mark session as inactive immediately
     if (_activeSessionIds.containsKey(sessionId)) {
-      _activeSessionIds.remove(sessionId);
+      _activeSessionIds[sessionId] = false;
+      // Remove after a short delay to allow pending operations to complete
+      Future.delayed(const Duration(seconds: 1), () {
+        _activeSessionIds.remove(sessionId);
+      });
     }
 
     // If this is the current active session, clean up resources
     if (_isStreamingActive) {
+      // Force stop the STT service
+      try {
+        _sttService.stopStreaming().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () {
+            print("[STREAM_HANDLER] STT service stop timed out during cleanup");
+          },
+        );
+      } catch (e) {
+        print("[STREAM_HANDLER] Error stopping STT service during cleanup: $e");
+      }
+
       _cleanupExistingStream();
+    }
+
+    print("[STREAM_HANDLER] Session $sessionId cleanup completed");
+  }
+
+  /// Clean up all resources
+  Future<void> dispose() async {
+    print("[STREAM_HANDLER] dispose called");
+
+    // Stop any active operations
+    try {
+      // Stop all sessions
+      for (final sessionId in List.from(_activeSessionIds.keys)) {
+        cleanupSession(sessionId);
+      }
+
+      // Wait for pending operations to complete
+      final timeoutFuture = Future.delayed(const Duration(seconds: 5));
+      final pendingOperationsFuture = Future.wait(
+        _pendingOperations.values.map((completer) => completer.future),
+      );
+
+      // Use the timeout to ensure we don't wait forever
+      await Future.any([pendingOperationsFuture, timeoutFuture]);
+
+      // Final cleanup of any remaining resources
+      await _cleanupExistingStream();
+      await _sttService.dispose();
+
+      print("[STREAM_HANDLER] Successfully disposed all resources");
+    } catch (e) {
+      print("[STREAM_HANDLER] Error during dispose: $e");
     }
   }
 }

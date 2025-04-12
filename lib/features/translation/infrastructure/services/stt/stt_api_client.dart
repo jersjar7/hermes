@@ -19,6 +19,10 @@ class SttApiClient {
   // Keep track of the active request
   http.StreamedRequest? _activeRequest;
   bool _isShuttingDown = false;
+  // ADDED: Track if any response has been received
+  bool _receivedFirstResponse = false;
+  // ADDED: Track auth failures
+  bool _authFailureDetected = false;
 
   // Helper function
   int _min(int a, int b) => a < b ? a : b;
@@ -29,6 +33,10 @@ class SttApiClient {
     print(
       "[STT_CLIENT] Initialized with API key: ${_apiKey.isNotEmpty ? _apiKey.substring(0, _min(5, _apiKey.length)) : '(empty)'}...(truncated)",
     );
+    // ADDED: Basic validation
+    if (_apiKey.isEmpty) {
+      print("[STT_CLIENT] WARNING: API key is empty!");
+    }
   }
 
   /// Transcribe audio in streaming mode (v1p1beta1)
@@ -41,6 +49,10 @@ class SttApiClient {
     });
 
     print('[STT_CLIENT] Starting streamingRecognize to: $uri');
+
+    // ADDED: Reset tracking variables
+    _receivedFirstResponse = false;
+    _authFailureDetected = false;
 
     // Reset the shutdown flag
     _isShuttingDown = false;
@@ -77,21 +89,15 @@ class SttApiClient {
     bool streamStarted = false;
     bool hasError = false;
 
-    // Send the configuration as the first message
-    final configJson = jsonEncode({
-      'streamingConfig': config.toStreamingConfig(),
-    });
-
-    print(
-      '[STT_CLIENT] Sending config: ${configJson.substring(0, _min(100, configJson.length))}...',
-    );
-
     // Function to clean up all resources
+    // MOVED: Declare the cleanupResources function before using it
     void cleanupResources() async {
       if (_isShuttingDown) return; // Prevent multiple cleanups
       _isShuttingDown = true;
 
       try {
+        print('[STT_CLIENT] Cleaning up resources...');
+
         // Cancel all subscriptions and close controllers
         await audioController.close();
 
@@ -114,10 +120,36 @@ class SttApiClient {
           }
           _activeRequest = null;
         }
+
+        print('[STT_CLIENT] Resources cleanup completed');
       } catch (e) {
         print('[STT_CLIENT] Error during cleanup: $e');
       }
     }
+
+    // ADDED: Setup timeout timer
+    Timer? timeoutTimer;
+    timeoutTimer = Timer(const Duration(seconds: 15), () {
+      if (!_receivedFirstResponse && !hasError) {
+        print(
+          '[STT_CLIENT] No response received after 15 seconds - timing out',
+        );
+        hasError = true;
+        responseController.addError(
+          SttApiException('No response received from STT API after 15 seconds'),
+        );
+        cleanupResources();
+      }
+    });
+
+    // Send the configuration as the first message
+    final configJson = jsonEncode({
+      'streamingConfig': config.toStreamingConfig(),
+    });
+
+    print(
+      '[STT_CLIENT] Sending config: ${configJson.substring(0, _min(100, configJson.length))}...',
+    );
 
     // Connect the audio stream to the HTTP request
     StreamSubscription? audioSubscription;
@@ -130,6 +162,9 @@ class SttApiClient {
       audioSubscription = audioStream.listen(
         (audioData) {
           if (_isShuttingDown) return; // Skip if we're shutting down
+
+          // ADDED: Skip sending if auth failure detected
+          if (_authFailureDetected) return;
 
           try {
             if (streamedRequest.sink is IOSink) {
@@ -182,6 +217,25 @@ class SttApiClient {
           .then((response) async {
             streamStarted = true;
 
+            // ADDED: Check for auth errors
+            if (response.statusCode == 401 || response.statusCode == 403) {
+              _authFailureDetected = true;
+              hasError = true;
+              final errorBody = await response.stream.bytesToString();
+              print(
+                '[STT_CLIENT] Authentication error: ${response.statusCode}, body: $errorBody',
+              );
+              responseController.addError(
+                SttApiException(
+                  'Authentication error: Please check your Google Cloud API key',
+                  statusCode: response.statusCode,
+                  responseBody: errorBody,
+                ),
+              );
+              cleanupResources();
+              return;
+            }
+
             if (response.statusCode != 200) {
               final errorBody = await response.stream.bytesToString();
               print(
@@ -210,8 +264,33 @@ class SttApiClient {
                   (line) {
                     if (line.trim().isEmpty) return;
 
+                    // ADDED: Record successful response
+                    if (!_receivedFirstResponse) {
+                      _receivedFirstResponse = true;
+                      print('[STT_CLIENT] Received first response from API');
+                      // Cancel timeout timer
+                      timeoutTimer?.cancel();
+                    }
+
                     try {
                       final json = jsonDecode(line);
+
+                      // ADDED: Check for error response
+                      if (json.containsKey('error')) {
+                        print(
+                          '[STT_CLIENT] Received error response: ${json['error']}',
+                        );
+                        if (!hasError) {
+                          hasError = true;
+                          responseController.addError(
+                            SttApiException(
+                              'API error response: ${json['error']}',
+                            ),
+                          );
+                        }
+                        return;
+                      }
+
                       final result = SpeechRecognitionResult.fromJson(json);
 
                       // Only forward non-empty results
@@ -283,14 +362,36 @@ class SttApiClient {
 
     print('[STT_CLIENT] Sending batch STT request to: $uri');
 
+    // ADDED: Add validation
+    if (_apiKey.isEmpty) {
+      throw SttApiException('Google Cloud API key is empty');
+    }
+
     final base64Audio = base64Encode(audioData);
     final requestBody = jsonEncode(config.toJsonWithAudioContent(base64Audio));
 
-    final response = await _httpClient.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: requestBody,
-    );
+    // ADDED: Timeout for batch requests
+    final response = await _httpClient
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: requestBody,
+        )
+        .timeout(
+          const Duration(seconds: 30),
+          onTimeout: () {
+            throw SttApiException('STT API request timed out after 30 seconds');
+          },
+        );
+
+    // ADDED: Better error handling
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw SttApiException(
+        'Authentication error: Please check your Google Cloud API key',
+        statusCode: response.statusCode,
+        responseBody: response.body,
+      );
+    }
 
     if (response.statusCode != 200) {
       throw SttApiException(
@@ -300,19 +401,36 @@ class SttApiClient {
       );
     }
 
-    final responseJson = jsonDecode(response.body);
-    final results = <SpeechRecognitionResult>[];
+    // ADDED: Better response parsing with error handling
+    try {
+      final responseJson = jsonDecode(response.body);
+      final results = <SpeechRecognitionResult>[];
 
-    if (responseJson.containsKey('results')) {
-      for (final result in responseJson['results']) {
-        final parsedResult = SpeechRecognitionResult.fromJson({
-          'results': [result],
-        });
-        results.add(parsedResult);
+      print(
+        '[STT_CLIENT] Received batch response: ${response.body.substring(0, _min(100, response.body.length))}...',
+      );
+
+      if (responseJson.containsKey('error')) {
+        throw SttApiException(
+          'API error response: ${responseJson['error']}',
+          responseBody: response.body,
+        );
       }
-    }
 
-    return results;
+      if (responseJson.containsKey('results')) {
+        for (final result in responseJson['results']) {
+          final parsedResult = SpeechRecognitionResult.fromJson({
+            'results': [result],
+          });
+          results.add(parsedResult);
+        }
+      }
+
+      return results;
+    } catch (e) {
+      print('[STT_CLIENT] Error parsing batch response: $e');
+      throw SttApiException('Error parsing STT response: $e');
+    }
   }
 
   /// Cancel any active request
@@ -320,10 +438,12 @@ class SttApiClient {
     _isShuttingDown = true;
 
     if (_activeRequest != null) {
+      print('[STT_CLIENT] Canceling active request');
       try {
         await _activeRequest?.sink.close();
       } catch (e) {
         // Ignore errors during cancellation
+        print('[STT_CLIENT] Error during request cancellation: $e');
       }
       _activeRequest = null;
     }

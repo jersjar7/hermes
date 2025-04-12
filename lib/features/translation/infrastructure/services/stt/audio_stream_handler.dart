@@ -428,9 +428,22 @@ class AudioStreamHandler {
 
       // Stop recorder if recording
       try {
-        if (await _recorder.isRecording()) {
+        // FIXED: Changed this to properly check recording status and handle errors
+        bool isCurrentlyRecording = false;
+        try {
+          isCurrentlyRecording = await _recorder.isRecording();
+        } catch (e) {
+          print("[AUDIO_HANDLER] Error checking recording status: $e");
+          // Assume it might be recording if we can't check
+          isCurrentlyRecording = true;
+        }
+
+        if (isCurrentlyRecording) {
+          print("[AUDIO_HANDLER] [+${elapsed}ms] Stopping recorder...");
           await _recorder.stop();
-          print("[AUDIO_HANDLER] [+${elapsed}ms] Recorder stopped");
+          print(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Recorder stopped successfully",
+          );
         } else {
           print(
             "[AUDIO_HANDLER] [+${elapsed}ms] Recorder not running, nothing to stop",
@@ -438,7 +451,15 @@ class AudioStreamHandler {
         }
       } catch (e) {
         print("[AUDIO_HANDLER] Error stopping recorder: $e");
-        // Continue regardless
+        // FIXED: Force dispose recorder in case of error
+        try {
+          await _recorder.dispose();
+          print(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Recorder disposed after error",
+          );
+        } catch (disposeError) {
+          print("[AUDIO_HANDLER] Error disposing recorder: $disposeError");
+        }
       }
 
       // Close the stream controller if it exists and isn't closed
@@ -475,6 +496,14 @@ class AudioStreamHandler {
 
     try {
       await stopStreaming();
+
+      // FIXED: Added force disposal of recorder
+      try {
+        await _recorder.dispose();
+        print("[AUDIO_HANDLER] [+${elapsed}ms] Recorder disposed");
+      } catch (e) {
+        print("[AUDIO_HANDLER] Error disposing recorder: $e");
+      }
 
       // Clean up initialization completer if needed
       if (_initializationCompleter != null &&

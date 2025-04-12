@@ -29,7 +29,7 @@ class SpeakerController with ChangeNotifier {
   final List<Transcript> _transcripts = [];
   String _partialTranscript = '';
   bool _hasPermission = false;
-  bool _isInitializing = false; // New flag to track initialization
+  bool _isInitializing = false; // Track initialization
   DateTime? _startListeningTime; // Track when listening started
 
   /// Creates a new [SpeakerController]
@@ -109,7 +109,7 @@ class SpeakerController with ChangeNotifier {
     return (false, status);
   }
 
-  // Add this to SpeakerController
+  /// Test microphone functionality
   Future<bool> testMicrophone() async {
     _logger.d("[TEST] Testing microphone access");
 

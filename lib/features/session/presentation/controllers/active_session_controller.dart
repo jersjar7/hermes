@@ -39,6 +39,9 @@ class ActiveSessionController with ChangeNotifier {
   bool _showTranscription = true;
   int _errorCount = 0; // Track error occurrences
 
+  // ADDED: Track if controller is disposed
+  bool _isDisposed = false;
+
   // Timers and subscriptions
   Timer? _listenerUpdateTimer;
   StreamSubscription? _sessionSubscription;
@@ -141,7 +144,9 @@ class ActiveSessionController with ChangeNotifier {
       }
     }
 
-    notifyListeners();
+    if (!_isDisposed) {
+      notifyListeners();
+    }
   }
 
   /// Set up timer to periodically update listener count
@@ -149,7 +154,9 @@ class ActiveSessionController with ChangeNotifier {
     // Update listener count periodically
     _listenerUpdateTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _listenerCount = _session.listeners.length;
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
     });
 
     // In a real implementation, you would subscribe to session updates
@@ -169,7 +176,9 @@ class ActiveSessionController with ChangeNotifier {
 
     if (status.isGranted) {
       _hasCheckedPermission = true;
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
       return true;
     }
 
@@ -181,7 +190,9 @@ class ActiveSessionController with ChangeNotifier {
       final requestResult = await Permission.microphone.request();
 
       _hasCheckedPermission = true;
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
 
       if (requestResult.isGranted) {
         return true;
@@ -202,12 +213,16 @@ class ActiveSessionController with ChangeNotifier {
     // Clear any previous error when attempting to start
     _errorMessage = null;
     _errorDetails = null;
-    notifyListeners();
+    if (!_isDisposed) {
+      notifyListeners();
+    }
 
     if (isListening) {
       await _speakerController.stopListening();
       _viewState = SessionViewState.preSpeaking;
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
       return false;
     } else {
       // Check permission first
@@ -220,7 +235,9 @@ class ActiveSessionController with ChangeNotifier {
         );
 
         // Show initializing state immediately
-        notifyListeners();
+        if (!_isDisposed) {
+          notifyListeners();
+        }
 
         final success = await _speakerController.startListening();
 
@@ -234,12 +251,16 @@ class ActiveSessionController with ChangeNotifier {
           _viewState = SessionViewState.speaking;
         }
 
-        notifyListeners();
+        if (!_isDisposed) {
+          notifyListeners();
+        }
         return success;
       } else {
         _errorMessage = 'Microphone permission is required to use this feature';
         _viewState = SessionViewState.error;
-        notifyListeners();
+        if (!_isDisposed) {
+          notifyListeners();
+        }
         return false;
       }
     }
@@ -269,13 +290,17 @@ class ActiveSessionController with ChangeNotifier {
         _errorMessage = _speakerController.errorMessage;
       }
 
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
       return success;
     } catch (e) {
       _logger.e("[SESSION_CONTROLLER] Error in togglePauseResume", error: e);
       _errorMessage = e.toString();
       _errorDetails = "Failed to ${isPaused ? 'resume' : 'pause'} listening";
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
       return false;
     }
   }
@@ -285,7 +310,9 @@ class ActiveSessionController with ChangeNotifier {
     _logger.d("[SESSION_CONTROLLER] endSession called");
     _isEnding = true;
     _errorMessage = null;
-    notifyListeners();
+    if (!_isDisposed) {
+      notifyListeners();
+    }
 
     try {
       // Stop listening if active
@@ -293,7 +320,20 @@ class ActiveSessionController with ChangeNotifier {
         _logger.d(
           "[SESSION_CONTROLLER] Stopping active listening before ending session",
         );
-        await _speakerController.stopListening();
+        // FIXED: Force-stop with timeout to ensure completion
+        bool stoppedSuccessfully = false;
+        try {
+          await _speakerController.stopListening().timeout(
+            const Duration(seconds: 5),
+          );
+          stoppedSuccessfully = true;
+        } catch (e) {
+          _logger.e("[SESSION_CONTROLLER] Error stopping listening", error: e);
+        }
+
+        _logger.d(
+          "[SESSION_CONTROLLER] Listening stopped: $stoppedSuccessfully",
+        );
       }
 
       _logger.d("[SESSION_CONTROLLER] Calling endSession use case");
@@ -306,13 +346,17 @@ class ActiveSessionController with ChangeNotifier {
           _errorDetails = "Failed to end session on the server";
           _isEnding = false;
           _logger.e("[SESSION_CONTROLLER] End session failure", error: failure);
-          notifyListeners();
+          if (!_isDisposed) {
+            notifyListeners();
+          }
           return false;
         },
         (endedSession) {
           _session = endedSession;
           _logger.d("[SESSION_CONTROLLER] Session ended successfully");
-          notifyListeners();
+          if (!_isDisposed) {
+            notifyListeners();
+          }
           return true;
         },
       );
@@ -321,7 +365,9 @@ class ActiveSessionController with ChangeNotifier {
       _errorDetails = "Unexpected error when ending session";
       _isEnding = false;
       _logger.e("[SESSION_CONTROLLER] Error ending session", error: e);
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
       return false;
     }
   }
@@ -332,7 +378,9 @@ class ActiveSessionController with ChangeNotifier {
     _logger.d(
       "[SESSION_CONTROLLER] Toggled transcription visibility: $_showTranscription",
     );
-    notifyListeners();
+    if (!_isDisposed) {
+      notifyListeners();
+    }
   }
 
   /// Retry after error
@@ -343,7 +391,9 @@ class ActiveSessionController with ChangeNotifier {
     _errorMessage = null;
     _errorDetails = null;
     _viewState = SessionViewState.preSpeaking;
-    notifyListeners();
+    if (!_isDisposed) {
+      notifyListeners();
+    }
 
     // Attempt to start listening again
     return await toggleListening();
@@ -356,9 +406,56 @@ class ActiveSessionController with ChangeNotifier {
 
   @override
   void dispose() {
-    _listenerUpdateTimer?.cancel();
-    _sessionSubscription?.cancel();
-    _speakerControllerSubscription?.cancel();
+    _isDisposed = true;
+    _logger.d("[SESSION_CONTROLLER] dispose called, cleaning up resources");
+
+    // FIXED: Ensure proper cleanup
+    _cleanupResources();
     super.dispose();
+  }
+
+  /// Clean up all resources
+  void _cleanupResources() {
+    try {
+      // Cancel timer
+      if (_listenerUpdateTimer != null) {
+        _listenerUpdateTimer?.cancel();
+        _listenerUpdateTimer = null;
+        _logger.d("[SESSION_CONTROLLER] Listener update timer canceled");
+      }
+
+      // Cancel session subscription
+      if (_sessionSubscription != null) {
+        _sessionSubscription?.cancel();
+        _sessionSubscription = null;
+        _logger.d("[SESSION_CONTROLLER] Session subscription canceled");
+      }
+
+      // Cancel speaker controller subscription
+      if (_speakerControllerSubscription != null) {
+        _speakerControllerSubscription?.cancel();
+        _speakerControllerSubscription = null;
+        _logger.d(
+          "[SESSION_CONTROLLER] Speaker controller subscription canceled",
+        );
+      }
+
+      // Force stop listening if still active
+      if (isListening) {
+        _logger.d(
+          "[SESSION_CONTROLLER] Force stopping listening during cleanup",
+        );
+        _speakerController.stopListening().catchError((e) {
+          _logger.e(
+            "[SESSION_CONTROLLER] Error stopping listening during cleanup",
+            error: e,
+          );
+        });
+      }
+
+      _logger.d("[SESSION_CONTROLLER] Resources cleanup completed");
+    } catch (e) {
+      _logger.e("[SESSION_CONTROLLER] Error during resource cleanup", error: e);
+    }
   }
 }
