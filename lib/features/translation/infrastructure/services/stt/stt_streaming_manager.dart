@@ -160,8 +160,10 @@ class SttStreamingManager {
             "[STT_STREAM] [+${listenElapsed}ms] Received STT result: '${result.transcript}' (final: ${result.isFinal})",
           );
 
+          // FIX: Add proper null, closure and listener check
           if (_resultStreamController != null &&
-              !_resultStreamController!.isClosed) {
+              !_resultStreamController!.isClosed &&
+              _resultStreamController!.hasListener) {
             _resultStreamController!.add(result);
           }
         },
@@ -176,8 +178,10 @@ class SttStreamingManager {
             error: error,
           );
 
+          // FIX: Add proper null, closure and listener check
           if (_resultStreamController != null &&
-              !_resultStreamController!.isClosed) {
+              !_resultStreamController!.isClosed &&
+              _resultStreamController!.hasListener) {
             _resultStreamController!.addError(error);
           }
         },
@@ -192,8 +196,10 @@ class SttStreamingManager {
         stackTrace: stacktrace,
       );
 
+      // FIX: Add proper null and closure check
       if (_resultStreamController != null &&
-          !_resultStreamController!.isClosed) {
+          !_resultStreamController!.isClosed &&
+          _resultStreamController!.hasListener) {
         _resultStreamController!.addError(
           e is Exception ? e : Exception('Error: $e'),
         );
@@ -241,17 +247,24 @@ class SttStreamingManager {
       }
 
       // Close result stream controller if open
-      if (_resultStreamController != null &&
-          !_resultStreamController!.isClosed) {
-        _logger.d(
-          "[STT_STREAM] [+${elapsed}ms] Closing result stream controller",
-        );
-        await _resultStreamController!.close();
-        _resultStreamController = null;
+      if (_resultStreamController != null) {
+        try {
+          if (!_resultStreamController!.isClosed) {
+            _logger.d(
+              "[STT_STREAM] [+${elapsed}ms] Closing result stream controller",
+            );
+            await _resultStreamController!.close();
+          }
+        } catch (e) {
+          _logger.e("[STT_STREAM] Error closing stream controller", error: e);
+        } finally {
+          _resultStreamController = null;
+        }
       }
 
       _isRecording = false;
       _isPaused = false;
+      _state = StreamingState.idle;
 
       _logger.d("[STT_STREAM] [+${elapsed}ms] Streaming stopped successfully");
     } catch (e, stacktrace) {

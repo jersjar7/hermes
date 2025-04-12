@@ -42,6 +42,12 @@ class AudioStreamHandler {
     _logger.d("[AUDIO_HANDLER] AudioStreamHandler created");
   }
 
+  /// Check if the audio stream controller is valid for operations
+  bool _isAudioStreamControllerValid() {
+    return !_audioStreamController.isClosed &&
+        _audioStreamController.hasListener;
+  }
+
   /// Initialize the audio handler
   Future<bool> init() async {
     final elapsed =
@@ -162,11 +168,19 @@ class AudioStreamHandler {
       _isPaused = false;
 
       // Check if already recording and stop if needed
-      if (await _recorder.isRecording()) {
-        _logger.d(
-          "[AUDIO_HANDLER] [+${elapsed}ms] Already recording, stopping first",
+      try {
+        if (await _recorder.isRecording()) {
+          _logger.d(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Already recording, stopping first",
+          );
+          await _recorder.stop();
+        }
+      } catch (e) {
+        _logger.e(
+          "[AUDIO_HANDLER] [+${elapsed}ms] Error checking recorder state",
+          error: e,
         );
-        await _recorder.stop();
+        // Continue anyway, since we'll try to start recording
       }
 
       // Configure recording
@@ -192,10 +206,8 @@ class AudioStreamHandler {
       // Subscribe to the stream
       _audioSubscription = audioStream.listen(
         (data) {
-          if (_isStreaming && !_isPaused) {
-            if (!_audioStreamController.isClosed) {
-              _audioStreamController.add(data);
-            }
+          if (_isStreaming && !_isPaused && _isAudioStreamControllerValid()) {
+            _audioStreamController.add(data);
 
             // Log data occasionally but not for every chunk to avoid excessive logging
             if (DateTime.now().millisecondsSinceEpoch % 1000 < 200) {
@@ -208,7 +220,7 @@ class AudioStreamHandler {
         },
         onError: (error) {
           _logger.e("[AUDIO_HANDLER] Error in audio stream", error: error);
-          if (!_audioStreamController.isClosed) {
+          if (_isAudioStreamControllerValid()) {
             _audioStreamController.addError(error);
           }
         },
@@ -218,16 +230,21 @@ class AudioStreamHandler {
       );
 
       // Monitor amplitude for debugging
-      _amplitudeSubscription = _recorder
-          .onAmplitudeChanged(const Duration(milliseconds: 300))
-          .listen((amp) {
-            if (DateTime.now().millisecondsSinceEpoch % 3000 < 300) {
-              // Log less frequently
-              _logger.d(
-                "[AUDIO_HANDLER] Amplitude: ${amp.current}, Max: ${amp.max}",
-              );
-            }
-          });
+      try {
+        _amplitudeSubscription = _recorder
+            .onAmplitudeChanged(const Duration(milliseconds: 300))
+            .listen((amp) {
+              if (DateTime.now().millisecondsSinceEpoch % 3000 < 300) {
+                // Log less frequently
+                _logger.d(
+                  "[AUDIO_HANDLER] Amplitude: ${amp.current}, Max: ${amp.max}",
+                );
+              }
+            });
+      } catch (e) {
+        // Not critical if amplitude monitoring fails
+        _logger.d("[AUDIO_HANDLER] Could not monitor amplitude", error: e);
+      }
 
       _logger.d(
         "[AUDIO_HANDLER] [+${elapsed}ms] Audio streaming started successfully",
@@ -239,7 +256,19 @@ class AudioStreamHandler {
         error: e,
         stackTrace: stackTrace,
       );
-      await stopStreaming();
+      // Clean up in case of error
+      try {
+        await stopStreaming();
+      } catch (cleanupError) {
+        _logger.e(
+          "[AUDIO_HANDLER] [+${elapsed}ms] Error during cleanup after failed start",
+          error: cleanupError,
+        );
+      }
+
+      // Ensure state is reset regardless of cleanup success
+      _isStreaming = false;
+      _isPaused = false;
       return false;
     }
   }
@@ -256,14 +285,23 @@ class AudioStreamHandler {
     if (!_isStreaming || _isPaused) return;
 
     try {
-      _isPaused = true;
-      if (await _recorder.isRecording()) {
-        await _recorder.pause();
-        _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] Recorder paused");
-      } else {
-        _logger.d(
-          "[AUDIO_HANDLER] [+${elapsed}ms] Recorder not running, nothing to pause",
+      _isPaused = true; // Set state first in case of error
+
+      try {
+        if (await _recorder.isRecording()) {
+          await _recorder.pause();
+          _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] Recorder paused");
+        } else {
+          _logger.d(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Recorder not running, nothing to pause",
+          );
+        }
+      } catch (e) {
+        _logger.e(
+          "[AUDIO_HANDLER] [+${elapsed}ms] Error during recorder pause",
+          error: e,
         );
+        // State is already set to paused, so continue
       }
     } catch (e, stackTrace) {
       _logger.e(
@@ -271,6 +309,8 @@ class AudioStreamHandler {
         error: e,
         stackTrace: stackTrace,
       );
+      // Ensure state is correctly set even after error
+      _isPaused = true;
     }
   }
 
@@ -286,15 +326,26 @@ class AudioStreamHandler {
     if (!_isStreaming || !_isPaused) return;
 
     try {
-      _isPaused = false;
-      await _recorder.resume();
-      _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] Recorder resumed");
+      _isPaused = false; // Set state first in case of error
+
+      try {
+        await _recorder.resume();
+        _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] Recorder resumed");
+      } catch (e) {
+        _logger.e(
+          "[AUDIO_HANDLER] [+${elapsed}ms] Error during recorder resume",
+          error: e,
+        );
+        // State is already set to not paused, so continue
+      }
     } catch (e, stackTrace) {
       _logger.e(
         "[AUDIO_HANDLER] [+${elapsed}ms] Error resuming audio streaming",
         error: e,
         stackTrace: stackTrace,
       );
+      // Ensure state is correctly set even after error
+      _isPaused = false;
     }
   }
 
@@ -307,26 +358,65 @@ class AudioStreamHandler {
 
     _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] stopStreaming called");
 
+    // Set state flags immediately to prevent concurrent operations
+    bool wasStreaming = _isStreaming;
     _isStreaming = false;
     _isPaused = false;
 
+    if (!wasStreaming) {
+      _logger.d(
+        "[AUDIO_HANDLER] [+${elapsed}ms] Not streaming, nothing to stop",
+      );
+      return;
+    }
+
     try {
       // Cancel subscriptions first
-      await _audioSubscription?.cancel();
-      _audioSubscription = null;
+      if (_audioSubscription != null) {
+        try {
+          await _audioSubscription?.cancel();
+          _logger.d(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Audio subscription canceled",
+          );
+        } catch (e) {
+          _logger.e(
+            "[AUDIO_HANDLER] Error cancelling audio subscription",
+            error: e,
+          );
+        } finally {
+          _audioSubscription = null;
+        }
+      }
 
-      await _amplitudeSubscription?.cancel();
-      _amplitudeSubscription = null;
-      _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] Audio subscriptions canceled");
+      if (_amplitudeSubscription != null) {
+        try {
+          await _amplitudeSubscription?.cancel();
+          _logger.d(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Amplitude subscription canceled",
+          );
+        } catch (e) {
+          _logger.e(
+            "[AUDIO_HANDLER] Error cancelling amplitude subscription",
+            error: e,
+          );
+        } finally {
+          _amplitudeSubscription = null;
+        }
+      }
 
       // Stop recorder if recording
-      if (await _recorder.isRecording()) {
-        await _recorder.stop();
-        _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] Recorder stopped");
-      } else {
-        _logger.d(
-          "[AUDIO_HANDLER] [+${elapsed}ms] Recorder not running, nothing to stop",
-        );
+      try {
+        if (await _recorder.isRecording()) {
+          await _recorder.stop();
+          _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] Recorder stopped");
+        } else {
+          _logger.d(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Recorder not running, nothing to stop",
+          );
+        }
+      } catch (e) {
+        _logger.e("[AUDIO_HANDLER] Error stopping recorder", error: e);
+        // Continue regardless
       }
     } catch (e, stackTrace) {
       _logger.e(
@@ -334,6 +424,10 @@ class AudioStreamHandler {
         error: e,
         stackTrace: stackTrace,
       );
+    } finally {
+      // Ensure all state is reset properly
+      _isStreaming = false;
+      _isPaused = false;
     }
   }
 
@@ -346,17 +440,34 @@ class AudioStreamHandler {
 
     _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] dispose called");
 
-    await stopStreaming();
+    try {
+      await stopStreaming();
 
-    // Close stream controller if not already closed
-    if (!_audioStreamController.isClosed) {
-      await _audioStreamController.close();
-      _logger.d(
-        "[AUDIO_HANDLER] [+${elapsed}ms] Audio stream controller closed",
-      );
+      // Close stream controller if not already closed
+      if (!_audioStreamController.isClosed) {
+        try {
+          await _audioStreamController.close();
+          _logger.d(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Audio stream controller closed",
+          );
+        } catch (e) {
+          _logger.e(
+            "[AUDIO_HANDLER] Error closing stream controller",
+            error: e,
+          );
+        }
+      } else {
+        _logger.d("[AUDIO_HANDLER] Stream controller already closed");
+      }
+    } catch (e) {
+      _logger.e("[AUDIO_HANDLER] Error during dispose", error: e);
+    } finally {
+      // Always reset state even if errors occur
+      _isInitialized = false;
+      _isInitializing = false;
+      _isStreaming = false;
+      _isPaused = false;
+      _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] AudioStreamHandler disposed");
     }
-
-    _isInitialized = false;
-    _logger.d("[AUDIO_HANDLER] [+${elapsed}ms] AudioStreamHandler disposed");
   }
 }
