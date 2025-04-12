@@ -1,9 +1,10 @@
-// lib/features/translation/infrastructure/repositories/TranscriptionAudioHandler.dart
+// lib/features/translation/infrastructure/repositories/transcription_audio_handler.dart
 
 import 'dart:typed_data';
 
-import 'package:dartz/dartz.dart';
 import 'package:injectable/injectable.dart';
+
+import 'package:dartz/dartz.dart';
 import 'package:uuid/uuid.dart';
 import 'package:hermes/core/errors/failure.dart';
 import 'package:hermes/core/services/network_checker.dart';
@@ -20,7 +21,7 @@ class TranscriptionAudioHandler {
 
   /// Creates a new [TranscriptionAudioHandler]
   TranscriptionAudioHandler(
-    this._sttService,
+    @Named("transcriptionSttService") this._sttService,
     this._networkChecker,
     this._logger,
   );

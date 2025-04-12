@@ -1,17 +1,17 @@
-// lib/features/translation/infrastructure/repositories/TranscriptionRepositoryImpl.dart
+// lib/features/translation/infrastructure/repositories/transcription_repo_impl.dart
 
 import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dartz/dartz.dart';
+import 'package:hermes/features/translation/infrastructure/repositories/transcription_stream_handler.dart';
 import 'package:injectable/injectable.dart';
 import 'package:hermes/core/errors/failure.dart';
 import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/translation/domain/entities/transcript.dart';
 import 'package:hermes/features/translation/domain/repositories/transcription_repository.dart';
-import 'package:hermes/features/translation/infrastructure/repositories/TranscriptionStreamHandler.dart';
-import 'package:hermes/features/translation/infrastructure/repositories/TranscriptionFirestoreHandler.dart';
-import 'package:hermes/features/translation/infrastructure/repositories/TranscriptionAudioHandler.dart';
+import 'package:hermes/features/translation/infrastructure/repositories/transcription_firestore_handler.dart';
+import 'package:hermes/features/translation/infrastructure/repositories/transcription_audio_handler.dart';
 
 /// Implementation of [TranscriptionRepository]
 @LazySingleton(as: TranscriptionRepository)
@@ -23,7 +23,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
 
   /// Creates a new [TranscriptionRepositoryImpl]
   TranscriptionRepositoryImpl(
-    this._streamHandler,
+    @Named("transcriptionStreamHandler") this._streamHandler,
     this._firestoreHandler,
     this._audioHandler,
     this._logger,

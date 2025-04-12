@@ -1,26 +1,26 @@
-// lib/features/translation/infrastructure/repositories/TranscriptionModule.dart
+// lib/features/translation/infrastructure/repositories/transcription_module.dart
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:injectable/injectable.dart';
 import 'package:hermes/core/services/network_checker.dart';
 import 'package:hermes/core/utils/logger.dart';
-import 'package:hermes/features/translation/infrastructure/repositories/TranscriptionAudioHandler.dart';
-import 'package:hermes/features/translation/infrastructure/repositories/TranscriptionFirestoreHandler.dart';
-import 'package:hermes/features/translation/infrastructure/repositories/TranscriptionStreamHandler.dart';
+import 'package:hermes/features/translation/infrastructure/repositories/transcription_audio_handler.dart';
+import 'package:hermes/features/translation/infrastructure/repositories/transcription_firestore_handler.dart';
+import 'package:hermes/features/translation/infrastructure/repositories/transcription_stream_handler.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_service.dart';
 
 /// Provides dependencies for the transcription handlers
 @module
 abstract class TranscriptionModule {
-  /// Provides [TranscriptionStreamHandler]
+  // We need to rename this method to avoid conflicts
   @lazySingleton
+  @Named("transcriptionStreamHandler")
   TranscriptionStreamHandler provideTranscriptionStreamHandler(
     SpeechToTextService sttService,
     NetworkChecker networkChecker,
     Logger logger,
   ) => TranscriptionStreamHandler(sttService, networkChecker, logger);
 
-  /// Provides [TranscriptionFirestoreHandler]
   @lazySingleton
   TranscriptionFirestoreHandler provideTranscriptionFirestoreHandler(
     FirebaseFirestore firestore,
@@ -28,7 +28,6 @@ abstract class TranscriptionModule {
     Logger logger,
   ) => TranscriptionFirestoreHandler(firestore, networkChecker, logger);
 
-  /// Provides [TranscriptionAudioHandler]
   @lazySingleton
   TranscriptionAudioHandler provideTranscriptionAudioHandler(
     SpeechToTextService sttService,
@@ -36,8 +35,8 @@ abstract class TranscriptionModule {
     Logger logger,
   ) => TranscriptionAudioHandler(sttService, networkChecker, logger);
 
-  /// Provides [SpeechToTextService]
   @lazySingleton
+  @Named("transcriptionSttService")
   SpeechToTextService provideSpeechToTextService(Logger logger) {
     return SpeechToTextService.create(logger);
   }

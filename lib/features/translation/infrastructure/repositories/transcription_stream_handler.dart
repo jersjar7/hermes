@@ -1,4 +1,4 @@
-// lib/features/translation/infrastructure/repositories/TranscriptionStreamHandler.dart
+// lib/features/translation/infrastructure/repositories/transcription_stream_handler.dart
 
 import 'dart:async';
 
@@ -13,6 +13,7 @@ import 'package:hermes/features/translation/infrastructure/services/stt/stt_exce
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_service.dart';
 
 /// Handles streaming functionality for transcription
+@injectable
 class TranscriptionStreamHandler {
   final SpeechToTextService _sttService;
   final NetworkChecker _networkChecker;
@@ -30,7 +31,7 @@ class TranscriptionStreamHandler {
 
   /// Creates a new [TranscriptionStreamHandler]
   TranscriptionStreamHandler(
-    this._sttService,
+    @Named("transcriptionSttService") this._sttService,
     this._networkChecker,
     this._logger,
   );

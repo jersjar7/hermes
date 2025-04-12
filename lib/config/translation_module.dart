@@ -26,6 +26,7 @@ abstract class TranslationInjectableModule {
 
   /// Provides [SpeechToTextService]
   @lazySingleton
+  @Named("translationSttService")
   SpeechToTextService provideSpeechToTextService(Logger logger) =>
       SpeechToTextService.create(logger);
 
