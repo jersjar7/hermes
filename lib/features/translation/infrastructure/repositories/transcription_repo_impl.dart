@@ -50,10 +50,13 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     required String sessionId,
     required String languageCode,
   }) {
+    _logger.d("[CRITICAL_DEBUG] Repository.streamTranscription called");
     _logger.d(
       "[REPO_DEBUG] streamTranscription called with languageCode=$languageCode",
     );
-
+    _logger.d(
+      "[CRITICAL_DEBUG] About to call streamHandler.streamTranscription",
+    );
     return _streamHandler.streamTranscription(
       sessionId: sessionId,
       languageCode: languageCode,

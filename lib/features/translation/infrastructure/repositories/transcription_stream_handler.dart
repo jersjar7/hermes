@@ -61,6 +61,7 @@ class TranscriptionStreamHandler {
     required String sessionId,
     required String languageCode,
   }) {
+    print("[CRITICAL_DEBUG] StreamHandler.streamTranscription starting");
     _logger.d(
       "[STREAM_HANDLER] streamTranscription called with languageCode=$languageCode",
     );

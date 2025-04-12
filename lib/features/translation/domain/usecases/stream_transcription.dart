@@ -19,6 +19,7 @@ class StreamTranscription {
   ///
   /// Returns a stream of transcripts
   Stream<Either<Failure, Transcript>> call(StreamTranscriptionParams params) {
+    print("[CRITICAL_DEBUG] StreamTranscription.call starting");
     print(
       "[USECASE_DEBUG] call method invoked with params: sessionId=${params.sessionId}, languageCode=${params.languageCode}",
     );
