@@ -80,6 +80,11 @@ class ActiveSessionController with ChangeNotifier {
     _initialize();
   }
 
+  // Add this method to ActiveSessionController
+  Future<bool> testMicrophone() async {
+    return _speakerController.testMicrophone();
+  }
+
   /// Initialize the controller
   void _initialize() {
     _logger.d("[SESSION_CONTROLLER] Initializing controller");

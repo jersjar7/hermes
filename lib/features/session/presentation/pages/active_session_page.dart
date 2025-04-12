@@ -71,14 +71,24 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
     if (_controller.isListening) {
       await _controller.togglePauseResume();
     } else {
-      final success = await _controller.toggleListening();
+      // Test the microphone first
+      final micWorks = await _controller.testMicrophone();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Microphone test: ${micWorks ? 'SUCCESS' : 'FAILED'}'),
+        ),
+      );
 
-      if (!success && _controller.errorMessage != null) {
-        if (_controller.isPermissionError && mounted) {
-          _permissionHandler.showPermissionSettingsDialog(
-            context,
-            onCancel: () {},
-          );
+      if (micWorks) {
+        final success = await _controller.toggleListening();
+
+        if (!success && _controller.errorMessage != null) {
+          if (_controller.isPermissionError && mounted) {
+            _permissionHandler.showPermissionSettingsDialog(
+              context,
+              onCancel: () {},
+            );
+          }
         }
       }
     }

@@ -44,12 +44,6 @@ class AudioStreamHandler {
     _audioStreamController = StreamController<Uint8List>.broadcast();
   }
 
-  /// Check if the audio stream controller is valid for operations
-  bool _isAudioStreamControllerValid() {
-    return !_audioStreamController.isClosed &&
-        _audioStreamController.hasListener;
-  }
-
   /// Initialize the audio handler
   Future<bool> init() async {
     final elapsed =

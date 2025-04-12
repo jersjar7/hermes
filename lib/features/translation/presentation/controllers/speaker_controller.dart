@@ -1,7 +1,9 @@
 // lib/features/translation/presentation/controllers/speaker_controller.dart
 
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:hermes/core/errors/failure.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_exceptions.dart';
@@ -10,6 +12,7 @@ import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/translation/domain/entities/transcript.dart';
 import 'package:hermes/features/translation/domain/usecases/stream_transcription.dart';
+import 'package:record/record.dart';
 
 /// Controller for speaker functionality
 @injectable
@@ -104,6 +107,65 @@ class SpeakerController with ChangeNotifier {
     }
 
     return (false, status);
+  }
+
+  // Add this to SpeakerController
+  Future<bool> testMicrophone() async {
+    _logger.d("[TEST] Testing microphone access");
+
+    try {
+      // Check permission explicitly
+      final status = await Permission.microphone.request();
+      _logger.d("[TEST] Microphone permission status: $status");
+
+      if (status != PermissionStatus.granted) {
+        _logger.d("[TEST] Permission denied: $status");
+        return false;
+      }
+
+      // Try to record directly using the record package
+      final recorder = AudioRecorder();
+
+      // Define a temporary file path
+      final tempDir = await getTemporaryDirectory();
+      final filePath = '${tempDir.path}/test_recording.wav';
+
+      _logger.d("[TEST] Starting direct recording test to: $filePath");
+
+      await recorder.start(
+        RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          bitRate: 16000,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: filePath,
+      );
+
+      _logger.d("[TEST] Recording started successfully");
+
+      // Record for 2 seconds
+      await Future.delayed(const Duration(seconds: 2));
+
+      _logger.d("[TEST] Stopping test recording");
+      final result = await recorder.stop();
+
+      _logger.d("[TEST] Recording stopped, path: $result");
+
+      // Check if the file exists and has data
+      final file = File(result!);
+      final fileExists = await file.exists();
+      final fileSize = fileExists ? await file.length() : 0;
+
+      _logger.d("[TEST] File exists: $fileExists, size: $fileSize bytes");
+
+      await recorder.dispose();
+
+      return fileExists && fileSize > 0;
+    } catch (e, stack) {
+      _logger.e("[TEST] Error testing microphone", error: e, stackTrace: stack);
+      return false;
+    }
   }
 
   /// Start listening for transcription
