@@ -115,6 +115,11 @@ class SttStreamingManager {
         }
       }
 
+      // ADDED: Clear detailed logging here
+      _logger.d(
+        "[STT_STREAM] [+${elapsed}ms] Permission granted, proceeding with audio setup",
+      );
+
       // Explicitly ensure audio handler is initialized first
       _logger.d(
         "[STT_STREAM] [+${elapsed}ms] Explicitly initializing audio handler",
@@ -128,15 +133,24 @@ class SttStreamingManager {
       );
 
       if (!isInitialized) {
+        _logger.d(
+          "[STT_STREAM] [+${elapsed}ms] STT service not initialized, initializing now",
+        );
         final initialized = await initFunction();
         if (!initialized) {
           throw SttServiceInitializationException(
             'STT Service could not be initialized',
           );
         }
+        _logger.d(
+          "[STT_STREAM] [+${elapsed}ms] STT service initialized successfully",
+        );
       }
 
       if (_isRecording) {
+        _logger.d(
+          "[STT_STREAM] [+${elapsed}ms] Already recording, stopping first",
+        );
         await stopStreaming();
       }
 
@@ -161,51 +175,88 @@ class SttStreamingManager {
         "[STT_STREAM] [+${elapsed}ms] Audio streaming started successfully",
       );
 
-      final sttStream = _apiClient.streamingRecognize(
-        audioStream: _audioHandler.audioStream,
-        config: config,
-      );
+      _logger.d("[STT_STREAM] [+${elapsed}ms] Creating STT API stream");
 
-      _recognitionSubscription = sttStream.listen(
-        (result) {
-          final listenElapsed =
-              _startTime != null
-                  ? DateTime.now().difference(_startTime!).inMilliseconds
-                  : 0;
+      // CHANGED: Add debugging and better error handling
+      try {
+        final sttStream = _apiClient.streamingRecognize(
+          audioStream: _audioHandler.audioStream,
+          config: config,
+        );
 
-          _logger.d(
-            "[STT_STREAM] [+${listenElapsed}ms] Received STT result: '${result.transcript}' (final: ${result.isFinal})",
-          );
+        _logger.d(
+          "[STT_STREAM] [+${elapsed}ms] STT API stream created successfully",
+        );
 
-          // FIX: Add proper null, closure and listener check
-          if (_resultStreamController != null &&
-              !_resultStreamController!.isClosed &&
-              _resultStreamController!.hasListener) {
-            _resultStreamController!.add(result);
-          }
-        },
-        onError: (error) {
-          final listenElapsed =
-              _startTime != null
-                  ? DateTime.now().difference(_startTime!).inMilliseconds
-                  : 0;
+        _recognitionSubscription = sttStream.listen(
+          (result) {
+            final listenElapsed =
+                _startTime != null
+                    ? DateTime.now().difference(_startTime!).inMilliseconds
+                    : 0;
+            _logger.d(
+              "[STT_STREAM] [+${listenElapsed}ms] Received STT result: '${result.transcript}' (final: ${result.isFinal})",
+            );
 
-          _logger.e(
-            '[STT_STREAM] [+${listenElapsed}ms] Error in STT API stream',
-            error: error,
-          );
+            // FIX: Add proper null, closure and listener check
+            if (_resultStreamController != null &&
+                !_resultStreamController!.isClosed &&
+                _resultStreamController!.hasListener) {
+              _resultStreamController!.add(result);
+            }
+          },
+          onError: (error) {
+            final listenElapsed =
+                _startTime != null
+                    ? DateTime.now().difference(_startTime!).inMilliseconds
+                    : 0;
+            _logger.e(
+              '[STT_STREAM] [+${listenElapsed}ms] Error in STT API stream',
+              error: error,
+            );
 
-          // FIX: Add proper null, closure and listener check
-          if (_resultStreamController != null &&
-              !_resultStreamController!.isClosed &&
-              _resultStreamController!.hasListener) {
-            _resultStreamController!.addError(error);
-          }
-        },
-        onDone: () {
-          _logger.d('[STT_STREAM] STT API stream closed');
-        },
-      );
+            // ADDED: More detailed error logging
+            _logger.e('[STT_STREAM] Error details', error: error.toString());
+
+            // FIX: Add proper null, closure and listener check
+            if (_resultStreamController != null &&
+                !_resultStreamController!.isClosed &&
+                _resultStreamController!.hasListener) {
+              _resultStreamController!.addError(error);
+            }
+          },
+          onDone: () {
+            // ADDED: More context about why the stream closed
+            _logger.d(
+              '[STT_STREAM] STT API stream closed, checking if this is expected',
+            );
+            if (_state == StreamingState.stopping) {
+              _logger.d(
+                '[STT_STREAM] Stream closed as expected during stopStreaming()',
+              );
+            } else {
+              _logger.e(
+                '[STT_STREAM] Stream closed unexpectedly! Current state: $_state',
+              );
+            }
+          },
+          // ADDED: Don't cancel on error to allow recovery
+          cancelOnError: false,
+        );
+
+        _logger.d(
+          "[STT_STREAM] [+${elapsed}ms] STT recognition subscription set up successfully",
+        );
+      } catch (apiError) {
+        // ADDED: Specific error handling for API stream creation
+        _logger.e(
+          '[STT_STREAM] Failed to create STT API stream',
+          error: apiError,
+        );
+        throw AudioProcessingException(
+          'Failed to create speech recognition stream: ${apiError.toString()}',
+        );
+      }
     } catch (e, stacktrace) {
       _logger.e(
         '[STT_STREAM] Error starting STT process',
@@ -215,8 +266,7 @@ class SttStreamingManager {
 
       // FIX: Add proper null and closure check
       if (_resultStreamController != null &&
-          !_resultStreamController!.isClosed &&
-          _resultStreamController!.hasListener) {
+          !_resultStreamController!.isClosed) {
         _resultStreamController!.addError(
           e is Exception ? e : Exception('Error: $e'),
         );

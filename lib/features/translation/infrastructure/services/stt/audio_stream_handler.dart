@@ -18,7 +18,7 @@ class AudioStreamHandler {
   StreamSubscription? _amplitudeSubscription;
   DateTime? _startTime;
 
-  final StreamController<Uint8List> _audioStreamController =
+  StreamController<Uint8List> _audioStreamController =
       StreamController<Uint8List>.broadcast();
 
   /// Stream of audio data chunks
@@ -40,6 +40,8 @@ class AudioStreamHandler {
   AudioStreamHandler(this._recorder, this._logger) {
     _startTime = DateTime.now();
     _logger.d("[AUDIO_HANDLER] AudioStreamHandler created");
+    // ADDED: Initialize stream controller if not already done
+    _audioStreamController = StreamController<Uint8List>.broadcast();
   }
 
   /// Check if the audio stream controller is valid for operations
@@ -174,6 +176,8 @@ class AudioStreamHandler {
             "[AUDIO_HANDLER] [+${elapsed}ms] Already recording, stopping first",
           );
           await _recorder.stop();
+          // ADDED: Small delay after stopping to ensure clean state
+          await Future.delayed(const Duration(milliseconds: 100));
         }
       } catch (e) {
         _logger.e(
@@ -181,6 +185,14 @@ class AudioStreamHandler {
           error: e,
         );
         // Continue anyway, since we'll try to start recording
+      }
+
+      // CHANGED: Create a new stream controller if needed or closed
+      if (_audioStreamController.isClosed) {
+        _logger.d(
+          "[AUDIO_HANDLER] [+${elapsed}ms] Creating new audio stream controller",
+        );
+        _audioStreamController = StreamController<Uint8List>.broadcast();
       }
 
       // Configure recording
@@ -197,65 +209,63 @@ class AudioStreamHandler {
         "[AUDIO_HANDLER] [+${elapsed}ms] Starting audio stream with config: $config",
       );
 
-      // Start recording stream
-      final audioStream = await _recorder.startStream(config);
-      _logger.d(
-        "[AUDIO_HANDLER] [+${elapsed}ms] Recording stream started successfully",
-      );
+      // CHANGED: More robust error handling
+      try {
+        // Start recording stream
+        final audioStream = await _recorder.startStream(config);
+        _logger.d(
+          "[AUDIO_HANDLER] [+${elapsed}ms] Recording stream started successfully",
+        );
 
-      // Subscribe to the stream
-      _audioSubscription = audioStream.listen(
-        (data) {
-          if (_isStreaming && !_isPaused && _isAudioStreamControllerValid()) {
-            _audioStreamController.add(data);
-
-            // Log data occasionally but not for every chunk to avoid excessive logging
-            if (DateTime.now().millisecondsSinceEpoch % 1000 < 200) {
-              // Log ~20% of chunks
+        // Subscribe to the stream
+        _audioSubscription = audioStream.listen(
+          (data) {
+            // ADDED: More detailed logging
+            if (DateTime.now().millisecondsSinceEpoch % 3000 < 200) {
+              // Log ~6% of chunks
               _logger.d(
-                "[AUDIO_HANDLER] Audio data: ${data.length} bytes, first few bytes: ${data.take(4).toList()}",
+                "[AUDIO_HANDLER] Audio data received: ${data.length} bytes",
               );
             }
-          }
-        },
-        onError: (error) {
-          _logger.e("[AUDIO_HANDLER] Error in audio stream", error: error);
-          if (_isAudioStreamControllerValid()) {
-            _audioStreamController.addError(error);
-          }
-        },
-        onDone: () {
-          _logger.d("[AUDIO_HANDLER] Audio stream finished");
-        },
-      );
 
-      // Monitor amplitude for debugging
-      try {
-        _amplitudeSubscription = _recorder
-            .onAmplitudeChanged(const Duration(milliseconds: 300))
-            .listen((amp) {
-              if (DateTime.now().millisecondsSinceEpoch % 3000 < 300) {
-                // Log less frequently
-                _logger.d(
-                  "[AUDIO_HANDLER] Amplitude: ${amp.current}, Max: ${amp.max}",
-                );
-              }
-            });
+            if (_isStreaming &&
+                !_isPaused &&
+                !_audioStreamController.isClosed) {
+              _audioStreamController.add(data);
+            }
+          },
+          onError: (error) {
+            _logger.e("[AUDIO_HANDLER] Error in audio stream", error: error);
+            if (!_audioStreamController.isClosed) {
+              _audioStreamController.addError(error);
+            }
+          },
+          onDone: () {
+            _logger.d("[AUDIO_HANDLER] Audio stream finished");
+          },
+        );
+
+        // ADDED: Verify we actually got a subscription
+        if (_audioSubscription == null) {
+          _logger.e("[AUDIO_HANDLER] Failed to subscribe to audio stream");
+          return false;
+        }
+
+        _logger.d(
+          "[AUDIO_HANDLER] [+${elapsed}ms] Audio streaming started successfully",
+        );
+        return true;
       } catch (e) {
-        // Not critical if amplitude monitoring fails
-        _logger.d("[AUDIO_HANDLER] Could not monitor amplitude", error: e);
+        _logger.e("[AUDIO_HANDLER] Failed to start audio stream", error: e);
+        rethrow; // Re-throw to be caught by outer try/catch
       }
-
-      _logger.d(
-        "[AUDIO_HANDLER] [+${elapsed}ms] Audio streaming started successfully",
-      );
-      return true;
     } catch (e, stackTrace) {
       _logger.e(
         "[AUDIO_HANDLER] [+${elapsed}ms] Failed to start streaming audio",
         error: e,
         stackTrace: stackTrace,
       );
+
       // Clean up in case of error
       try {
         await stopStreaming();

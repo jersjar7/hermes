@@ -19,11 +19,14 @@ class SttApiClient {
   final String _apiKey;
   final String _apiBaseUrl = 'speech.googleapis.com';
 
+  // Helper function
+  int _min(int a, int b) => a < b ? a : b;
+
   /// Creates a new [SttApiClient]
   SttApiClient(this._httpClient, this._logger, {String? apiKey})
     : _apiKey = apiKey ?? Env.googleCloudApiKey {
     _logger.d(
-      "[STT_CLIENT] Initialized with API key: \${_apiKey.substring(0, 5)}...(truncated)",
+      "[STT_CLIENT] Initialized with API key: ${_apiKey.isNotEmpty ? _apiKey.substring(0, _min(5, _apiKey.length)) : '(empty)'}...(truncated)",
     );
   }
 
@@ -36,7 +39,13 @@ class SttApiClient {
       'key': _apiKey,
     });
 
-    _logger.d('[STT_CLIENT] Starting streamingRecognize to: \$uri');
+    _logger.d('[STT_CLIENT] Starting streamingRecognize to: $uri');
+
+    // ADDED: Verify API key is valid
+    if (_apiKey.isEmpty) {
+      _logger.e('[STT_CLIENT] API key is empty, cannot proceed with API call');
+      throw SttApiException('Google Cloud API key is empty');
+    }
 
     final streamedRequest = http.StreamedRequest('POST', uri);
     streamedRequest.headers['Content-Type'] = 'application/json+stream';
@@ -44,38 +53,93 @@ class SttApiClient {
     final configJson = jsonEncode({
       'streamingConfig': config.toStreamingConfig(),
     });
+
+    _logger.d(
+      '[STT_CLIENT] Sending config: ${configJson.substring(0, _min(100, configJson.length))}...',
+    );
     streamedRequest.sink.add(utf8.encode('$configJson\n'));
 
-    audioStream.listen(
+    // ADDED: Flag to track if we've received any audio data
+    bool hasReceivedAudioData = false;
+
+    // CHANGED: Use a Completer to properly handle stream completion
+    final completer = Completer<void>();
+
+    // Variable to track if we've attempted to close the sink
+    bool sinkCloseAttempted = false;
+
+    // ADDED: Setup subscription and error handling
+    final audioSubscription = audioStream.listen(
       (audioData) {
+        hasReceivedAudioData = true;
         final base64Audio = base64Encode(audioData);
-        _logger.d(
-          '[STT_CLIENT] Sending audio chunk: ${audioData.length} bytes',
-        );
+        if (DateTime.now().millisecondsSinceEpoch % 2000 < 200) {
+          _logger.d(
+            '[STT_CLIENT] Sending audio chunk: ${audioData.length} bytes',
+          );
+        }
         final audioJson = jsonEncode({'audioContent': base64Audio});
-        streamedRequest.sink.add(utf8.encode('$audioJson\n'));
+
+        // Check if we've already tried to close the sink
+        if (!sinkCloseAttempted) {
+          try {
+            streamedRequest.sink.add(utf8.encode('$audioJson\n'));
+          } catch (e) {
+            _logger.e(
+              '[STT_CLIENT] Error sending audio data to sink',
+              error: e,
+            );
+          }
+        }
       },
       onError: (error) {
         _logger.e('[STT_CLIENT] Error in audio stream', error: error);
-        streamedRequest.sink.close();
+        // Try to add the error if sink is not already closed
+        if (!sinkCloseAttempted) {
+          try {
+            streamedRequest.sink.addError(error);
+          } catch (e) {
+            _logger.e('[STT_CLIENT] Error adding error to sink', error: e);
+          }
+        }
       },
       onDone: () {
         _logger.d('[STT_CLIENT] Audio stream completed');
-        streamedRequest.sink.close();
+        if (!hasReceivedAudioData) {
+          _logger.e(
+            '[STT_CLIENT] Audio stream completed without sending any data!',
+          );
+        }
+        // Try to close the sink if we haven't already attempted it
+        if (!sinkCloseAttempted) {
+          sinkCloseAttempted = true;
+          try {
+            streamedRequest.sink.close();
+          } catch (e) {
+            _logger.e('[STT_CLIENT] Error closing sink', error: e);
+          }
+        }
       },
     );
 
-    final response = await _httpClient.send(streamedRequest);
-    if (response.statusCode != 200) {
-      final errorBody = await response.stream.bytesToString();
-      throw SttApiException(
-        'STT API error: ${response.statusCode}',
-        statusCode: response.statusCode,
-        responseBody: errorBody,
-      );
-    }
-
+    // Ensure we clean up properly
     try {
+      final response = await _httpClient.send(streamedRequest);
+
+      if (response.statusCode != 200) {
+        final errorBody = await response.stream.bytesToString();
+        _logger.e(
+          '[STT_CLIENT] API returned error status: ${response.statusCode}',
+          error: errorBody,
+        );
+        throw SttApiException(
+          'STT API error: ${response.statusCode}',
+          statusCode: response.statusCode,
+          responseBody: errorBody,
+        );
+      }
+
+      // Process response stream
       await for (final chunk in response.stream.transform(utf8.decoder)) {
         for (final line in chunk.split('\n')) {
           if (line.trim().isEmpty) continue;
@@ -89,9 +153,30 @@ class SttApiClient {
           }
         }
       }
+    } catch (e, stack) {
+      _logger.e(
+        '[STT_CLIENT] Error in streamingRecognize',
+        error: e,
+        stackTrace: stack,
+      );
+      throw SttApiException('Error in STT streaming: $e');
     } finally {
-      streamedRequest.sink
-          .close(); // ensures sink is closed if something goes wrong
+      // Clean up resources
+      await audioSubscription.cancel();
+
+      // Make sure to close the sink if we haven't already tried
+      if (!sinkCloseAttempted) {
+        sinkCloseAttempted = true;
+        try {
+          streamedRequest.sink.close();
+        } catch (e) {
+          _logger.e('[STT_CLIENT] Error closing sink during cleanup', error: e);
+        }
+      }
+
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
     }
   }
 
@@ -104,7 +189,7 @@ class SttApiClient {
       'key': _apiKey,
     });
 
-    _logger.d('[STT_CLIENT] Sending batch STT request to: \$uri');
+    _logger.d('[STT_CLIENT] Sending batch STT request to: $uri');
 
     final base64Audio = base64Encode(audioData);
     final requestBody = jsonEncode(config.toJsonWithAudioContent(base64Audio));
@@ -117,7 +202,7 @@ class SttApiClient {
 
     if (response.statusCode != 200) {
       throw SttApiException(
-        'STT batch error: \${response.statusCode}',
+        'STT batch error: ${response.statusCode}',
         statusCode: response.statusCode,
         responseBody: response.body,
       );
