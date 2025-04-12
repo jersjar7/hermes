@@ -3,7 +3,6 @@
 import 'dart:async';
 
 import 'package:dartz/dartz.dart';
-import 'package:injectable/injectable.dart';
 import 'package:uuid/uuid.dart';
 import 'package:hermes/core/errors/failure.dart';
 import 'package:hermes/core/services/network_checker.dart';

@@ -2,8 +2,6 @@
 
 import 'dart:typed_data';
 
-import 'package:injectable/injectable.dart';
-
 import 'package:dartz/dartz.dart';
 import 'package:uuid/uuid.dart';
 import 'package:hermes/core/errors/failure.dart';
