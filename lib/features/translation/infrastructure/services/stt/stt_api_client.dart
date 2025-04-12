@@ -1,12 +1,11 @@
 // lib/features/translation/infrastructure/services/stt/stt_api_client.dart
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:hermes/config/env.dart';
-import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/models/stt_config.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/models/stt_result.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_exceptions.dart';
@@ -14,18 +13,20 @@ import 'package:hermes/features/translation/infrastructure/services/stt/stt_exce
 /// Client for Google Cloud Speech-to-Text API
 class SttApiClient {
   final http.Client _httpClient;
-  final Logger _logger;
-
   final String _apiKey;
   final String _apiBaseUrl = 'speech.googleapis.com';
+
+  // Keep track of the active request
+  http.StreamedRequest? _activeRequest;
+  bool _isShuttingDown = false;
 
   // Helper function
   int _min(int a, int b) => a < b ? a : b;
 
   /// Creates a new [SttApiClient]
-  SttApiClient(this._httpClient, this._logger, {String? apiKey})
+  SttApiClient(this._httpClient, {String? apiKey})
     : _apiKey = apiKey ?? Env.googleCloudApiKey {
-    _logger.d(
+    print(
       "[STT_CLIENT] Initialized with API key: ${_apiKey.isNotEmpty ? _apiKey.substring(0, _min(5, _apiKey.length)) : '(empty)'}...(truncated)",
     );
   }
@@ -39,147 +40,235 @@ class SttApiClient {
       'key': _apiKey,
     });
 
-    _logger.d('[STT_CLIENT] Starting streamingRecognize to: $uri');
-    _logger.d(
-      '[STT_CLIENT] API key status: ${_apiKey.isNotEmpty ? "Valid (${_apiKey.length} chars)" : "Empty/Invalid"}',
-    );
+    print('[STT_CLIENT] Starting streamingRecognize to: $uri');
+
+    // Reset the shutdown flag
+    _isShuttingDown = false;
 
     // ADDED: Verify API key is valid
     if (_apiKey.isEmpty) {
-      _logger.e('[STT_CLIENT] API key is empty, cannot proceed with API call');
+      print('[STT_CLIENT] API key is empty, cannot proceed with API call');
       throw SttApiException('Google Cloud API key is empty');
     }
 
-    final streamedRequest = http.StreamedRequest('POST', uri);
-    streamedRequest.headers['Content-Type'] = 'application/json+stream';
+    // Clean up any existing request
+    if (_activeRequest != null) {
+      try {
+        // Try to gracefully close the existing request
+        _activeRequest?.sink.close();
+      } catch (e) {
+        // Ignore errors during cleanup
+      }
+      _activeRequest = null;
+    }
 
+    final streamedRequest = http.StreamedRequest('POST', uri);
+    streamedRequest.headers['Content-Type'] = 'application/json';
+    _activeRequest = streamedRequest;
+
+    // Create a completer to signal when we're done with this request
+    final completer = Completer<void>();
+
+    // Create controllers for coordinating audio data and API responses
+    final audioController = StreamController<Uint8List>();
+    final responseController = StreamController<SpeechRecognitionResult>();
+
+    // Track if we've successfully started the stream
+    bool streamStarted = false;
+    bool hasError = false;
+
+    // Send the configuration as the first message
     final configJson = jsonEncode({
       'streamingConfig': config.toStreamingConfig(),
     });
 
-    _logger.d(
+    print(
       '[STT_CLIENT] Sending config: ${configJson.substring(0, _min(100, configJson.length))}...',
     );
-    streamedRequest.sink.add(utf8.encode('$configJson\n'));
 
-    // ADDED: Flag to track if we've received any audio data
-    bool hasReceivedAudioData = false;
+    // Function to clean up all resources
+    void cleanupResources() async {
+      if (_isShuttingDown) return; // Prevent multiple cleanups
+      _isShuttingDown = true;
 
-    // CHANGED: Use a Completer to properly handle stream completion
-    final completer = Completer<void>();
+      try {
+        // Cancel all subscriptions and close controllers
+        await audioController.close();
 
-    // Variable to track if we've attempted to close the sink
-    bool sinkCloseAttempted = false;
-
-    // ADDED: Setup subscription and error handling
-    final audioSubscription = audioStream.listen(
-      (audioData) {
-        hasReceivedAudioData = true;
-        final base64Audio = base64Encode(audioData);
-        if (DateTime.now().millisecondsSinceEpoch % 2000 < 200) {
-          _logger.d(
-            '[STT_CLIENT] Sending audio chunk: ${audioData.length} bytes',
-          );
+        // Only close response controller if it's not already closed
+        if (!responseController.isClosed) {
+          await responseController.close();
         }
-        final audioJson = jsonEncode({'audioContent': base64Audio});
 
-        // Check if we've already tried to close the sink
-        if (!sinkCloseAttempted) {
+        // Signal completion
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+
+        // Clean up request
+        if (_activeRequest != null && _activeRequest == streamedRequest) {
           try {
-            streamedRequest.sink.add(utf8.encode('$audioJson\n'));
+            await _activeRequest?.sink.close();
           } catch (e) {
-            _logger.e(
-              '[STT_CLIENT] Error sending audio data to sink',
-              error: e,
-            );
+            // Ignore errors during cleanup
           }
+          _activeRequest = null;
         }
-      },
-      onError: (error) {
-        _logger.e('[STT_CLIENT] Error in audio stream', error: error);
-        // Try to add the error if sink is not already closed
-        if (!sinkCloseAttempted) {
-          try {
-            streamedRequest.sink.addError(error);
-          } catch (e) {
-            _logger.e('[STT_CLIENT] Error adding error to sink', error: e);
-          }
-        }
-      },
-      onDone: () {
-        _logger.d('[STT_CLIENT] Audio stream completed');
-        if (!hasReceivedAudioData) {
-          _logger.e(
-            '[STT_CLIENT] Audio stream completed without sending any data!',
-          );
-        }
-        // Try to close the sink if we haven't already attempted it
-        if (!sinkCloseAttempted) {
-          sinkCloseAttempted = true;
-          try {
-            streamedRequest.sink.close();
-          } catch (e) {
-            _logger.e('[STT_CLIENT] Error closing sink', error: e);
-          }
-        }
-      },
-    );
-
-    // Ensure we clean up properly
-    try {
-      final response = await _httpClient.send(streamedRequest);
-
-      if (response.statusCode != 200) {
-        final errorBody = await response.stream.bytesToString();
-        _logger.e(
-          '[STT_CLIENT] API returned error status: ${response.statusCode}',
-          error: errorBody,
-        );
-        throw SttApiException(
-          'STT API error: ${response.statusCode}',
-          statusCode: response.statusCode,
-          responseBody: errorBody,
-        );
+      } catch (e) {
+        print('[STT_CLIENT] Error during cleanup: $e');
       }
+    }
 
-      // Process response stream
-      await for (final chunk in response.stream.transform(utf8.decoder)) {
-        for (final line in chunk.split('\n')) {
-          if (line.trim().isEmpty) continue;
+    // Connect the audio stream to the HTTP request
+    StreamSubscription? audioSubscription;
+
+    try {
+      // First send the config
+      streamedRequest.sink.add(utf8.encode('$configJson\n'));
+
+      // Create a subscription to the audio stream
+      audioSubscription = audioStream.listen(
+        (audioData) {
+          if (_isShuttingDown) return; // Skip if we're shutting down
+
           try {
-            _logger.d('[STT_CLIENT] Received line: $line');
-            final json = jsonDecode(line);
-            final result = SpeechRecognitionResult.fromJson(json);
-            yield result;
+            if (streamedRequest.sink is IOSink) {
+              final base64Audio = base64Encode(audioData);
+              final audioJson = jsonEncode({'audioContent': base64Audio});
+              streamedRequest.sink.add(utf8.encode('$audioJson\n'));
+
+              // Log periodically to avoid flooding
+              if (DateTime.now().millisecondsSinceEpoch % 5000 < 100) {
+                print(
+                  '[STT_CLIENT] Sent audio chunk: ${audioData.length} bytes',
+                );
+              }
+            }
           } catch (e) {
-            _logger.e('Error parsing STT chunk: $line', error: e);
+            print('[STT_CLIENT] Error sending audio data: $e');
+            if (!hasError) {
+              hasError = true;
+              responseController.addError(
+                SttApiException('Error sending audio: ${e.toString()}'),
+              );
+            }
+            cleanupResources();
           }
-        }
+        },
+        onError: (error) {
+          print('[STT_CLIENT] Error in audio stream: $error');
+          if (!hasError) {
+            hasError = true;
+            responseController.addError(error);
+          }
+          cleanupResources();
+        },
+        onDone: () {
+          print('[STT_CLIENT] Audio stream completed');
+          // Try to finish the request gracefully
+          try {
+            if (!_isShuttingDown) {
+              streamedRequest.sink.close();
+            }
+          } catch (e) {
+            print('[STT_CLIENT] Error closing sink after audio completion: $e');
+          }
+        },
+      );
+
+      // Process the HTTP response
+      streamedRequest
+          .send()
+          .then((response) async {
+            streamStarted = true;
+
+            if (response.statusCode != 200) {
+              final errorBody = await response.stream.bytesToString();
+              print(
+                '[STT_CLIENT] API returned error status: ${response.statusCode}, body: $errorBody',
+              );
+
+              if (!hasError) {
+                hasError = true;
+                responseController.addError(
+                  SttApiException(
+                    'STT API error: ${response.statusCode}',
+                    statusCode: response.statusCode,
+                    responseBody: errorBody,
+                  ),
+                );
+              }
+              cleanupResources();
+              return;
+            }
+
+            // Process the response stream
+            response.stream
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())
+                .listen(
+                  (line) {
+                    if (line.trim().isEmpty) return;
+
+                    try {
+                      final json = jsonDecode(line);
+                      final result = SpeechRecognitionResult.fromJson(json);
+
+                      // Only forward non-empty results
+                      if (result.transcript.isNotEmpty) {
+                        responseController.add(result);
+                      }
+                    } catch (e) {
+                      print('Error parsing STT chunk: $line, error: $e');
+                      // Don't forward parsing errors, just log them
+                    }
+                  },
+                  onError: (error) {
+                    print('[STT_CLIENT] Error in response stream: $error');
+                    if (!hasError) {
+                      hasError = true;
+                      responseController.addError(error);
+                    }
+                    cleanupResources();
+                  },
+                  onDone: () {
+                    print('[STT_CLIENT] Response stream completed');
+                    cleanupResources();
+                  },
+                );
+          })
+          .catchError((error) {
+            print('[STT_CLIENT] Error sending request: $error');
+            if (!hasError) {
+              hasError = true;
+              responseController.addError(
+                SttApiException('Error sending request: ${error.toString()}'),
+              );
+            }
+            cleanupResources();
+          });
+
+      // Set up response forwarding
+      await for (final result in responseController.stream) {
+        yield result;
       }
     } catch (e, stack) {
-      _logger.e(
-        '[STT_CLIENT] Error in streamingRecognize',
-        error: e,
-        stackTrace: stack,
+      print(
+        '[STT_CLIENT] Error in streamingRecognize: $e\nStack trace: $stack',
       );
-      throw SttApiException('Error in STT streaming: $e');
+
+      if (!streamStarted) {
+        // If the stream never started, throw immediately
+        throw SttApiException('Error in STT streaming: $e');
+      } else {
+        // If the stream started but had an error, clean up
+        cleanupResources();
+        rethrow;
+      }
     } finally {
-      // Clean up resources
-      await audioSubscription.cancel();
-
-      // Make sure to close the sink if we haven't already tried
-      if (!sinkCloseAttempted) {
-        sinkCloseAttempted = true;
-        try {
-          streamedRequest.sink.close();
-        } catch (e) {
-          _logger.e('[STT_CLIENT] Error closing sink during cleanup', error: e);
-        }
-      }
-
-      if (!completer.isCompleted) {
-        completer.complete();
-      }
+      // Ensure all resources are cleaned up
+      await audioSubscription?.cancel();
+      cleanupResources();
     }
   }
 
@@ -192,7 +281,7 @@ class SttApiClient {
       'key': _apiKey,
     });
 
-    _logger.d('[STT_CLIENT] Sending batch STT request to: $uri');
+    print('[STT_CLIENT] Sending batch STT request to: $uri');
 
     final base64Audio = base64Encode(audioData);
     final requestBody = jsonEncode(config.toJsonWithAudioContent(base64Audio));
@@ -224,5 +313,19 @@ class SttApiClient {
     }
 
     return results;
+  }
+
+  /// Cancel any active request
+  Future<void> cancelActiveRequest() async {
+    _isShuttingDown = true;
+
+    if (_activeRequest != null) {
+      try {
+        await _activeRequest?.sink.close();
+      } catch (e) {
+        // Ignore errors during cancellation
+      }
+      _activeRequest = null;
+    }
   }
 }

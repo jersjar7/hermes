@@ -34,8 +34,8 @@ class SpeechToTextService {
   /// Creates a new [SpeechToTextService]
   SpeechToTextService(this._logger, this._httpClient, this._recorder) {
     _logger.d("[STT_DEBUG] SpeechToTextService instantiated");
-    _apiClient = SttApiClient(_httpClient, _logger);
-    _audioHandler = AudioStreamHandler(_recorder, _logger);
+    _apiClient = SttApiClient(_httpClient);
+    _audioHandler = AudioStreamHandler(_recorder);
     _initializer = SttInitializer(_logger, _recorder);
     _streamingManager = SttStreamingManager(_logger, _apiClient, _audioHandler);
     _batchProcessor = SttBatchProcessor(_logger, _apiClient);

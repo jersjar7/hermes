@@ -4,9 +4,9 @@ import 'dart:async';
 
 import 'package:dartz/dartz.dart';
 import 'package:uuid/uuid.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:hermes/core/errors/failure.dart';
 import 'package:hermes/core/services/network_checker.dart';
-import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/translation/domain/entities/transcript.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_exceptions.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_service.dart';
@@ -15,7 +15,6 @@ import 'package:hermes/features/translation/infrastructure/services/stt/stt_serv
 class TranscriptionStreamHandler {
   final SpeechToTextService _sttService;
   final NetworkChecker _networkChecker;
-  final Logger _logger;
   final _uuid = const Uuid();
 
   bool _isStreamingActive = false;
@@ -27,12 +26,12 @@ class TranscriptionStreamHandler {
   // Track active stream sessions for cleanup
   final Map<String, bool> _activeSessionIds = {};
 
+  // Track connection attempts for backoff strategy
+  int _connectionAttempts = 0;
+  bool _isRecovering = false;
+
   /// Creates a new [TranscriptionStreamHandler]
-  TranscriptionStreamHandler(
-    this._sttService,
-    this._networkChecker,
-    this._logger,
-  );
+  TranscriptionStreamHandler(this._sttService, this._networkChecker);
 
   /// Initialize the stream handler and related services
   Future<bool> initialize() async {
@@ -40,9 +39,14 @@ class TranscriptionStreamHandler {
     try {
       final initialized = await _sttService.init();
       print("[STREAM_HANDLER] STT service initialization result: $initialized");
+      // Reset counters on successful initialization
+      if (initialized) {
+        _connectionAttempts = 0;
+        _isRecovering = false;
+      }
       return initialized;
     } catch (e) {
-      _logger.e("[STREAM_HANDLER] Error initializing STT service", error: e);
+      print("[STREAM_HANDLER] Error initializing STT service: $e");
       return false;
     }
   }
@@ -81,6 +85,9 @@ class TranscriptionStreamHandler {
         print(
           "[STREAM_HANDLER] First listener subscribed to transcript stream",
         );
+
+        // Only start processing when we have a listener
+        _initializeTranscriptionStream(sessionId, languageCode);
       },
       onCancel: () {
         print(
@@ -94,25 +101,21 @@ class TranscriptionStreamHandler {
         }
       },
     );
-    print(
-      "[CRITICAL_DEBUG] StreamHandler creating controller and starting _initializeTranscriptionStream",
-    );
+
+    print("[STREAM_HANDLER] Stream controller created, returning stream");
     _isStreamingActive = true;
 
-    // Initialize the stream asynchronously
-    print("[STREAM_HANDLER] Starting _initializeTranscriptionStream");
-    _initializeTranscriptionStream(sessionId, languageCode);
-    print(
-      "[STREAM_HANDLER] Stream controller created: ${_transcriptStreamController != null}, returning stream",
-    );
     return _transcriptStreamController!.stream;
   }
 
   /// Clean up existing stream resources
   Future<void> _cleanupExistingStream() async {
-    print(
-      "[STREAM_HANDLER] Cleanup reason: ${_transcriptStreamController?.hasListener ?? false ? 'still has listeners' : 'no listeners'}",
-    );
+    if (_transcriptStreamController != null) {
+      print(
+        "[STREAM_HANDLER] Cleanup reason: ${_transcriptStreamController!.hasListener ? 'still has listeners' : 'no listeners'}",
+      );
+    }
+
     if (_isStreamingActive) {
       print("[STREAM_HANDLER] Cleaning up existing stream");
 
@@ -122,7 +125,7 @@ class TranscriptionStreamHandler {
           await _transcriptionSubscription!.cancel();
           print("[STREAM_HANDLER] Existing subscription canceled");
         } catch (e) {
-          _logger.e("[STREAM_HANDLER] Error canceling subscription", error: e);
+          print("[STREAM_HANDLER] Error canceling subscription: $e");
         } finally {
           _transcriptionSubscription = null;
         }
@@ -136,10 +139,7 @@ class TranscriptionStreamHandler {
             print("[STREAM_HANDLER] Existing stream controller closed");
           }
         } catch (e) {
-          _logger.e(
-            "[STREAM_HANDLER] Error closing stream controller",
-            error: e,
-          );
+          print("[STREAM_HANDLER] Error closing stream controller: $e");
         } finally {
           _transcriptStreamController = null;
         }
@@ -179,6 +179,26 @@ class TranscriptionStreamHandler {
       print("[STREAM_HANDLER] Network connection available");
       print("[CRITICAL_DEBUG] Network check passed, proceeding");
 
+      // Increase connection attempts counter for backoff strategy
+      _connectionAttempts++;
+      final backoffDelay = _calculateBackoffDelay();
+
+      if (backoffDelay > 0 && _connectionAttempts > 1) {
+        print(
+          "[STREAM_HANDLER] Applying backoff delay of ${backoffDelay}ms before connecting",
+        );
+        await Future.delayed(Duration(milliseconds: backoffDelay));
+
+        // Check if session is still active after delay
+        if (!_activeSessionIds.containsKey(sessionId) ||
+            _activeSessionIds[sessionId] != true) {
+          print(
+            "[STREAM_HANDLER] Session $sessionId is no longer active after backoff delay, aborting",
+          );
+          return;
+        }
+      }
+
       try {
         print("[CRITICAL_DEBUG] About to ensure STT service is initialized");
         // First ensure STT service is initialized
@@ -197,6 +217,33 @@ class TranscriptionStreamHandler {
         }
         print("[STREAM_HANDLER] STT service initialized successfully");
         print("[CRITICAL_DEBUG] STT service initialized: $initialized");
+
+        // Check microphone permission explicitly
+        print("[STREAM_HANDLER] Checking microphone permission");
+        final permissionStatus = await Permission.microphone.status;
+
+        if (permissionStatus != PermissionStatus.granted) {
+          print(
+            "[STREAM_HANDLER] Microphone permission not granted, requesting...",
+          );
+          final requestResult = await Permission.microphone.request();
+
+          if (requestResult != PermissionStatus.granted) {
+            print(
+              "[STREAM_HANDLER] Microphone permission denied: $requestResult",
+            );
+            _safeAddToStream(
+              Left(
+                SpeechRecognitionFailure(
+                  message:
+                      'Microphone permission required for speech recognition',
+                ),
+              ),
+            );
+            return;
+          }
+          print("[STREAM_HANDLER] Microphone permission granted");
+        }
 
         // Add a delay to ensure initialization completes
         await Future.delayed(const Duration(milliseconds: 100));
@@ -242,6 +289,10 @@ class TranscriptionStreamHandler {
               '[STREAM_HANDLER] [+${elapsed}ms] Transcript text: "${result.transcript}"',
             );
 
+            // Reset connection attempts on successful result
+            _connectionAttempts = 0;
+            _isRecovering = false;
+
             // Check if session still active
             if (!_activeSessionIds.containsKey(sessionId) ||
                 _activeSessionIds[sessionId] != true) {
@@ -250,8 +301,6 @@ class TranscriptionStreamHandler {
               );
               return;
             }
-
-            print("[STREAM_HANDLER] Received audio data chunk");
 
             final transcript = Transcript(
               id: _uuid.v4(),
@@ -278,7 +327,6 @@ class TranscriptionStreamHandler {
             print(
               "[STREAM_HANDLER] [+${elapsed}ms] Error in STT stream: $error",
             );
-            _logger.e('[STREAM_HANDLER] Error in STT stream', error: error);
 
             final errorMessage =
                 error is MicrophonePermissionException
@@ -288,6 +336,16 @@ class TranscriptionStreamHandler {
             _safeAddToStream(
               Left(SpeechRecognitionFailure(message: errorMessage)),
             );
+
+            // If we're not in recovery mode, attempt to restart the stream
+            if (!_isRecovering && _activeSessionIds.containsKey(sessionId)) {
+              _isRecovering = true;
+
+              print("[STREAM_HANDLER] Attempting to recover from error");
+
+              // Restart with backoff
+              _restartStream(sessionId, languageCode);
+            }
           },
           onDone: () {
             final elapsed =
@@ -332,8 +390,14 @@ class TranscriptionStreamHandler {
           _safeAddToStream(
             Left(SpeechRecognitionFailure(message: e.toString())),
           );
+
+          // Attempt to restart the stream if this is an API error
+          if (e.toString().contains("API") &&
+              _activeSessionIds.containsKey(sessionId)) {
+            _isRecovering = true;
+            _restartStream(sessionId, languageCode);
+          }
         }
-        _logger.e('Failed to start STT service', error: e);
       }
     } catch (e, stacktrace) {
       final elapsed =
@@ -345,13 +409,49 @@ class TranscriptionStreamHandler {
         "[STREAM_HANDLER] [+${elapsed}ms] Exception in _initializeTranscriptionStream: $e",
       );
       print("[STREAM_HANDLER] [+${elapsed}ms] Stack trace: $stacktrace");
-      _logger.e(
-        'Failed to initialize transcription stream',
-        error: e,
-        stackTrace: stacktrace,
-      );
+
       _safeAddToStream(Left(SpeechRecognitionFailure(message: e.toString())));
     }
+  }
+
+  /// Calculate exponential backoff delay
+  int _calculateBackoffDelay() {
+    if (_connectionAttempts <= 1) return 0;
+
+    // Base delay is 500ms, double it for each attempt, cap at 30 seconds
+    final baseDelay = 500;
+    final maxDelay = 30000;
+
+    // Use exponential backoff with some randomness
+    final exponentialFactor =
+        (1 << (_connectionAttempts - 1)); // 2^(attempts-1)
+    final calculatedDelay = baseDelay * exponentialFactor;
+
+    // Add some jitter (±20%)
+    final jitterFactor = 0.8 + (DateTime.now().millisecondsSinceEpoch % 5) / 10;
+
+    return (calculatedDelay * jitterFactor).round().clamp(0, maxDelay);
+  }
+
+  /// Attempt to restart the stream with backoff
+  void _restartStream(String sessionId, String languageCode) {
+    final backoffDelay = _calculateBackoffDelay();
+
+    print(
+      "[STREAM_HANDLER] Will attempt to restart stream after ${backoffDelay}ms",
+    );
+
+    Future.delayed(Duration(milliseconds: backoffDelay), () {
+      if (_activeSessionIds.containsKey(sessionId) &&
+          _activeSessionIds[sessionId] == true) {
+        print("[STREAM_HANDLER] Restarting stream for session $sessionId");
+        _initializeTranscriptionStream(sessionId, languageCode);
+      } else {
+        print(
+          "[STREAM_HANDLER] Session $sessionId no longer active, not restarting",
+        );
+      }
+    });
   }
 
   /// Safely add events to stream controller with null/closure checks
@@ -382,11 +482,8 @@ class TranscriptionStreamHandler {
       return const Right(null);
     } catch (e, stacktrace) {
       print("[STREAM_HANDLER] Exception in stopTranscription: $e");
-      _logger.e(
-        'Failed to stop transcription',
-        error: e,
-        stackTrace: stacktrace,
-      );
+      print("[STREAM_HANDLER] Stack trace: $stacktrace");
+
       return Left(SpeechRecognitionFailure(message: e.toString()));
     }
   }
@@ -401,11 +498,8 @@ class TranscriptionStreamHandler {
       return const Right(null);
     } catch (e, stacktrace) {
       print("[STREAM_HANDLER] Exception in pauseTranscription: $e");
-      _logger.e(
-        'Failed to pause transcription',
-        error: e,
-        stackTrace: stacktrace,
-      );
+      print("[STREAM_HANDLER] Stack trace: $stacktrace");
+
       return Left(SpeechRecognitionFailure(message: e.toString()));
     }
   }
@@ -420,11 +514,8 @@ class TranscriptionStreamHandler {
       return const Right(null);
     } catch (e, stacktrace) {
       print("[STREAM_HANDLER] Exception in resumeTranscription: $e");
-      _logger.e(
-        'Failed to resume transcription',
-        error: e,
-        stackTrace: stacktrace,
-      );
+      print("[STREAM_HANDLER] Stack trace: $stacktrace");
+
       return Left(SpeechRecognitionFailure(message: e.toString()));
     }
   }

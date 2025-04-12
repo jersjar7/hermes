@@ -18,7 +18,7 @@ abstract class TranscriptionModule {
     SpeechToTextService sttService,
     NetworkChecker networkChecker,
     Logger logger,
-  ) => TranscriptionStreamHandler(sttService, networkChecker, logger);
+  ) => TranscriptionStreamHandler(sttService, networkChecker);
 
   /// Provides [TranscriptionFirestoreHandler]
   @lazySingleton
