@@ -183,6 +183,9 @@ class SttStreamingManager {
           audioStream: _audioHandler.audioStream,
           config: config,
         );
+        _logger.d(
+          "[STT_STREAM] Created STT API stream with config: ${config.languageCode}, interim results: ${config.interimResults}",
+        );
 
         _logger.d(
           "[STT_STREAM] [+${elapsed}ms] STT API stream created successfully",

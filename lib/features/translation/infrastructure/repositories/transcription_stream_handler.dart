@@ -100,12 +100,17 @@ class TranscriptionStreamHandler {
     // Initialize the stream asynchronously
     _logger.d("[STREAM_HANDLER] Starting _initializeTranscriptionStream");
     _initializeTranscriptionStream(sessionId, languageCode);
-
+    _logger.d(
+      "[STREAM_HANDLER] Stream controller created: ${_transcriptStreamController != null}, returning stream",
+    );
     return _transcriptStreamController!.stream;
   }
 
   /// Clean up existing stream resources
   Future<void> _cleanupExistingStream() async {
+    _logger.d(
+      "[STREAM_HANDLER] Cleanup reason: ${_transcriptStreamController?.hasListener ?? false ? 'still has listeners' : 'no listeners'}",
+    );
     if (_isStreamingActive) {
       _logger.d("[STREAM_HANDLER] Cleaning up existing stream");
 
@@ -205,6 +210,9 @@ class TranscriptionStreamHandler {
           languageCode: languageCode,
         );
         _logger.d("[STREAM_HANDLER] STT service started, got stream");
+        _logger.d(
+          "[STREAM_HANDLER] STT service started, listening for first result...",
+        );
 
         // Subscribe to STT results
         _logger.d("[STREAM_HANDLER] Subscribing to STT results");
@@ -232,6 +240,8 @@ class TranscriptionStreamHandler {
               );
               return;
             }
+
+            _logger.d("[STREAM_HANDLER] Received audio data chunk");
 
             final transcript = Transcript(
               id: _uuid.v4(),

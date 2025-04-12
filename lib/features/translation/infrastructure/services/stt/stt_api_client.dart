@@ -40,6 +40,9 @@ class SttApiClient {
     });
 
     _logger.d('[STT_CLIENT] Starting streamingRecognize to: $uri');
+    _logger.d(
+      '[STT_CLIENT] API key status: ${_apiKey.isNotEmpty ? "Valid (${_apiKey.length} chars)" : "Empty/Invalid"}',
+    );
 
     // ADDED: Verify API key is valid
     if (_apiKey.isEmpty) {
