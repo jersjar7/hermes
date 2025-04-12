@@ -28,7 +28,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     this._audioHandler,
     this._logger,
   ) {
-    _logger.d("[REPO_DEBUG] TranscriptionRepositoryImpl constructor called");
+    print("[REPO_DEBUG] TranscriptionRepositoryImpl constructor called");
 
     // Initialize services
     _initializeServices();
@@ -36,7 +36,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
 
   // Initialize services needed by the repository
   Future<void> _initializeServices() async {
-    _logger.d("[REPO_DEBUG] Initializing services");
+    print("[REPO_DEBUG] Initializing services");
     try {
       await _streamHandler.initialize();
     } catch (e) {
@@ -50,13 +50,11 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     required String sessionId,
     required String languageCode,
   }) {
-    _logger.d("[CRITICAL_DEBUG] Repository.streamTranscription called");
-    _logger.d(
+    print("[CRITICAL_DEBUG] Repository.streamTranscription called");
+    print(
       "[REPO_DEBUG] streamTranscription called with languageCode=$languageCode",
     );
-    _logger.d(
-      "[CRITICAL_DEBUG] About to call streamHandler.streamTranscription",
-    );
+    print("[CRITICAL_DEBUG] About to call streamHandler.streamTranscription");
     return _streamHandler.streamTranscription(
       sessionId: sessionId,
       languageCode: languageCode,
@@ -65,19 +63,19 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
 
   @override
   Future<Either<Failure, void>> stopTranscription() async {
-    _logger.d("[REPO_DEBUG] stopTranscription called");
+    print("[REPO_DEBUG] stopTranscription called");
     return await _streamHandler.stopTranscription();
   }
 
   @override
   Future<Either<Failure, void>> pauseTranscription() async {
-    _logger.d("[REPO_DEBUG] pauseTranscription called");
+    print("[REPO_DEBUG] pauseTranscription called");
     return await _streamHandler.pauseTranscription();
   }
 
   @override
   Future<Either<Failure, void>> resumeTranscription() async {
-    _logger.d("[REPO_DEBUG] resumeTranscription called");
+    print("[REPO_DEBUG] resumeTranscription called");
     return await _streamHandler.resumeTranscription();
   }
 
@@ -87,7 +85,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     required Uint8List audioData,
     required String languageCode,
   }) async {
-    _logger.d("[REPO_DEBUG] transcribeAudio called");
+    print("[REPO_DEBUG] transcribeAudio called");
     return await _audioHandler.transcribeAudio(
       sessionId: sessionId,
       audioData: audioData,
@@ -99,7 +97,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
   Future<Either<Failure, Transcript>> saveTranscript(
     Transcript transcript,
   ) async {
-    _logger.d("[REPO_DEBUG] saveTranscript called");
+    print("[REPO_DEBUG] saveTranscript called");
     return await _firestoreHandler.saveTranscript(transcript);
   }
 
@@ -107,7 +105,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
   Future<Either<Failure, List<Transcript>>> getSessionTranscripts(
     String sessionId,
   ) async {
-    _logger.d("[REPO_DEBUG] getSessionTranscripts called");
+    print("[REPO_DEBUG] getSessionTranscripts called");
     return await _firestoreHandler.getSessionTranscripts(sessionId);
   }
 
@@ -116,7 +114,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
     required String sessionId,
     int limit = 20,
   }) async {
-    _logger.d("[REPO_DEBUG] getRecentTranscripts called");
+    print("[REPO_DEBUG] getRecentTranscripts called");
     return await _firestoreHandler.getRecentTranscripts(
       sessionId: sessionId,
       limit: limit,
@@ -127,7 +125,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
   Stream<Either<Failure, List<Transcript>>> streamSessionTranscripts(
     String sessionId,
   ) {
-    _logger.d("[REPO_DEBUG] streamSessionTranscripts called");
+    print("[REPO_DEBUG] streamSessionTranscripts called");
     return _firestoreHandler.streamSessionTranscripts(sessionId);
   }
 }
