@@ -30,9 +30,11 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
   final _recorder = AudioRecorder();
   Timer? _levelTimer;
   bool _recorderInitialized = false;
-  List<double> _visualizerLevels = List.filled(30, 0.05); // For visualization
+  // Make this a growable list to avoid "Cannot remove from a fixed-length list" error
+  List<double> _visualizerLevels = List.filled(30, 0.05, growable: true);
   bool _hasPermission = false;
   String? _errorMessage;
+  final bool _isDisposed = false; // Track if widget is disposed
 
   @override
   void initState() {
@@ -41,15 +43,57 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
   }
 
   Future<void> _checkPermission() async {
-    final status = await Permission.microphone.status;
-    setState(() {
-      _hasPermission = status.isGranted;
-      if (!_hasPermission) {
-        _errorMessage = _getPermissionErrorMessage(status);
-      } else {
+    try {
+      final status = await Permission.microphone.status;
+      // Check if widget is still mounted before updating state
+      if (!mounted) return;
+
+      setState(() {
+        _hasPermission = status.isGranted;
+        if (!_hasPermission) {
+          _errorMessage = _getPermissionErrorMessage(status);
+        } else {
+          _errorMessage = null;
+          if (widget.isListening) {
+            // Only start if widget wants to listen
+            _startLevelMonitoring();
+          }
+        }
+      });
+    } catch (e) {
+      debugPrint("Error checking microphone permission: $e");
+      if (mounted) {
+        setState(() {
+          _hasPermission = false;
+          _errorMessage = "Error checking permission: $e";
+        });
+      }
+    }
+  }
+
+  Future<void> _requestMicrophonePermission() async {
+    try {
+      final status = await Permission.microphone.request();
+      // Check if widget is still mounted before updating state
+      if (!mounted) return;
+
+      setState(() {
+        _hasPermission = status.isGranted;
+        _errorMessage =
+            status.isGranted ? null : _getPermissionErrorMessage(status);
+      });
+
+      if (status.isGranted && widget.isListening) {
         _startLevelMonitoring();
       }
-    });
+    } catch (e) {
+      debugPrint("Error requesting microphone permission: $e");
+      if (mounted) {
+        setState(() {
+          _errorMessage = "Error requesting permission: $e";
+        });
+      }
+    }
   }
 
   String _getPermissionErrorMessage(PermissionStatus status) {
@@ -80,21 +124,35 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
   }
 
   void _startLevelMonitoring() async {
+    // Guard against calling when disposed
+    if (_isDisposed) return;
+
     // Already monitoring, skip
     if (_levelTimer != null) return;
 
     // Verify permission is granted
     if (!_hasPermission) {
-      final status = await Permission.microphone.request();
-      if (!status.isGranted) {
+      try {
+        final status = await Permission.microphone.request();
+        // Check again if widget is still mounted
+        if (!mounted) return;
+
         setState(() {
-          _hasPermission = false;
-          _errorMessage = _getPermissionErrorMessage(status);
+          _hasPermission = status.isGranted;
+          _errorMessage =
+              status.isGranted ? null : _getPermissionErrorMessage(status);
         });
+
+        if (!status.isGranted) return;
+      } catch (e) {
+        debugPrint("Error requesting permission: $e");
+        if (mounted) {
+          setState(() {
+            _errorMessage = "Error requesting permission: $e";
+          });
+        }
         return;
       }
-      _hasPermission = true;
-      _errorMessage = null;
     }
 
     // Start recorder in a very quiet mode just to monitor levels
@@ -122,13 +180,23 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
       );
 
       _recorderInitialized = true;
-      _errorMessage = null;
+      if (mounted) {
+        setState(() {
+          _errorMessage = null;
+        });
+      }
 
       // Start periodic level monitoring
       _levelTimer = Timer.periodic(const Duration(milliseconds: 50), (
         timer,
       ) async {
-        if (widget.isListening && mounted && _hasPermission) {
+        // Skip if widget is disposed or not mounted
+        if (_isDisposed || !mounted) {
+          timer.cancel();
+          return;
+        }
+
+        if (widget.isListening && _hasPermission) {
           try {
             final amplitude = await _recorder.getAmplitude();
 
@@ -139,15 +207,18 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
             if (mounted) {
               setState(() {
                 _level = normalizedLevel;
-                // Shift values in the visualizer array
-                _visualizerLevels.removeAt(0);
-                _visualizerLevels.add(
-                  _level.clamp(0.05, 1.0),
-                ); // Minimum height for aesthetics
+
+                // Create a new list to avoid "Cannot remove from fixed-length list" error
+                final newLevels = List<double>.from(
+                  _visualizerLevels.sublist(1),
+                );
+                newLevels.add(_level.clamp(0.05, 1.0));
+                _visualizerLevels = newLevels;
               });
             }
           } catch (e) {
             // Show the error instead of silently handling it
+            debugPrint("Error accessing microphone: $e");
             if (mounted) {
               setState(() {
                 _errorMessage = "Error accessing microphone: $e";
@@ -158,6 +229,7 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
       });
     } catch (e) {
       // Show the error instead of falling back to demo mode
+      debugPrint("Failed to initialize microphone: $e");
       if (mounted) {
         setState(() {
           _recorderInitialized = false;
@@ -173,17 +245,13 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
 
     if (_recorderInitialized) {
       _recorder.stop().catchError((e) {
-        // Show error if stopping fails
-        if (mounted) {
-          setState(() {
-            _errorMessage = "Error stopping recorder: $e";
-          });
-        }
-        return null; // explicitly return a String? to match method signature
+        // Don't update state here, just log the error
+        debugPrint("Error stopping recorder: $e");
+        return null;
       });
     }
 
-    // Reset the visualization when stopped
+    // Check if mounted before updating state
     if (mounted) {
       setState(() {
         _visualizerLevels = List.filled(30, 0.05);
@@ -194,7 +262,18 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
 
   @override
   void dispose() {
-    _stopLevelMonitoring();
+    // Cancel timer and stop recording before calling setState
+    _levelTimer?.cancel();
+    _levelTimer = null;
+
+    // Just stop the recorder without updating state
+    if (_recorderInitialized) {
+      _recorder.stop().catchError((e) {
+        debugPrint("Error stopping recorder: $e");
+        return null;
+      });
+    }
+
     _recorder.dispose();
     super.dispose();
   }
@@ -247,10 +326,12 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
             onPressed: () {
-              setState(() {
-                _errorMessage = null;
-              });
-              _checkPermission();
+              if (mounted) {
+                setState(() {
+                  _errorMessage = null;
+                });
+                _checkPermission();
+              }
             },
             tooltip: 'Retry',
           ),
