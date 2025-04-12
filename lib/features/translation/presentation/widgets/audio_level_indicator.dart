@@ -48,6 +48,12 @@ class _AudioLevelIndicatorState extends State<AudioLevelIndicator> {
       // Check if widget is still mounted before updating state
       if (!mounted) return;
 
+      if (status.isDenied) {
+        // Request permission if denied instead of just checking
+        await _requestMicrophonePermission();
+        return;
+      }
+
       setState(() {
         _hasPermission = status.isGranted;
         if (!_hasPermission) {
