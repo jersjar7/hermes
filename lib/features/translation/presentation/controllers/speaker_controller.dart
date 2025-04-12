@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:hermes/core/errors/failure.dart';
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_exceptions.dart';
 import 'package:injectable/injectable.dart';
@@ -9,7 +10,6 @@ import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/translation/domain/entities/transcript.dart';
 import 'package:hermes/features/translation/domain/usecases/stream_transcription.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 /// Controller for speaker functionality
 @injectable
@@ -93,8 +93,13 @@ class SpeakerController with ChangeNotifier {
       return (true, status);
     }
 
+    // If permission is denied, directly request it instead of just checking
     if (status.isDenied) {
+      _logger.d(
+        "[CONTROLLER_DEBUG] Permission is denied, requesting permission",
+      );
       final requestResult = await Permission.microphone.request();
+      _logger.d("[CONTROLLER_DEBUG] Permission request result: $requestResult");
       return (requestResult.isGranted, requestResult);
     }
 
@@ -123,6 +128,18 @@ class SpeakerController with ChangeNotifier {
     _errorMessage = '';
     _isInitializing = true;
     notifyListeners();
+
+    // Add explicit permission request here
+    final permissionStatus = await Permission.microphone.request();
+    if (!permissionStatus.isGranted) {
+      _logger.d("[CONTROLLER_DEBUG] Permission denied after explicit request");
+      _errorMessage =
+          'Microphone permission is required for speech recognition.';
+      _permissionStatus = permissionStatus;
+      _isInitializing = false;
+      notifyListeners();
+      return false;
+    }
 
     // Check microphone permission
     if (!_hasPermission) {

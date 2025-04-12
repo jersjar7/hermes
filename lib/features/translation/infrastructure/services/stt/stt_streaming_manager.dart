@@ -105,6 +105,7 @@ class SttStreamingManager {
       final permissionStatus = await Permission.microphone.status;
 
       if (permissionStatus != PermissionStatus.granted) {
+        _logger.d("[STT_STREAM] Permission not granted, requesting it");
         final requestResult = await Permission.microphone.request();
         if (requestResult != PermissionStatus.granted) {
           throw MicrophonePermissionException(
@@ -113,6 +114,18 @@ class SttStreamingManager {
           );
         }
       }
+
+      // Explicitly ensure audio handler is initialized first
+      _logger.d(
+        "[STT_STREAM] [+${elapsed}ms] Explicitly initializing audio handler",
+      );
+      final audioInitResult = await _audioHandler.init();
+      if (!audioInitResult) {
+        throw AudioProcessingException('Failed to initialize audio handler');
+      }
+      _logger.d(
+        "[STT_STREAM] [+${elapsed}ms] Audio handler initialized successfully",
+      );
 
       if (!isInitialized) {
         final initialized = await initFunction();
@@ -139,10 +152,14 @@ class SttStreamingManager {
       _isPaused = false;
       _state = StreamingState.streaming;
 
+      _logger.d("[STT_STREAM] [+${elapsed}ms] Starting audio streaming");
       final success = await _audioHandler.startStreaming();
       if (!success) {
         throw AudioProcessingException('Failed to start audio streaming');
       }
+      _logger.d(
+        "[STT_STREAM] [+${elapsed}ms] Audio streaming started successfully",
+      );
 
       final sttStream = _apiClient.streamingRecognize(
         audioStream: _audioHandler.audioStream,
