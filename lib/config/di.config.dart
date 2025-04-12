@@ -69,8 +69,8 @@ _i174.GetIt init(
 }) {
   final gh = _i526.GetItHelper(getIt, environment, environmentFilter);
   final firebaseInjectableModule = _$FirebaseInjectableModule();
-  final transcriptionModule = _$TranscriptionModule();
   final translationInjectableModule = _$TranslationInjectableModule();
+  final transcriptionModule = _$TranscriptionModule();
   final sessionInjectableModule = _$SessionInjectableModule();
   gh.lazySingleton<_i503.Logger>(() => _i503.Logger.create());
   gh.lazySingleton<_i137.NetworkChecker>(() => _i137.NetworkChecker.create());
@@ -86,42 +86,19 @@ _i174.GetIt init(
   gh.lazySingleton<_i457.FirebaseStorage>(
     () => firebaseInjectableModule.firebaseStorage,
   );
-  gh.lazySingleton<_i611.TranscriptionAudioHandler>(
-    () => transcriptionModule.provideTranscriptionAudioHandler(
-      gh<_i192.SpeechToTextService>(),
-      gh<_i137.NetworkChecker>(),
-      gh<_i503.Logger>(),
-    ),
-  );
-  gh.lazySingleton<_i323.TranscriptionStreamHandler>(
-    () => transcriptionModule.provideTranscriptionStreamHandler(
-      gh<_i192.SpeechToTextService>(),
-      gh<_i137.NetworkChecker>(),
-      gh<_i503.Logger>(),
-    ),
-    instanceName: 'transcriptionStreamHandler',
-  );
   gh.lazySingleton<_i1060.TranslationService>(
     () => translationInjectableModule.provideTranslationService(
       gh<_i503.Logger>(),
     ),
+  );
+  gh.factory<_i192.SpeechToTextService>(
+    () => _i192.SpeechToTextService.create(gh<_i503.Logger>()),
   );
   gh.lazySingleton<_i192.SpeechToTextService>(
     () => translationInjectableModule.provideSpeechToTextService(
       gh<_i503.Logger>(),
     ),
     instanceName: 'translationSttService',
-  );
-  gh.lazySingleton<_i192.SpeechToTextService>(
-    () => transcriptionModule.provideSpeechToTextService(gh<_i503.Logger>()),
-    instanceName: 'transcriptionSttService',
-  );
-  gh.factory<_i323.TranscriptionStreamHandler>(
-    () => _i323.TranscriptionStreamHandler(
-      gh<_i192.SpeechToTextService>(instanceName: 'transcriptionSttService'),
-      gh<_i137.NetworkChecker>(),
-      gh<_i503.Logger>(),
-    ),
   );
   gh.lazySingleton<_i775.TranslationRepository>(
     () => _i77.TranslationRepositoryImpl(
@@ -155,11 +132,23 @@ _i174.GetIt init(
       gh<_i775.TranslationRepository>(),
     ),
   );
+  gh.lazySingleton<_i323.TranscriptionStreamHandler>(
+    () => transcriptionModule.provideTranscriptionStreamHandler(
+      gh<_i192.SpeechToTextService>(),
+      gh<_i137.NetworkChecker>(),
+      gh<_i503.Logger>(),
+    ),
+  );
+  gh.lazySingleton<_i611.TranscriptionAudioHandler>(
+    () => transcriptionModule.provideTranscriptionAudioHandler(
+      gh<_i192.SpeechToTextService>(),
+      gh<_i137.NetworkChecker>(),
+      gh<_i503.Logger>(),
+    ),
+  );
   gh.lazySingleton<_i187.TranscriptionRepository>(
     () => _i1048.TranscriptionRepositoryImpl(
-      gh<_i323.TranscriptionStreamHandler>(
-        instanceName: 'transcriptionStreamHandler',
-      ),
+      gh<_i323.TranscriptionStreamHandler>(),
       gh<_i598.TranscriptionFirestoreHandler>(),
       gh<_i611.TranscriptionAudioHandler>(),
       gh<_i503.Logger>(),
@@ -208,8 +197,8 @@ _i174.GetIt init(
 
 class _$FirebaseInjectableModule extends _i352.FirebaseInjectableModule {}
 
-class _$TranscriptionModule extends _i485.TranscriptionModule {}
-
 class _$TranslationInjectableModule extends _i458.TranslationInjectableModule {}
+
+class _$TranscriptionModule extends _i485.TranscriptionModule {}
 
 class _$SessionInjectableModule extends _i849.SessionInjectableModule {}

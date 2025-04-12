@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:injectable/injectable.dart';
 import 'package:record/record.dart';
 
 import 'package:hermes/core/utils/logger.dart';
@@ -15,6 +16,7 @@ import 'package:hermes/features/translation/infrastructure/services/stt/stt_stre
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_batch_processor.dart';
 
 /// Service to handle speech-to-text operations using Google Cloud STT
+@injectable
 class SpeechToTextService {
   final Logger _logger;
   final http.Client _httpClient;
@@ -41,6 +43,7 @@ class SpeechToTextService {
   }
 
   /// Factory constructor for dependency injection
+  @factoryMethod
   static SpeechToTextService create(Logger logger) {
     logger.d("[STT_DEBUG] SpeechToTextService.create called");
     return SpeechToTextService(logger, http.Client(), AudioRecorder());

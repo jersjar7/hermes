@@ -21,7 +21,7 @@ class TranscriptionAudioHandler {
 
   /// Creates a new [TranscriptionAudioHandler]
   TranscriptionAudioHandler(
-    @Named("transcriptionSttService") this._sttService,
+    this._sttService,
     this._networkChecker,
     this._logger,
   );

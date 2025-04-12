@@ -12,15 +12,15 @@ import 'package:hermes/features/translation/infrastructure/services/stt/stt_serv
 /// Provides dependencies for the transcription handlers
 @module
 abstract class TranscriptionModule {
-  // We need to rename this method to avoid conflicts
+  /// Provides [TranscriptionStreamHandler]
   @lazySingleton
-  @Named("transcriptionStreamHandler")
   TranscriptionStreamHandler provideTranscriptionStreamHandler(
     SpeechToTextService sttService,
     NetworkChecker networkChecker,
     Logger logger,
   ) => TranscriptionStreamHandler(sttService, networkChecker, logger);
 
+  /// Provides [TranscriptionFirestoreHandler]
   @lazySingleton
   TranscriptionFirestoreHandler provideTranscriptionFirestoreHandler(
     FirebaseFirestore firestore,
@@ -28,6 +28,7 @@ abstract class TranscriptionModule {
     Logger logger,
   ) => TranscriptionFirestoreHandler(firestore, networkChecker, logger);
 
+  /// Provides [TranscriptionAudioHandler]
   @lazySingleton
   TranscriptionAudioHandler provideTranscriptionAudioHandler(
     SpeechToTextService sttService,
@@ -35,9 +36,11 @@ abstract class TranscriptionModule {
     Logger logger,
   ) => TranscriptionAudioHandler(sttService, networkChecker, logger);
 
+  // Remove this method since we'll register SpeechToTextService directly
+  /*
   @lazySingleton
-  @Named("transcriptionSttService")
   SpeechToTextService provideSpeechToTextService(Logger logger) {
     return SpeechToTextService.create(logger);
   }
+  */
 }

@@ -13,7 +13,6 @@ import 'package:hermes/features/translation/infrastructure/services/stt/stt_exce
 import 'package:hermes/features/translation/infrastructure/services/stt/stt_service.dart';
 
 /// Handles streaming functionality for transcription
-@injectable
 class TranscriptionStreamHandler {
   final SpeechToTextService _sttService;
   final NetworkChecker _networkChecker;
@@ -31,7 +30,7 @@ class TranscriptionStreamHandler {
 
   /// Creates a new [TranscriptionStreamHandler]
   TranscriptionStreamHandler(
-    @Named("transcriptionSttService") this._sttService,
+    this._sttService,
     this._networkChecker,
     this._logger,
   );

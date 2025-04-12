@@ -23,7 +23,7 @@ class TranscriptionRepositoryImpl implements TranscriptionRepository {
 
   /// Creates a new [TranscriptionRepositoryImpl]
   TranscriptionRepositoryImpl(
-    @Named("transcriptionStreamHandler") this._streamHandler,
+    this._streamHandler, // Remove @Named annotation
     this._firestoreHandler,
     this._audioHandler,
     this._logger,
