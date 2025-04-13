@@ -2,12 +2,16 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:hermes/config/env.dart';
 import 'package:hermes/core/utils/logger.dart';
 import 'package:hermes/features/session/domain/entities/session.dart';
 import 'package:hermes/features/session/domain/usecases/end_session.dart';
 import 'package:hermes/features/translation/domain/entities/transcript.dart';
 import 'package:hermes/features/translation/presentation/controllers/speaker_controller.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:get_it/get_it.dart';
+import 'package:hermes/features/translation/infrastructure/services/stt/stt_service.dart';
 
 /// UI state for the active session page
 enum SessionViewState {
@@ -38,14 +42,20 @@ class ActiveSessionController with ChangeNotifier {
   bool _hasCheckedPermission = false;
   bool _showTranscription = true;
   int _errorCount = 0; // Track error occurrences
+  bool _apiConnected = false; // Track API connectivity status
+  String _apiStatus = "Unknown"; // Store API status for UI
+  DateTime? _streamStartTime; // When streaming started
+  bool _isTestingMic = false; // Flag for microphone test
+  bool _isTestingApi = false; // Flag for API test
+  bool _showDiagnostics = false; // Whether to show diagnostics view
 
   // ADDED: Track if controller is disposed
-  bool _isDisposed = false;
+  final bool _isDisposed = false;
 
   // Timers and subscriptions
-  Timer? _listenerUpdateTimer;
-  StreamSubscription? _sessionSubscription;
-  StreamSubscription? _speakerControllerSubscription;
+  Timer? listenerUpdateTimer;
+  StreamSubscription? sessionSubscription;
+  StreamSubscription? speakerControllerSubscription;
 
   // Getters
   Session get session => _session;
@@ -57,6 +67,15 @@ class ActiveSessionController with ChangeNotifier {
   bool get hasCheckedPermission => _hasCheckedPermission;
   bool get showTranscription => _showTranscription;
   int get errorCount => _errorCount;
+  bool get apiConnected => _apiConnected;
+  String get apiStatus => _apiStatus;
+  bool get showDiagnostics => _showDiagnostics;
+
+  // Stream time in milliseconds
+  int get streamTimeMs =>
+      _streamStartTime != null
+          ? DateTime.now().difference(_streamStartTime!).inMilliseconds
+          : 0;
 
   // Check if error is related to permissions
   bool get isPermissionError =>
@@ -83,9 +102,98 @@ class ActiveSessionController with ChangeNotifier {
     _initialize();
   }
 
-  // Add this method to ActiveSessionController
+  /// Toggle showing the diagnostics view
+  void toggleDiagnostics() {
+    _showDiagnostics = !_showDiagnostics;
+    if (!_isDisposed) {
+      notifyListeners();
+    }
+  }
+
+  /// Test the microphone functionality
   Future<bool> testMicrophone() async {
-    return _speakerController.testMicrophone();
+    if (_isTestingMic) return false;
+
+    _isTestingMic = true;
+    if (!_isDisposed) {
+      notifyListeners();
+    }
+
+    try {
+      _logger.d("[TEST_MIC] Starting microphone test");
+      final result = await _speakerController.testMicrophone();
+      _logger.d("[TEST_MIC] Microphone test result: $result");
+
+      _isTestingMic = false;
+      if (!_isDisposed) {
+        notifyListeners();
+      }
+      return result;
+    } catch (e) {
+      _logger.e("[TEST_MIC] Microphone test failed with error", error: e);
+      _isTestingMic = false;
+      if (!_isDisposed) {
+        notifyListeners();
+      }
+      return false;
+    }
+  }
+
+  /// Test the API connection
+  Future<bool> testApiConnection() async {
+    if (_isTestingApi) return false;
+
+    _isTestingApi = true;
+    if (!_isDisposed) {
+      notifyListeners();
+    }
+
+    try {
+      _logger.d("[TEST_API] Testing API connection");
+
+      // Use a minimal API request to test connectivity
+      final uri = Uri.https(
+        'speech.googleapis.com',
+        'v1p1beta1/speech:recognize',
+        {'key': Env.googleCloudApiKey},
+      );
+
+      final response = await http
+          .get(uri)
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              _logger.d("[TEST_API] API request timed out");
+              return http.Response('Timeout', 408);
+            },
+          );
+
+      _logger.d("[TEST_API] API test response: ${response.statusCode}");
+
+      // Even an auth error (401/403) confirms the API is reachable
+      final success =
+          response.statusCode != 404 &&
+          response.statusCode != 500 &&
+          response.statusCode != 408;
+
+      _apiConnected = success;
+      _apiStatus = success ? "Connected" : "Disconnected";
+
+      _isTestingApi = false;
+      if (!_isDisposed) {
+        notifyListeners();
+      }
+      return success;
+    } catch (e) {
+      _logger.e("[TEST_API] API connection test failed", error: e);
+      _apiConnected = false;
+      _apiStatus = "Error";
+      _isTestingApi = false;
+      if (!_isDisposed) {
+        notifyListeners();
+      }
+      return false;
+    }
   }
 
   /// Initialize the controller
@@ -96,17 +204,24 @@ class ActiveSessionController with ChangeNotifier {
     _setupListenerUpdates();
 
     // Listen for changes in speaker controller state
-    _speakerControllerSubscription = _speakerController.listenerStream.listen(
+    speakerControllerSubscription = _speakerController.listenerStream.listen(
       _handleSpeakerControllerUpdates,
     );
 
     // Check microphone permission
     _checkMicrophonePermission().then((hasPermission) {
-      _hasCheckedPermission = hasPermission;
+      _hasCheckedPermission = true;
       _logger.d(
         "[SESSION_CONTROLLER] Initial permission check: $hasPermission",
       );
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
+    });
+
+    // Test API connection
+    testApiConnection().then((connected) {
+      _logger.d("[SESSION_CONTROLLER] Initial API test: $connected");
     });
   }
 
@@ -128,6 +243,16 @@ class ActiveSessionController with ChangeNotifier {
       _logger.d(
         "[SESSION_CONTROLLER] Updated error: $_errorMessage (count: $_errorCount)",
       );
+    }
+
+    // Track when streaming starts
+    if (_speakerController.isListening && _streamStartTime == null) {
+      _streamStartTime = DateTime.now();
+    }
+
+    // Clear streaming start time when stopped
+    if (!_speakerController.isListening) {
+      _streamStartTime = null;
     }
 
     // Update view state based on speaker status
@@ -152,7 +277,7 @@ class ActiveSessionController with ChangeNotifier {
   /// Set up timer to periodically update listener count
   void _setupListenerUpdates() {
     // Update listener count periodically
-    _listenerUpdateTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    listenerUpdateTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _listenerCount = _session.listeners.length;
       if (!_isDisposed) {
         notifyListeners();
@@ -220,6 +345,7 @@ class ActiveSessionController with ChangeNotifier {
     if (isListening) {
       await _speakerController.stopListening();
       _viewState = SessionViewState.preSpeaking;
+      _streamStartTime = null; // Clear the stream start time
       if (!_isDisposed) {
         notifyListeners();
       }
@@ -239,7 +365,20 @@ class ActiveSessionController with ChangeNotifier {
           notifyListeners();
         }
 
+        // Set stream start time
+        _streamStartTime = DateTime.now();
+        _apiStatus = "Connecting";
+
         final success = await _speakerController.startListening();
+
+        // Update API status based on result
+        if (success) {
+          _apiStatus = "Connected";
+          _apiConnected = true;
+        } else {
+          _apiStatus = "Error";
+          _apiConnected = false;
+        }
 
         // Get any error from speaker controller
         if (_speakerController.errorMessage.isNotEmpty) {
@@ -320,15 +459,22 @@ class ActiveSessionController with ChangeNotifier {
         _logger.d(
           "[SESSION_CONTROLLER] Stopping active listening before ending session",
         );
-        // FIXED: Force-stop with timeout to ensure completion
+        // Force-stop with timeout to ensure completion
         bool stoppedSuccessfully = false;
         try {
           await _speakerController.stopListening().timeout(
             const Duration(seconds: 5),
+            onTimeout: () {
+              _logger.e(
+                "[SESSION_CONTROLLER] Stopping listening timed out - forcing cleanup",
+              );
+              _completeSessionCleanup();
+            },
           );
           stoppedSuccessfully = true;
         } catch (e) {
           _logger.e("[SESSION_CONTROLLER] Error stopping listening", error: e);
+          _completeSessionCleanup();
         }
 
         _logger.d(
@@ -353,6 +499,7 @@ class ActiveSessionController with ChangeNotifier {
         },
         (endedSession) {
           _session = endedSession;
+          _streamStartTime = null; // Clear stream start time
           _logger.d("[SESSION_CONTROLLER] Session ended successfully");
           if (!_isDisposed) {
             notifyListeners();
@@ -372,14 +519,30 @@ class ActiveSessionController with ChangeNotifier {
     }
   }
 
-  /// Toggle transcription visibility
-  void toggleTranscriptionVisibility() {
-    _showTranscription = !_showTranscription;
-    _logger.d(
-      "[SESSION_CONTROLLER] Toggled transcription visibility: $_showTranscription",
-    );
-    if (!_isDisposed) {
-      notifyListeners();
+  /// Helper method to completely clean up all resources when ending a session
+  Future<void> _completeSessionCleanup() async {
+    _logger.d("[SESSION_CONTROLLER] Performing complete session cleanup");
+    try {
+      // Force stop any active audio processing
+      try {
+        final sttService = GetIt.instance<SpeechToTextService>();
+        await sttService.stopStreaming().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () {
+            _logger.d("[SESSION_CONTROLLER] STT stopStreaming timed out");
+          },
+        );
+        _logger.d("[SESSION_CONTROLLER] STT service stopped");
+      } catch (e) {
+        _logger.e("[SESSION_CONTROLLER] Error stopping STT service", error: e);
+      }
+
+      // Clear all state
+      _streamStartTime = null;
+      _apiStatus = "Disconnected";
+      _apiConnected = false;
+    } catch (e) {
+      _logger.e("[SESSION_CONTROLLER] Error during session cleanup", error: e);
     }
   }
 
@@ -391,71 +554,23 @@ class ActiveSessionController with ChangeNotifier {
     _errorMessage = null;
     _errorDetails = null;
     _viewState = SessionViewState.preSpeaking;
-    if (!_isDisposed) {
-      notifyListeners();
-    }
+    notifyListeners();
 
     // Attempt to start listening again
     return await toggleListening();
   }
 
+  /// Toggle transcription visibility
+  void toggleTranscriptionVisibility() {
+    _showTranscription = !_showTranscription;
+    _logger.d(
+      "[SESSION_CONTROLLER] Toggled transcription visibility: $_showTranscription",
+    );
+    notifyListeners();
+  }
+
   /// Get session duration
   Duration getSessionDuration() {
     return DateTime.now().difference(_session.createdAt);
-  }
-
-  @override
-  void dispose() {
-    _isDisposed = true;
-    _logger.d("[SESSION_CONTROLLER] dispose called, cleaning up resources");
-
-    // FIXED: Ensure proper cleanup
-    _cleanupResources();
-    super.dispose();
-  }
-
-  /// Clean up all resources
-  void _cleanupResources() {
-    try {
-      // Cancel timer
-      if (_listenerUpdateTimer != null) {
-        _listenerUpdateTimer?.cancel();
-        _listenerUpdateTimer = null;
-        _logger.d("[SESSION_CONTROLLER] Listener update timer canceled");
-      }
-
-      // Cancel session subscription
-      if (_sessionSubscription != null) {
-        _sessionSubscription?.cancel();
-        _sessionSubscription = null;
-        _logger.d("[SESSION_CONTROLLER] Session subscription canceled");
-      }
-
-      // Cancel speaker controller subscription
-      if (_speakerControllerSubscription != null) {
-        _speakerControllerSubscription?.cancel();
-        _speakerControllerSubscription = null;
-        _logger.d(
-          "[SESSION_CONTROLLER] Speaker controller subscription canceled",
-        );
-      }
-
-      // Force stop listening if still active
-      if (isListening) {
-        _logger.d(
-          "[SESSION_CONTROLLER] Force stopping listening during cleanup",
-        );
-        _speakerController.stopListening().catchError((e) {
-          _logger.e(
-            "[SESSION_CONTROLLER] Error stopping listening during cleanup",
-            error: e,
-          );
-        });
-      }
-
-      _logger.d("[SESSION_CONTROLLER] Resources cleanup completed");
-    } catch (e) {
-      _logger.e("[SESSION_CONTROLLER] Error during resource cleanup", error: e);
-    }
   }
 }

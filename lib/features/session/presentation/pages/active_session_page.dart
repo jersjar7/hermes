@@ -13,7 +13,8 @@ import 'package:hermes/features/session/presentation/controllers/active_session_
 import 'package:hermes/features/session/presentation/pages/session_summary_page.dart';
 import 'package:hermes/features/translation/infrastructure/utils/permission_handler_util.dart';
 import 'package:hermes/features/translation/presentation/controllers/speaker_controller.dart';
-import 'package:hermes/features/translation/presentation/widgets/audio_level_indicator.dart';
+import 'package:hermes/features/translation/presentation/widgets/audio_diagnostic_view.dart';
+import 'package:hermes/features/translation/presentation/widgets/enhanced_audio_level_indicator.dart';
 import 'package:hermes/features/translation/presentation/widgets/live_transcript_view.dart';
 
 /// Page for active session for speaker
@@ -71,24 +72,14 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
     if (_controller.isListening) {
       await _controller.togglePauseResume();
     } else {
-      // Test the microphone first
-      final micWorks = await _controller.testMicrophone();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Microphone test: ${micWorks ? 'SUCCESS' : 'FAILED'}'),
-        ),
-      );
+      final success = await _controller.toggleListening();
 
-      if (micWorks) {
-        final success = await _controller.toggleListening();
-
-        if (!success && _controller.errorMessage != null) {
-          if (_controller.isPermissionError && mounted) {
-            _permissionHandler.showPermissionSettingsDialog(
-              context,
-              onCancel: () {},
-            );
-          }
+      if (!success && _controller.errorMessage != null) {
+        if (_controller.isPermissionError && mounted) {
+          _permissionHandler.showPermissionSettingsDialog(
+            context,
+            onCancel: () {},
+          );
         }
       }
     }
@@ -142,6 +133,16 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
             appBar: AppBar(
               title: Text(controller.session.name),
               actions: [
+                // Add a debug button to toggle diagnostics view
+                IconButton(
+                  icon: Icon(
+                    controller.showDiagnostics
+                        ? Icons.bug_report
+                        : Icons.bug_report_outlined,
+                  ),
+                  onPressed: controller.toggleDiagnostics,
+                  tooltip: 'Toggle diagnostics',
+                ),
                 IconButton(
                   icon: const Icon(Icons.copy),
                   onPressed: _copySessionCode,
@@ -158,8 +159,22 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
                   // Session details
                   _buildSessionDetails(controller),
 
-                  // Microphone level indicator (always visible)
-                  _buildMicrophoneIndicator(controller),
+                  // Diagnostics view (optional)
+                  if (controller.showDiagnostics)
+                    _buildDiagnosticsView(controller),
+
+                  // Enhanced microphone level indicator
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 8.0,
+                    ),
+                    child: EnhancedAudioLevelIndicator(
+                      isListening:
+                          controller.isListening && !controller.isPaused,
+                      showDebugInfo: false,
+                    ),
+                  ),
 
                   // Error message if any
                   if (controller.errorMessage != null)
@@ -232,6 +247,24 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
             ],
           ),
 
+          // API Status indicator
+          if (controller.isListening)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: _getApiStatusColor(controller.apiStatus),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                controller.apiStatus,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+
           // Listeners count
           Row(
             children: [
@@ -246,6 +279,21 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
         ],
       ),
     );
+  }
+
+  Color _getApiStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'connected':
+        return Colors.green;
+      case 'connecting':
+      case 'initializing':
+        return Colors.amber;
+      case 'disconnected':
+      case 'error':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
   }
 
   Widget _buildSessionDetails(ActiveSessionController controller) {
@@ -280,80 +328,20 @@ class _ActiveSessionPageState extends State<ActiveSessionPage>
     );
   }
 
-  Widget _buildMicrophoneIndicator(ActiveSessionController controller) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Status indicator and toggle transcript visibility
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Status indicator (speaking/paused/not speaking)
-              Row(
-                children: [
-                  Icon(
-                    controller.isListening
-                        ? controller.isPaused
-                            ? Icons.pause
-                            : Icons.mic
-                        : Icons.mic_off,
-                    color:
-                        controller.isListening
-                            ? controller.isPaused
-                                ? Colors.amber
-                                : Colors.green
-                            : Colors.grey,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    controller.isListening
-                        ? controller.isPaused
-                            ? 'Paused'
-                            : 'Speaking'
-                        : 'Not Speaking',
-                    style: TextStyle(
-                      color:
-                          controller.isListening
-                              ? controller.isPaused
-                                  ? Colors.amber
-                                  : Colors.green
-                              : Colors.grey,
-                      fontWeight: FontWeight.w500,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-
-              // Toggle transcript visibility
-              if (controller.isListening)
-                IconButton(
-                  icon: Icon(
-                    controller.showTranscription
-                        ? Icons.visibility
-                        : Icons.visibility_off,
-                    size: 20,
-                  ),
-                  onPressed: controller.toggleTranscriptionVisibility,
-                  tooltip:
-                      controller.showTranscription
-                          ? 'Hide transcription'
-                          : 'Show transcription',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          // Audio level visualization
-          AudioLevelIndicator(isListening: controller.isListening),
-        ],
-      ),
+  Widget _buildDiagnosticsView(ActiveSessionController controller) {
+    return AudioDiagnosticView(
+      hasMicPermission: controller.hasCheckedPermission,
+      isRecording: controller.isListening,
+      isPaused: controller.isPaused,
+      hasError: controller.errorMessage != null,
+      errorMessage: controller.errorMessage,
+      transcriptCount: controller.transcripts.length,
+      streamTimeMs: controller.streamTimeMs,
+      apiStatus: controller.apiStatus,
+      onRequestPermission: () => controller.checkMicrophonePermission(),
+      onRetry: controller.retryAfterError,
+      onTestMicrophone: controller.testMicrophone,
+      onTestApiConnection: controller.testApiConnection,
     );
   }
 

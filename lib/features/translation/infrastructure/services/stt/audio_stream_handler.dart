@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// Handles streaming of audio data from the microphone
 class AudioStreamHandler {
@@ -216,6 +217,11 @@ class AudioStreamHandler {
         "[AUDIO_HANDLER] [+${elapsed}ms] Starting audio stream with config: $config",
       );
 
+      // Get a temporary path for recording
+      final tempDir = await getTemporaryDirectory();
+      final tempPath =
+          '${tempDir.path}/stt_recording_${DateTime.now().millisecondsSinceEpoch}.wav';
+
       // More robust error handling
       try {
         // Start recording stream
@@ -226,6 +232,19 @@ class AudioStreamHandler {
 
         // Reset error count on successful start
         _errorCount = 0;
+
+        // Setup amplitude monitoring to verify audio input
+        _amplitudeSubscription = _recorder
+            .onAmplitudeChanged(Duration(milliseconds: 200))
+            .listen((amp) {
+              final level = amp.current;
+              if (level > 0.05) {
+                // Only log when there's meaningful audio
+                print(
+                  "[AUDIO_INPUT] Detected sound: ${level.toStringAsFixed(2)}",
+                );
+              }
+            });
 
         // Subscribe to the stream
         _audioSubscription = audioStream.listen(
@@ -388,31 +407,14 @@ class AudioStreamHandler {
             ? DateTime.now().difference(_startTime!).inMilliseconds
             : 0;
 
-    print("[AUDIO_HANDLER] [+${elapsed}ms] stopStreaming called");
+    print("[AUDIO_HANDLER] [+${elapsed}ms] stopStreaming called FORCEFULLY");
 
     // Set state flags immediately to prevent concurrent operations
-    bool wasStreaming = _isStreaming;
     _isStreaming = false;
     _isPaused = false;
 
-    if (!wasStreaming) {
-      print("[AUDIO_HANDLER] [+${elapsed}ms] Not streaming, nothing to stop");
-      return;
-    }
-
     try {
-      // Cancel subscriptions first
-      if (_audioSubscription != null) {
-        try {
-          await _audioSubscription?.cancel();
-          print("[AUDIO_HANDLER] [+${elapsed}ms] Audio subscription canceled");
-        } catch (e) {
-          print("[AUDIO_HANDLER] Error cancelling audio subscription: $e");
-        } finally {
-          _audioSubscription = null;
-        }
-      }
-
+      // Cancel amplitude subscription first
       if (_amplitudeSubscription != null) {
         try {
           await _amplitudeSubscription?.cancel();
@@ -426,9 +428,37 @@ class AudioStreamHandler {
         }
       }
 
-      // Stop recorder if recording
+      // Cancel audio subscription second
+      if (_audioSubscription != null) {
+        try {
+          await _audioSubscription?.cancel();
+          print(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Audio subscription forcefully canceled",
+          );
+        } catch (e) {
+          print("[AUDIO_HANDLER] Error cancelling audio subscription: $e");
+        } finally {
+          _audioSubscription = null;
+        }
+      }
+
+      // Close stream controller third
+      if (_audioStreamController != null && !_audioStreamController!.isClosed) {
+        try {
+          await _audioStreamController!.close();
+          print(
+            "[AUDIO_HANDLER] [+${elapsed}ms] Stream controller forcefully closed",
+          );
+        } catch (e) {
+          print("[AUDIO_HANDLER] Error closing stream controller: $e");
+        } finally {
+          _audioStreamController = null;
+        }
+      }
+
+      // Stop recorder last
       try {
-        // FIXED: Changed this to properly check recording status and handle errors
+        // Check if recorder is recording to avoid errors
         bool isCurrentlyRecording = false;
         try {
           isCurrentlyRecording = await _recorder.isRecording();
@@ -440,7 +470,19 @@ class AudioStreamHandler {
 
         if (isCurrentlyRecording) {
           print("[AUDIO_HANDLER] [+${elapsed}ms] Stopping recorder...");
-          await _recorder.stop();
+          await _recorder.stop().timeout(
+            const Duration(seconds: 3),
+            onTimeout: () {
+              print(
+                "[AUDIO_HANDLER] [+${elapsed}ms] Recorder stop timed out - forcing disposal",
+              );
+              // Force dispose on timeout
+              _recorder.dispose().catchError((e) {
+                print("[AUDIO_HANDLER] Error during forced disposal: $e");
+              });
+              return null;
+            },
+          );
           print(
             "[AUDIO_HANDLER] [+${elapsed}ms] Recorder stopped successfully",
           );
@@ -451,37 +493,13 @@ class AudioStreamHandler {
         }
       } catch (e) {
         print("[AUDIO_HANDLER] Error stopping recorder: $e");
-        // FIXED: Force dispose recorder in case of error
-        try {
-          await _recorder.dispose();
-          print(
-            "[AUDIO_HANDLER] [+${elapsed}ms] Recorder disposed after error",
-          );
-        } catch (disposeError) {
-          print("[AUDIO_HANDLER] Error disposing recorder: $disposeError");
-        }
       }
 
-      // Close the stream controller if it exists and isn't closed
-      if (_audioStreamController != null && !_audioStreamController!.isClosed) {
-        try {
-          await _audioStreamController!.close();
-          print(
-            "[AUDIO_HANDLER] [+${elapsed}ms] Audio stream controller closed",
-          );
-        } catch (e) {
-          print("[AUDIO_HANDLER] Error closing stream controller: $e");
-        }
-        _audioStreamController = null;
-      }
+      print("[AUDIO_HANDLER] [+${elapsed}ms] All audio resources cleaned up");
     } catch (e, stackTrace) {
       print(
-        "[AUDIO_HANDLER] [+${elapsed}ms] Error stopping audio streaming: $e\nStack trace: $stackTrace",
+        "[AUDIO_HANDLER] [+${elapsed}ms] Error during forced cleanup: $e\nStack trace: $stackTrace",
       );
-    } finally {
-      // Ensure all state is reset properly
-      _isStreaming = false;
-      _isPaused = false;
     }
   }
 
@@ -497,7 +515,7 @@ class AudioStreamHandler {
     try {
       await stopStreaming();
 
-      // FIXED: Added force disposal of recorder
+      // Force disposal of recorder
       try {
         await _recorder.dispose();
         print("[AUDIO_HANDLER] [+${elapsed}ms] Recorder disposed");
