@@ -1,7 +1,9 @@
 import 'package:speech_to_text/speech_recognition_result.dart' as stt;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
+
 import 'speech_to_text_service.dart';
+import 'speech_result.dart';
 
 class SpeechToTextServiceImpl implements ISpeechToTextService {
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -19,7 +21,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
 
     _isAvailable = await _speech.initialize(
       onStatus: (status) => _isListening = status == 'listening',
-      onError: (error) => print('STT error: \$error'),
+      onError: (error) => print('STT error: $error'),
     );
 
     return _isAvailable;

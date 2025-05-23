@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+
 import 'translation_service.dart';
+import 'translation_result.dart'; // 👈 new import
 
 class TranslationServiceImpl implements ITranslationService {
   final String apiKey;
@@ -8,7 +10,7 @@ class TranslationServiceImpl implements ITranslationService {
   TranslationServiceImpl({required this.apiKey});
 
   @override
-  Future<String> translate({
+  Future<TranslationResult> translate({
     required String text,
     required String targetLanguageCode,
     String? sourceLanguageCode,
@@ -30,7 +32,12 @@ class TranslationServiceImpl implements ITranslationService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      return data['data']['translations'][0]['translatedText'];
+      return TranslationResult(
+        translatedText: data['data']['translations'][0]['translatedText'],
+        targetLanguageCode: targetLanguageCode,
+        sourceLanguageCode: sourceLanguageCode,
+        originalText: text,
+      );
     } else {
       throw Exception('Failed to translate text: ${response.body}');
     }

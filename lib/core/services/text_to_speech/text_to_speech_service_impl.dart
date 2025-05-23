@@ -1,5 +1,7 @@
 import 'package:flutter_tts/flutter_tts.dart';
+
 import 'text_to_speech_service.dart';
+import 'tts_settings.dart';
 
 enum TtsState { playing, stopped }
 
@@ -8,28 +10,18 @@ class TextToSpeechServiceImpl implements ITextToSpeechService {
   TtsState _ttsState = TtsState.stopped;
 
   TextToSpeechServiceImpl() {
-    _tts.setStartHandler(() {
-      _ttsState = TtsState.playing;
-    });
-
-    _tts.setCompletionHandler(() {
-      _ttsState = TtsState.stopped;
-    });
-
-    _tts.setCancelHandler(() {
-      _ttsState = TtsState.stopped;
-    });
-
-    _tts.setErrorHandler((msg) {
-      _ttsState = TtsState.stopped;
-    });
+    _tts.setStartHandler(() => _ttsState = TtsState.playing);
+    _tts.setCompletionHandler(() => _ttsState = TtsState.stopped);
+    _tts.setCancelHandler(() => _ttsState = TtsState.stopped);
+    _tts.setErrorHandler((msg) => _ttsState = TtsState.stopped);
   }
 
   @override
   Future<void> initialize() async {
-    await _tts.setLanguage('en-US');
-    await _tts.setPitch(1.0);
-    await _tts.setSpeechRate(1.0);
+    final defaultSettings = TtsSettings.defaultSettings();
+    await setLanguage(defaultSettings.languageCode);
+    await setPitch(defaultSettings.pitch);
+    await setSpeechRate(defaultSettings.speechRate);
   }
 
   @override

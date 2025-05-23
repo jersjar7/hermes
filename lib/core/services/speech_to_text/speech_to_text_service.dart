@@ -1,3 +1,5 @@
+import 'speech_result.dart';
+
 abstract class ISpeechToTextService {
   /// Initializes the speech recognition plugin and checks permissions.
   /// Returns true if initialization succeeds.
@@ -31,21 +33,6 @@ abstract class ISpeechToTextService {
 
   /// Sets the active locale for transcription (e.g., 'en-US').
   Future<void> setLocale(String localeId);
-}
-
-/// Basic model representing a speech recognition result.
-class SpeechResult {
-  final String transcript;
-  final bool isFinal;
-  final DateTime timestamp;
-  final String locale;
-
-  SpeechResult({
-    required this.transcript,
-    required this.isFinal,
-    required this.timestamp,
-    required this.locale,
-  });
 }
 
 /// Represents a supported locale (e.g., English-US, Spanish-MX).
