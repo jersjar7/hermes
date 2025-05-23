@@ -1,4 +1,6 @@
 import 'package:get_it/get_it.dart';
+import 'package:hermes/core/services/session/session_service.dart';
+import 'package:hermes/core/services/session/session_service_impl.dart';
 import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/socket/socket_service_impl.dart';
 import 'package:hermes/core/services/text_to_speech/text_to_speech_service.dart';
@@ -29,4 +31,5 @@ void setupServiceLocator() {
     () => TextToSpeechServiceImpl(),
   );
   getIt.registerLazySingleton<ISocketService>(() => SocketServiceImpl());
+  getIt.registerLazySingleton<ISessionService>(() => SessionServiceImpl());
 }
