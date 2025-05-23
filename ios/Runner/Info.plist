@@ -45,5 +45,14 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- 👇 Add permissions here before </dict> -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs microphone access to transcribe your speech.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>This app uses speech recognition to convert your speech into text.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Not used, but required by Apple for some libraries.</string>
+
 </dict>
 </plist>

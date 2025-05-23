@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:hermes/core/service_locator.dart';
 
 void main() {
+  setupServiceLocator();
   runApp(const MyApp());
 }
 
