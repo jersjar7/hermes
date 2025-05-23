@@ -12,7 +12,12 @@ void main() {
         text: 'Hello this is a test',
         targetLanguageCode: 'es',
       );
-      expect(result, isNotEmpty, reason: 'Translation result: $result');
+
+      expect(
+        result.translatedText,
+        isNotEmpty,
+        reason: 'Translation result: ${result.translatedText}',
+      );
     });
   });
 }

@@ -10,5 +10,8 @@ void main() async {
     targetLanguageCode: 'es',
   );
 
-  print('🟢 Translated Text: $result');
+  print('🟢 Translated Text: ${result.translatedText}');
+  print(
+    '🗣️ From: ${result.sourceLanguageCode ?? 'auto-detected'} → To: ${result.targetLanguageCode}',
+  );
 }
