@@ -1,4 +1,7 @@
+// lib/core/service_locator.dart
 import 'package:get_it/get_it.dart';
+import 'package:hermes/core/services/auth/auth_service.dart';
+import 'package:hermes/core/services/auth/auth_service_impl.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service_impl.dart';
 import 'package:hermes/core/services/session/session_service.dart';
@@ -17,7 +20,7 @@ import 'services/permission/permission_service_impl.dart';
 
 final getIt = GetIt.instance;
 
-void setupServiceLocator() {
+Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton<ISpeechToTextService>(
     () => SpeechToTextServiceImpl(),
   );
@@ -36,6 +39,7 @@ void setupServiceLocator() {
   getIt.registerLazySingleton<IConnectivityService>(
     () => ConnectivityServiceImpl(),
   );
+  getIt.registerLazySingleton<IAuthService>(() => AuthServiceImpl());
   getIt.registerLazySingleton<ISessionService>(
     () => SessionServiceImpl(
       socketService: getIt(),

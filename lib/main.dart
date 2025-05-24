@@ -1,8 +1,12 @@
+// lib/main.dart
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:hermes/core/service_locator.dart';
 
-void main() {
-  setupServiceLocator();
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(); // ✅ Init Firebase
+  await setupServiceLocator(); // ✅ Register services
   runApp(const MyApp());
 }
 
