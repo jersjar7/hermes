@@ -1,9 +1,30 @@
 import 'dart:math';
 
+import 'package:hermes/core/services/socket/socket_event.dart';
+import 'package:hermes/core/services/socket/socket_service.dart';
+import 'package:hermes/core/services/speech_to_text/speech_to_text_service.dart';
+import 'package:hermes/core/services/text_to_speech/text_to_speech_service.dart';
+import 'package:hermes/core/services/translation/translation_service.dart';
+
 import 'session_info.dart';
 import 'session_service.dart';
 
 class SessionServiceImpl implements ISessionService {
+  final ISocketService _socketService;
+  final ISpeechToTextService _sttService;
+  final ITranslationService _translationService;
+  final ITextToSpeechService _ttsService;
+
+  SessionServiceImpl({
+    required ISocketService socketService,
+    required ISpeechToTextService sttService,
+    required ITranslationService translationService,
+    required ITextToSpeechService ttsService,
+  }) : _socketService = socketService,
+       _sttService = sttService,
+       _translationService = translationService,
+       _ttsService = ttsService;
+
   SessionInfo? _session;
   bool _isSpeaker = false;
 
@@ -28,16 +49,46 @@ class SessionServiceImpl implements ISessionService {
       startedAt: DateTime.now(),
     );
     _isSpeaker = true;
+
+    await _socketService.connect(sessionId);
+
+    final ok = await _sttService.initialize();
+    if (ok) {
+      await _sttService.startListening(
+        onResult: (result) async {
+          print('🎙️ Transcribed: ${result.transcript}');
+
+          final translated = await _translationService.translate(
+            text: result.transcript,
+            targetLanguageCode: _session!.languageCode,
+          );
+
+          print('🌍 Translated: ${translated.translatedText}');
+
+          await _socketService.send(
+            TranslationEvent(
+              sessionId: _session!.sessionId,
+              translatedText: translated.translatedText,
+              targetLanguage: translated.targetLanguageCode,
+            ),
+          );
+        },
+        onError: (e) => print('❌ STT error: $e'),
+      );
+    }
   }
 
   @override
   Future<void> endSession() async {
+    await _sttService.cancel();
+    await _socketService.disconnect();
     _session = null;
     _isSpeaker = false;
   }
 
   @override
   Future<void> pauseSession() async {
+    await _sttService.stopListening();
     if (_session != null) {
       _session = _session!.copyWith(isPaused: true);
     }
@@ -48,20 +99,53 @@ class SessionServiceImpl implements ISessionService {
     if (_session != null) {
       _session = _session!.copyWith(isPaused: false);
     }
+
+    await _sttService.startListening(
+      onResult: (result) async {
+        print('🎙️ (Resume) Transcribed: ${result.transcript}');
+
+        final translated = await _translationService.translate(
+          text: result.transcript,
+          targetLanguageCode: _session!.languageCode,
+        );
+
+        print('🌍 Translated: ${translated.translatedText}');
+
+        await _socketService.send(
+          TranslationEvent(
+            sessionId: _session!.sessionId,
+            translatedText: translated.translatedText,
+            targetLanguage: translated.targetLanguageCode,
+          ),
+        );
+      },
+      onError: (e) => print('❌ STT error: $e'),
+    );
   }
 
   @override
   Future<void> joinSession(String sessionCode) async {
     _session = SessionInfo(
       sessionId: sessionCode,
-      languageCode: 'en-US', // default or resolved later
+      languageCode: 'en-US',
       startedAt: DateTime.now(),
     );
     _isSpeaker = false;
+
+    await _ttsService.initialize();
+    await _socketService.connect(sessionCode);
+
+    _socketService.onEvent.listen((event) async {
+      if (event is TranslationEvent) {
+        print('🎧 Received Translation: ${event.translatedText}');
+        await _ttsService.speak(event.translatedText);
+      }
+    });
   }
 
   @override
   Future<void> leaveSession() async {
+    await _socketService.disconnect();
     _session = null;
     _isSpeaker = false;
   }

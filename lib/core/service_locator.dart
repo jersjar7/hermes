@@ -31,5 +31,12 @@ void setupServiceLocator() {
     () => TextToSpeechServiceImpl(),
   );
   getIt.registerLazySingleton<ISocketService>(() => SocketServiceImpl());
-  getIt.registerLazySingleton<ISessionService>(() => SessionServiceImpl());
+  getIt.registerLazySingleton<ISessionService>(
+    () => SessionServiceImpl(
+      socketService: getIt<ISocketService>(),
+      sttService: getIt<ISpeechToTextService>(),
+      translationService: getIt<ITranslationService>(),
+      ttsService: getIt<ITextToSpeechService>(),
+    ),
+  );
 }
