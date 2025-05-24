@@ -2,8 +2,8 @@ import 'package:flutter/widgets.dart';
 import 'package:hermes/core/service_locator.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/core/services/session/session_service_impl.dart';
-import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/socket/socket_event.dart';
+import 'package:hermes/core/services/socket/socket_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,6 +15,7 @@ void main() async {
     sttService: getIt(),
     translationService: getIt(),
     ttsService: getIt(),
+    connectivityService: getIt(), // ✅ added
   );
 
   print('🎤 Starting speaker session...');
