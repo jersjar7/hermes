@@ -10,7 +10,10 @@ class LoggerServiceImpl implements ILoggerService {
   @override
   void logInfo(String message, {String? context}) {
     final tag = context != null ? '[$context]' : '[INFO]';
-    final device = '[${_deviceInfo.platform} ${_deviceInfo.model}]';
+    final device =
+        _deviceInfoInitialized
+            ? '[${_deviceInfo.platform} ${_deviceInfo.model}]'
+            : '[DeviceInfo not initialized]';
     debugPrint('$tag $message $device');
   }
 
@@ -22,9 +25,22 @@ class LoggerServiceImpl implements ILoggerService {
     String? context,
   }) {
     final tag = context != null ? '[$context]' : '[ERROR]';
-    final device = '[${_deviceInfo.platform} ${_deviceInfo.model}]';
+    final device =
+        _deviceInfoInitialized
+            ? '[${_deviceInfo.platform} ${_deviceInfo.model}]'
+            : '[DeviceInfo not initialized]';
     debugPrint('$tag $message $device');
     if (error != null) debugPrint('   ↳ Error: $error');
     if (stackTrace != null) debugPrint('   ↳ StackTrace: $stackTrace');
+  }
+
+  bool get _deviceInfoInitialized {
+    try {
+      // Accessing a late final field will throw if uninitialized
+      _deviceInfo.platform;
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }

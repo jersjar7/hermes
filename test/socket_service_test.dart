@@ -1,11 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hermes/core/service_locator.dart';
 import 'package:hermes/core/services/socket/socket_event.dart';
-import 'package:hermes/core/services/socket/socket_service_impl.dart';
+import 'package:hermes/core/services/socket/socket_service.dart';
 
-void main() {
+void main() async {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  await setupServiceLocator();
+
+  final socket = getIt<ISocketService>();
+
   group('SocketServiceImpl', () {
-    final socket = SocketServiceImpl();
-
     test('connects and sends TranscriptEvent', () async {
       await socket.connect('session-123');
       expect(socket.isConnected, isTrue);

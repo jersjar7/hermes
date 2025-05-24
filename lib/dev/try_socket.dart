@@ -1,8 +1,13 @@
-import 'package:hermes/core/services/socket/socket_service_impl.dart';
+import 'package:flutter/widgets.dart';
+import 'package:hermes/core/service_locator.dart';
+import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/socket/socket_event.dart';
 
 void main() async {
-  final socket = SocketServiceImpl();
+  WidgetsFlutterBinding.ensureInitialized();
+  await setupServiceLocator();
+
+  final socket = getIt<ISocketService>();
   await socket.connect('dev-session');
 
   socket.onEvent.listen((event) {
@@ -13,12 +18,11 @@ void main() async {
     }
   });
 
-  final event = TranscriptEvent(
-    sessionId: 'dev-session',
-    text: 'Hello from the socket!',
-    isFinal: false,
+  await socket.send(
+    TranscriptEvent(
+      sessionId: 'dev-session',
+      text: 'Hello from the socket!',
+      isFinal: false,
+    ),
   );
-
-  print('📤 Sending TranscriptEvent...');
-  await socket.send(event);
 }
