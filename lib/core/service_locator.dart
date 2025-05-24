@@ -4,6 +4,8 @@ import 'package:hermes/core/services/auth/auth_service.dart';
 import 'package:hermes/core/services/auth/auth_service_impl.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service_impl.dart';
+import 'package:hermes/core/services/device_info/device_info_service.dart';
+import 'package:hermes/core/services/device_info/device_info_service_impl.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/core/services/session/session_service_impl.dart';
 import 'package:hermes/core/services/socket/socket_service.dart';
@@ -38,6 +40,9 @@ Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton<ISocketService>(() => SocketServiceImpl());
   getIt.registerLazySingleton<IConnectivityService>(
     () => ConnectivityServiceImpl(),
+  );
+  getIt.registerLazySingleton<IDeviceInfoService>(
+    () => DeviceInfoServiceImpl(),
   );
   getIt.registerLazySingleton<IAuthService>(() => AuthServiceImpl());
   getIt.registerLazySingleton<ISessionService>(
