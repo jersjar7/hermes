@@ -6,6 +6,8 @@ import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service_impl.dart';
 import 'package:hermes/core/services/device_info/device_info_service.dart';
 import 'package:hermes/core/services/device_info/device_info_service_impl.dart';
+import 'package:hermes/core/services/logger/logger_service.dart';
+import 'package:hermes/core/services/logger/logger_service_impl.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/core/services/session/session_service_impl.dart';
 import 'package:hermes/core/services/socket/socket_service.dart';
@@ -37,13 +39,20 @@ Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton<ITextToSpeechService>(
     () => TextToSpeechServiceImpl(),
   );
-  getIt.registerLazySingleton<ISocketService>(() => SocketServiceImpl());
+  getIt.registerLazySingleton<ISocketService>(
+    () => SocketServiceImpl(getIt<ILoggerService>()),
+  );
+
   getIt.registerLazySingleton<IConnectivityService>(
     () => ConnectivityServiceImpl(),
   );
   getIt.registerLazySingleton<IDeviceInfoService>(
     () => DeviceInfoServiceImpl(),
   );
+  getIt.registerLazySingleton<ILoggerService>(
+    () => LoggerServiceImpl(getIt<IDeviceInfoService>()),
+  );
+
   getIt.registerLazySingleton<IAuthService>(() => AuthServiceImpl());
   getIt.registerLazySingleton<ISessionService>(
     () => SessionServiceImpl(
@@ -52,6 +61,7 @@ Future<void> setupServiceLocator() async {
       translationService: getIt(),
       ttsService: getIt(),
       connectivityService: getIt(),
+      logger: getIt(),
     ),
   );
 }

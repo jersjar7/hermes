@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:hermes/core/services/connectivity/connectivity_service.dart';
+import 'package:hermes/core/services/logger/logger_service.dart';
 import 'package:hermes/core/services/socket/socket_event.dart';
 import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/speech_to_text/speech_to_text_service.dart';
@@ -17,6 +18,7 @@ class SessionServiceImpl implements ISessionService {
   final ITranslationService _translationService;
   final ITextToSpeechService _ttsService;
   final IConnectivityService _connectivityService;
+  final ILoggerService _logger;
 
   StreamSubscription<bool>? _connectivitySub;
 
@@ -26,11 +28,13 @@ class SessionServiceImpl implements ISessionService {
     required ITranslationService translationService,
     required ITextToSpeechService ttsService,
     required IConnectivityService connectivityService,
+    required ILoggerService logger,
   }) : _socketService = socketService,
        _sttService = sttService,
        _translationService = translationService,
        _ttsService = ttsService,
-       _connectivityService = connectivityService;
+       _connectivityService = connectivityService,
+       _logger = logger;
 
   SessionInfo? _session;
   bool _isSpeaker = false;
@@ -57,20 +61,31 @@ class SessionServiceImpl implements ISessionService {
     );
     _isSpeaker = true;
 
+    _logger.logInfo(
+      'Starting session as speaker: $sessionId',
+      context: 'SessionService',
+    );
+
     await _socketService.connect(sessionId);
 
     final ok = await _sttService.initialize();
     if (ok) {
       await _sttService.startListening(
         onResult: (result) async {
-          print('🎙️ Transcribed: ${result.transcript}');
+          _logger.logInfo(
+            'Transcribed: ${result.transcript}',
+            context: 'SessionService',
+          );
 
           final translated = await _translationService.translate(
             text: result.transcript,
             targetLanguageCode: _session!.languageCode,
           );
 
-          print('🌍 Translated: ${translated.translatedText}');
+          _logger.logInfo(
+            'Translated: ${translated.translatedText}',
+            context: 'SessionService',
+          );
 
           await _socketService.send(
             TranslationEvent(
@@ -80,20 +95,31 @@ class SessionServiceImpl implements ISessionService {
             ),
           );
         },
-        onError: (e) => print('❌ STT error: $e'),
+        onError:
+            (e) => _logger.logError(
+              'STT error occurred',
+              error: e,
+              context: 'SessionService',
+            ),
       );
     }
-    // Monitor connectivity
+
     _connectivitySub = _connectivityService.onStatusChange.listen((
       isOnline,
     ) async {
-      if (!_isSpeaker) return; // Only react if speaker
+      if (!_isSpeaker) return;
 
       if (!isOnline) {
-        print('🔌 Connection lost. Pausing session...');
+        _logger.logInfo(
+          'Connection lost. Pausing session...',
+          context: 'SessionService',
+        );
         await pauseSession();
       } else if (_session?.isPaused == true) {
-        print('🔌 Connection restored. Resuming session...');
+        _logger.logInfo(
+          'Connection restored. Resuming session...',
+          context: 'SessionService',
+        );
         await resumeSession();
       }
     });
@@ -104,6 +130,8 @@ class SessionServiceImpl implements ISessionService {
     await _sttService.cancel();
     await _socketService.disconnect();
     _connectivitySub?.cancel();
+
+    _logger.logInfo('Session ended', context: 'SessionService');
 
     _session = null;
     _isSpeaker = false;
@@ -125,14 +153,20 @@ class SessionServiceImpl implements ISessionService {
 
     await _sttService.startListening(
       onResult: (result) async {
-        print('🎙️ (Resume) Transcribed: ${result.transcript}');
+        _logger.logInfo(
+          '(Resume) Transcribed: ${result.transcript}',
+          context: 'SessionService',
+        );
 
         final translated = await _translationService.translate(
           text: result.transcript,
           targetLanguageCode: _session!.languageCode,
         );
 
-        print('🌍 Translated: ${translated.translatedText}');
+        _logger.logInfo(
+          'Translated: ${translated.translatedText}',
+          context: 'SessionService',
+        );
 
         await _socketService.send(
           TranslationEvent(
@@ -142,7 +176,12 @@ class SessionServiceImpl implements ISessionService {
           ),
         );
       },
-      onError: (e) => print('❌ STT error: $e'),
+      onError:
+          (e) => _logger.logError(
+            'STT error occurred on resume',
+            error: e,
+            context: 'SessionService',
+          ),
     );
   }
 
@@ -160,7 +199,10 @@ class SessionServiceImpl implements ISessionService {
 
     _socketService.onEvent.listen((event) async {
       if (event is TranslationEvent) {
-        print('🎧 Received Translation: ${event.translatedText}');
+        _logger.logInfo(
+          'Received Translation: ${event.translatedText}',
+          context: 'SessionService',
+        );
         await _ttsService.speak(event.translatedText);
       }
     });
