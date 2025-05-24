@@ -25,19 +25,19 @@ import 'services/permission/permission_service_impl.dart';
 final getIt = GetIt.instance;
 
 Future<void> setupServiceLocator() async {
+  // 📱 Device Info & Logger
   getIt.registerLazySingleton<IDeviceInfoService>(
     () => DeviceInfoServiceImpl(),
   );
-
   await getIt<IDeviceInfoService>().initialize();
-
   getIt.registerLazySingleton<ILoggerService>(() => LoggerServiceImpl(getIt()));
 
-  getIt.registerLazySingleton<ISpeechToTextService>(
-    () => SpeechToTextServiceImpl(),
-  );
+  // 🎤 Core Interaction
   getIt.registerLazySingleton<IPermissionService>(
     () => PermissionServiceImpl(),
+  );
+  getIt.registerLazySingleton<ISpeechToTextService>(
+    () => SpeechToTextServiceImpl(),
   );
   getIt.registerLazySingleton<ITranslationService>(
     () => TranslationServiceImpl(
@@ -47,11 +47,17 @@ Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton<ITextToSpeechService>(
     () => TextToSpeechServiceImpl(),
   );
+
+  // 🌐 Real-time + Connectivity
   getIt.registerLazySingleton<ISocketService>(() => SocketServiceImpl(getIt()));
   getIt.registerLazySingleton<IConnectivityService>(
     () => ConnectivityServiceImpl(),
   );
+
+  // 👤 Authentication
   getIt.registerLazySingleton<IAuthService>(() => AuthServiceImpl());
+
+  // 🎛️ Orchestration
   getIt.registerLazySingleton<ISessionService>(
     () => SessionServiceImpl(
       socketService: getIt(),

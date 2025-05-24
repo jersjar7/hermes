@@ -4,7 +4,7 @@ import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  setupServiceLocator();
+  await setupServiceLocator(); // ✅ Ensure all services are registered
 
   final connectivity = getIt<IConnectivityService>();
   await connectivity.initialize();
