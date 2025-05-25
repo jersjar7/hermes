@@ -5,9 +5,8 @@ import 'socket_service.dart';
 import 'socket_event.dart';
 
 class SocketServiceImpl implements ISocketService {
-  final _eventController = StreamController<SocketEvent>.broadcast();
+  final _controller = StreamController<SocketEvent>.broadcast();
   final ILoggerService _logger;
-
   bool _connected = false;
 
   SocketServiceImpl(this._logger);
@@ -16,31 +15,25 @@ class SocketServiceImpl implements ISocketService {
   bool get isConnected => _connected;
 
   @override
-  Stream<SocketEvent> get onEvent => _eventController.stream;
+  Stream<SocketEvent> get onEvent => _controller.stream;
 
   @override
   Future<void> connect(String sessionId) async {
     _connected = true;
-    _logger.logInfo(
-      'Connected to session $sessionId',
-      context: 'SocketService',
-    );
-    // TODO: connect to WebSocket backend using sessionId
+    _logger.logInfo('Connected to $sessionId', context: 'SocketService');
+    // actual WebSocket hookup goes here
+  }
+
+  @override
+  Future<void> send(SocketEvent event) async {
+    _logger.logInfo('Emitting ${event.runtimeType}', context: 'SocketService');
+    _controller.add(event);
   }
 
   @override
   Future<void> disconnect() async {
     _connected = false;
-    _logger.logInfo('Disconnected from socket', context: 'SocketService');
-    await _eventController.close();
-  }
-
-  @override
-  Future<void> send(SocketEvent event) async {
-    _logger.logInfo(
-      'Sending event: ${event.runtimeType}',
-      context: 'SocketService',
-    );
-    _eventController.add(event); // Simulated local echo
+    _logger.logInfo('Disconnected', context: 'SocketService');
+    await _controller.close();
   }
 }

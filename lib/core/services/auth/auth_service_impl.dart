@@ -15,9 +15,7 @@ class AuthServiceImpl implements IAuthService {
   }
 
   @override
-  Future<void> signOut() async {
-    await _firebase.signOut();
-  }
+  Future<void> signOut() => _firebase.signOut();
 
   @override
   AuthUser? get currentUser {

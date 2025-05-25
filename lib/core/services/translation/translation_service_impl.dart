@@ -1,9 +1,8 @@
 // lib/core/services/translation/translation_service_impl.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-
 import 'translation_service.dart';
-import 'translation_result.dart'; // 👈 new import
+import 'translation_result.dart';
 
 class TranslationServiceImpl implements ITranslationService {
   final String apiKey;
@@ -19,8 +18,7 @@ class TranslationServiceImpl implements ITranslationService {
     final url = Uri.parse(
       'https://translation.googleapis.com/language/translate/v2?key=$apiKey',
     );
-
-    final response = await http.post(
+    final resp = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -30,17 +28,15 @@ class TranslationServiceImpl implements ITranslationService {
         'format': 'text',
       }),
     );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return TranslationResult(
-        translatedText: data['data']['translations'][0]['translatedText'],
-        targetLanguageCode: targetLanguageCode,
-        sourceLanguageCode: sourceLanguageCode,
-        originalText: text,
-      );
-    } else {
-      throw Exception('Failed to translate text: ${response.body}');
+    if (resp.statusCode != 200) {
+      throw Exception('Translation failed: ${resp.body}');
     }
+    final data = jsonDecode(resp.body);
+    return TranslationResult(
+      translatedText: data['data']['translations'][0]['translatedText'],
+      targetLanguageCode: targetLanguageCode,
+      sourceLanguageCode: sourceLanguageCode,
+      originalText: text,
+    );
   }
 }

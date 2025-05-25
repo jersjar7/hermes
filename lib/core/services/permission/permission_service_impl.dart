@@ -4,13 +4,10 @@ import 'permission_service.dart';
 
 class PermissionServiceImpl implements IPermissionService {
   @override
-  Future<bool> requestMicrophonePermission() async {
-    final status = await Permission.microphone.request();
-    return status.isGranted;
-  }
+  Future<bool> requestMicrophonePermission() async =>
+      (await Permission.microphone.request()).isGranted;
 
   @override
-  Future<bool> hasMicrophonePermission() async {
-    return await Permission.microphone.isGranted;
-  }
+  Future<bool> hasMicrophonePermission() async =>
+      await Permission.microphone.isGranted;
 }

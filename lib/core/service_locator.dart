@@ -1,55 +1,78 @@
 // lib/core/service_locator.dart
 import 'package:get_it/get_it.dart';
+
 import 'package:hermes/core/services/auth/auth_service.dart';
 import 'package:hermes/core/services/auth/auth_service_impl.dart';
+
 import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service_impl.dart';
+
 import 'package:hermes/core/services/device_info/device_info_service.dart';
 import 'package:hermes/core/services/device_info/device_info_service_impl.dart';
+
 import 'package:hermes/core/services/logger/logger_service.dart';
 import 'package:hermes/core/services/logger/logger_service_impl.dart';
-import 'package:hermes/core/services/session/session_service.dart';
-import 'package:hermes/core/services/session/session_service_impl.dart';
-import 'package:hermes/core/services/socket/socket_service.dart';
-import 'package:hermes/core/services/socket/socket_service_impl.dart';
-import 'package:hermes/core/services/text_to_speech/text_to_speech_service.dart';
-import 'package:hermes/core/services/text_to_speech/text_to_speech_service_impl.dart';
+
+import 'package:hermes/core/services/permission/permission_service.dart';
+import 'package:hermes/core/services/permission/permission_service_impl.dart';
+
+import 'package:hermes/core/services/speech_to_text/speech_to_text_service.dart';
+import 'package:hermes/core/services/speech_to_text/speech_to_text_service_impl.dart';
+
 import 'package:hermes/core/services/translation/translation_service.dart';
 import 'package:hermes/core/services/translation/translation_service_impl.dart';
 
-import 'services/speech_to_text/speech_to_text_service.dart';
-import 'services/speech_to_text/speech_to_text_service_impl.dart';
-import 'services/permission/permission_service.dart';
-import 'services/permission/permission_service_impl.dart';
+import 'package:hermes/core/services/text_to_speech/text_to_speech_service.dart';
+import 'package:hermes/core/services/text_to_speech/text_to_speech_service_impl.dart';
+
+import 'package:hermes/core/services/socket/socket_service.dart';
+import 'package:hermes/core/services/socket/socket_service_impl.dart';
+
+import 'package:hermes/core/services/session/session_service.dart';
+import 'package:hermes/core/services/session/session_service_impl.dart';
 
 final getIt = GetIt.instance;
 
 Future<void> setupServiceLocator() async {
-  // 📱 Device Info & Logger
+  // 📱 Device Info
   getIt.registerLazySingleton<IDeviceInfoService>(
     () => DeviceInfoServiceImpl(),
   );
   await getIt<IDeviceInfoService>().initialize();
-  getIt.registerLazySingleton<ILoggerService>(() => LoggerServiceImpl(getIt()));
 
-  // 🎤 Core Interaction
+  // 📋 Logger (uses DeviceInfo under the hood)
+  getIt.registerLazySingleton<ILoggerService>(
+    () => LoggerServiceImpl(getIt<IDeviceInfoService>()),
+  );
+
+  // 🎤 Permissions
   getIt.registerLazySingleton<IPermissionService>(
     () => PermissionServiceImpl(),
   );
+
+  // 🔉 Speech-to-Text (needs logger)
   getIt.registerLazySingleton<ISpeechToTextService>(
-    () => SpeechToTextServiceImpl(),
+    () => SpeechToTextServiceImpl(getIt<ILoggerService>()),
   );
+
+  // 🌐 Translation
   getIt.registerLazySingleton<ITranslationService>(
     () => TranslationServiceImpl(
       apiKey: 'AIzaSyCLILZYMgAPdqa_iw_8Yf8EjMdzBdGz11A',
     ),
   );
+
+  // 🔊 Text-to-Speech (needs logger)
   getIt.registerLazySingleton<ITextToSpeechService>(
-    () => TextToSpeechServiceImpl(),
+    () => TextToSpeechServiceImpl(getIt<ILoggerService>()),
   );
 
-  // 🌐 Real-time + Connectivity
-  getIt.registerLazySingleton<ISocketService>(() => SocketServiceImpl(getIt()));
+  // 📡 Socket (needs logger)
+  getIt.registerLazySingleton<ISocketService>(
+    () => SocketServiceImpl(getIt<ILoggerService>()),
+  );
+
+  // 🌐 Connectivity
   getIt.registerLazySingleton<IConnectivityService>(
     () => ConnectivityServiceImpl(),
   );
@@ -57,15 +80,11 @@ Future<void> setupServiceLocator() async {
   // 👤 Authentication
   getIt.registerLazySingleton<IAuthService>(() => AuthServiceImpl());
 
-  // 🎛️ Orchestration
+  // 🎛️ Session orchestration (only needs socket & logger now)
   getIt.registerLazySingleton<ISessionService>(
     () => SessionServiceImpl(
-      socketService: getIt(),
-      sttService: getIt(),
-      translationService: getIt(),
-      ttsService: getIt(),
-      connectivityService: getIt(),
-      logger: getIt(),
+      socketService: getIt<ISocketService>(),
+      logger: getIt<ILoggerService>(),
     ),
   );
 }

@@ -1,28 +1,36 @@
 // lib/core/services/text_to_speech/text_to_speech_service_impl.dart
 import 'package:flutter_tts/flutter_tts.dart';
-
+import '../logger/logger_service.dart';
 import 'text_to_speech_service.dart';
 import 'tts_settings.dart';
 
-enum TtsState { playing, stopped }
-
 class TextToSpeechServiceImpl implements ITextToSpeechService {
   final FlutterTts _tts = FlutterTts();
-  TtsState _ttsState = TtsState.stopped;
+  final ILoggerService _logger;
+  bool _isSpeaking = false;
 
-  TextToSpeechServiceImpl() {
-    _tts.setStartHandler(() => _ttsState = TtsState.playing);
-    _tts.setCompletionHandler(() => _ttsState = TtsState.stopped);
-    _tts.setCancelHandler(() => _ttsState = TtsState.stopped);
-    _tts.setErrorHandler((msg) => _ttsState = TtsState.stopped);
+  TextToSpeechServiceImpl(this._logger) {
+    _tts.setStartHandler(() {
+      _isSpeaking = true;
+    });
+    _tts.setCompletionHandler(() {
+      _isSpeaking = false;
+    });
+    _tts.setCancelHandler(() {
+      _isSpeaking = false;
+    });
+    _tts.setErrorHandler((msg) {
+      _isSpeaking = false;
+      _logger.logError('TTS error: $msg', context: 'TTS');
+    });
   }
 
   @override
   Future<void> initialize() async {
-    final defaultSettings = TtsSettings.defaultSettings();
-    await setLanguage(defaultSettings.languageCode);
-    await setPitch(defaultSettings.pitch);
-    await setSpeechRate(defaultSettings.speechRate);
+    final cfg = TtsSettings.defaultSettings();
+    await setLanguage(cfg.languageCode);
+    await setPitch(cfg.pitch);
+    await setSpeechRate(cfg.speechRate);
   }
 
   @override
@@ -33,16 +41,17 @@ class TextToSpeechServiceImpl implements ITextToSpeechService {
   @override
   Future<void> stop() async {
     await _tts.stop();
+    _isSpeaking = false;
   }
 
   @override
   Future<bool> isSpeaking() async {
-    return _ttsState == TtsState.playing;
+    return _isSpeaking;
   }
 
   @override
-  Future<void> setLanguage(String languageCode) async {
-    await _tts.setLanguage(languageCode);
+  Future<void> setLanguage(String code) async {
+    await _tts.setLanguage(code);
   }
 
   @override
@@ -58,6 +67,6 @@ class TextToSpeechServiceImpl implements ITextToSpeechService {
   @override
   Future<List<TtsLanguage>> getLanguages() async {
     final langs = await _tts.getLanguages;
-    return langs.map((code) => TtsLanguage(code: code, name: code)).toList();
+    return langs.map((l) => TtsLanguage(code: l, name: l)).toList();
   }
 }
