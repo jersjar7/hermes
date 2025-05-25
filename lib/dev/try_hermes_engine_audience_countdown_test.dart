@@ -33,7 +33,6 @@ Future<void> main() async {
 
   print('▶︎ Starting audience countdown & playback test...');
 
-  // Listen to all state changes and detect speaking
   final sub = engine.stream.listen((state) {
     print('🔄 Audience state: $state');
     if (state.status == HermesStatus.countdown) {
@@ -49,8 +48,8 @@ Future<void> main() async {
 
   // Emit three translation events to exceed buffer threshold
   for (int i = 1; i <= 3; i++) {
-    final text = 'Segment #\$i';
-    print('📡 Emitting TranslationEvent: "\$text"');
+    final text = 'Segment #$i';
+    print('📡 Emitting TranslationEvent: "$text"');
     socket.send(
       TranslationEvent(
         sessionId: code,
@@ -63,11 +62,12 @@ Future<void> main() async {
 
   // Wait long enough for countdown + some playback
   final waitSeconds = kInitialBufferCountdownSeconds + 2;
-  print('⌛ Waiting \$waitSeconds seconds for countdown and playback...');
+  print('⌛ Waiting $waitSeconds seconds for countdown and playback...');
   await Future.delayed(Duration(seconds: waitSeconds));
 
   // Clean up
   engine.dispose();
   await sub.cancel();
+
   print('✅ Audience countdown & playback test completed.');
 }
