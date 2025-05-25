@@ -1,8 +1,11 @@
 // lib/core/hermes_engine/audience/audience_engine.dart
-
 import 'dart:async';
 
 import 'package:hermes/core/services/logger/logger_service.dart';
+import 'package:hermes/core/services/session/session_service.dart';
+import 'package:hermes/core/services/socket/socket_event.dart';
+import 'package:hermes/core/services/socket/socket_service.dart';
+import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 
 import '../buffer/translation_buffer.dart';
 import '../config/hermes_config.dart';
@@ -11,10 +14,6 @@ import '../state/hermes_status.dart';
 import '../usecases/buffer_management.dart';
 import '../usecases/connectivity_handler.dart';
 import '../utils/log.dart';
-import 'package:hermes/core/services/session/session_service.dart';
-import 'package:hermes/core/services/socket/socket_event.dart';
-import 'package:hermes/core/services/socket/socket_service.dart';
-import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 
 /// Orchestrates audience-side flow: join session, receive translations, buffer, connectivity.
 class AudienceEngine {
@@ -23,22 +22,26 @@ class AudienceEngine {
   final IConnectivityService _connectivity;
   final HermesLogger _log;
 
+  // Shared buffer instance, injected
+  final TranslationBuffer _buffer;
+
   // Core state
   HermesSessionState _state = HermesSessionState.initial();
   final _stateController = StreamController<HermesSessionState>.broadcast();
   Stream<HermesSessionState> get stream => _stateController.stream;
 
-  // Infrastructure
+  // Helpers
   late final BufferManagementUseCase _bufferMgr;
   late final ConnectivityHandlerUseCase _connHandler;
-  final TranslationBuffer _buffer = TranslationBuffer();
 
   AudienceEngine({
+    required TranslationBuffer buffer,
     required ISessionService session,
     required ISocketService socket,
     required IConnectivityService connectivity,
     required ILoggerService logger,
-  }) : _session = session,
+  }) : _buffer = buffer,
+       _session = session,
        _socket = socket,
        _connectivity = connectivity,
        _log = HermesLogger(logger) {

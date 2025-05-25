@@ -2,7 +2,6 @@
 
 import 'package:flutter/widgets.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:hermes/core/hermes_engine/buffer/translation_buffer.dart';
 import 'dart:async';
 
 import 'package:hermes/core/service_locator.dart';
@@ -13,6 +12,7 @@ import 'package:hermes/core/hermes_engine/state/hermes_status.dart';
 import 'package:hermes/core/hermes_engine/speaker/speaker_engine.dart';
 import 'package:hermes/core/hermes_engine/audience/audience_engine.dart';
 import 'package:hermes/core/hermes_engine/usecases/playback_control.dart';
+import 'package:hermes/core/hermes_engine/buffer/translation_buffer.dart';
 import 'package:hermes/core/hermes_engine/buffer/countdown_timer.dart';
 import 'package:hermes/core/hermes_engine/utils/log.dart';
 
@@ -31,46 +31,49 @@ Future<void> main() async {
   await Firebase.initializeApp();
   await setupServiceLocator();
 
-  // Core services from GetIt
-  final authService = getIt<IPermissionService>();
-  final sttService = getIt<ISpeechToTextService>();
-  final translationSvc = getIt<ITranslationService>();
-  final ttsService = getIt<ITextToSpeechService>();
-  final connectivitySvc = getIt<IConnectivityService>();
-  final sessionSvc = getIt<ISessionService>();
-  final socketSvc = getIt<ISocketService>();
-  final loggerSvc = getIt<ILoggerService>();
+  // Core services
+  final permSvc = getIt<IPermissionService>();
+  final sttSvc = getIt<ISpeechToTextService>();
+  final transSvc = getIt<ITranslationService>();
+  final ttsSvc = getIt<ITextToSpeechService>();
+  final connSvc = getIt<IConnectivityService>();
+  final sessSvc = getIt<ISessionService>();
+  final sockSvc = getIt<ISocketService>();
+  final logSvc = getIt<ILoggerService>();
 
-  // Helpers
-  final hermesLog = HermesLogger(loggerSvc);
-  final playbackBuffer = TranslationBuffer();
+  // Shared buffer
+  final sharedBuffer = TranslationBuffer();
+
+  // Playback use-case uses the same buffer
+  final hermesLog = HermesLogger(logSvc);
   final playbackCtrl = PlaybackControlUseCase(
-    ttsService: ttsService,
-    buffer: playbackBuffer,
+    ttsService: ttsSvc,
+    buffer: sharedBuffer,
     logger: hermesLog,
   );
   final countdownTimer = CountdownTimer();
 
-  // Sub‐engines
+  // Sub‐engines, both share the same buffer
   final speakerEngine = SpeakerEngine(
-    permission: authService,
-    stt: sttService,
-    translator: translationSvc,
-    tts: ttsService,
-    session: sessionSvc,
-    socket: socketSvc,
-    connectivity: connectivitySvc,
-    logger: loggerSvc, // ← pass ILoggerService here
+    permission: permSvc,
+    stt: sttSvc,
+    translator: transSvc,
+    tts: ttsSvc,
+    session: sessSvc,
+    socket: sockSvc,
+    connectivity: connSvc,
+    logger: logSvc,
   );
 
   final audienceEngine = AudienceEngine(
-    session: sessionSvc,
-    socket: socketSvc,
-    connectivity: connectivitySvc,
-    logger: loggerSvc, // ← pass ILoggerService here
+    buffer: sharedBuffer,
+    session: sessSvc,
+    socket: sockSvc,
+    connectivity: connSvc,
+    logger: logSvc,
   );
 
-  // Root HermioneEngine
+  // Root engine
   final engine = HermesEngine(
     speakerEngine: speakerEngine,
     audienceEngine: audienceEngine,
@@ -91,15 +94,15 @@ Future<void> main() async {
     }
   });
 
-  // Kick off the audience path
+  // Kick off audience path
   const sessionCode = 'ROOT01';
   await engine.joinSession(sessionCode);
 
-  // Fire off three translation events
+  // Emit three translations
   for (var i = 1; i <= 3; i++) {
     final text = 'Root Segment #$i';
     print('📡 Emitting TranslationEvent: "$text"');
-    socketSvc.send(
+    sockSvc.send(
       TranslationEvent(
         sessionId: sessionCode,
         translatedText: text,
@@ -109,12 +112,10 @@ Future<void> main() async {
     await Future.delayed(const Duration(milliseconds: 300));
   }
 
-  // Wait long enough for countdown + speaking to start
   final wait = kInitialBufferCountdownSeconds + 2;
   print('⌛ Waiting $wait seconds for countdown & playback...');
   await Future.delayed(Duration(seconds: wait));
 
-  // Clean up
   await engine.stop();
   await sub.cancel();
   print('✅ Root audience engine test complete.');

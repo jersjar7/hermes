@@ -74,12 +74,9 @@ class HermesEngine {
 
   void _startPlayback() {
     _playbackCtrl.execute(
-      onSegmentDone: (_) {
-        _emit(_state.copyWith(status: HermesStatus.speaking));
-      },
-      onBufferEmpty: (_) {
-        _emit(_state.copyWith(status: HermesStatus.paused));
-      },
+      onSegmentDone:
+          (_) => _emit(_state.copyWith(status: HermesStatus.speaking)),
+      onBufferEmpty: (_) => _emit(_state.copyWith(status: HermesStatus.paused)),
     );
   }
 
