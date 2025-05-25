@@ -1,37 +1,39 @@
-/// A FIFO buffer for managing translated text segments before they are spoken.
+// lib/core/hermes_engine/buffer/translation_buffer.dart
+
+/// FIFO buffer for managing translated text segments before they are spoken.
 class TranslationBuffer {
   final List<String> _queue = [];
 
-  /// Adds a new translated sentence to the buffer.
+  /// Adds a translated sentence to the buffer if non-empty.
   void add(String sentence) {
-    if (sentence.trim().isNotEmpty) {
-      _queue.add(sentence.trim());
+    final trimmed = sentence.trim();
+    if (trimmed.isNotEmpty) {
+      _queue.add(trimmed);
     }
   }
 
-  /// Returns the next sentence in the buffer and removes it from the queue.
+  /// Retrieves and removes the next sentence from the buffer.
+  /// Returns null if the buffer is empty.
   String? pop() {
     if (_queue.isEmpty) return null;
     return _queue.removeAt(0);
   }
 
   /// Peeks at the next sentence without removing it.
-  String? peek() {
-    return _queue.isEmpty ? null : _queue.first;
-  }
+  String? peek() => _queue.isEmpty ? null : _queue.first;
 
-  /// Returns the current buffer contents (immutable copy).
-  List<String> get all => List.unmodifiable(_queue);
-
-  /// Clears all buffer content.
+  /// Clears all buffered content.
   void clear() => _queue.clear();
 
-  /// True if the buffer has no content.
-  bool get isEmpty => _queue.isEmpty;
+  /// Returns an immutable copy of the current buffer.
+  List<String> get all => List.unmodifiable(_queue);
 
-  /// True if the buffer has at least one sentence.
+  /// Whether the buffer has at least one segment.
   bool get isNotEmpty => _queue.isNotEmpty;
 
-  /// Returns the number of sentences in the buffer.
+  /// Whether the buffer is empty.
+  bool get isEmpty => _queue.isEmpty;
+
+  /// Number of segments currently buffered.
   int get length => _queue.length;
 }

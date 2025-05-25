@@ -1,4 +1,9 @@
-/// Returns a human-friendly language name for a given BCP-47 language code.
+// lib/core/hermes_engine/utils/language_utils.dart
+
+/// Maps BCP-47 language codes to human-friendly names and optional flags.
+library;
+
+/// Returns a human-readable name for a given language code.
 String languageNameFromCode(String code) {
   final base = code.split('-').first.toLowerCase();
   switch (base) {
@@ -27,23 +32,24 @@ String languageNameFromCode(String code) {
     case 'ko':
       return 'Korean';
     default:
-      return code; // fallback
+      return code; // Fallback to code itself
   }
 }
 
-/// Converts a country or locale code to an emoji flag.
-/// Example: 'us', 'en-US' → 🇺🇸
+/// Converts a country or locale code to its emoji flag representation.
 String emojiFlagFromCode(String code) {
-  final countryCode = code.contains('-') ? code.split('-').last : code;
-  if (countryCode.length != 2) return '';
-  final base = countryCode.toUpperCase().codeUnits;
-  return String.fromCharCode(base[0] + 127397) +
-      String.fromCharCode(base[1] + 127397);
+  final country = code.contains('-') ? code.split('-').last : code;
+  if (country.length != 2) return '';
+  final int flagOffset = 0x1F1E6;
+  final int asciiOffset = 0x41;
+  final chars = country.toUpperCase().codeUnits;
+  return String.fromCharCode(flagOffset + (chars[0] - asciiOffset)) +
+      String.fromCharCode(flagOffset + (chars[1] - asciiOffset));
 }
 
-/// Combines flag and language for UI display.
+/// Returns a combined label (flag + name), e.g. "🇪🇸 Spanish".
 String labeledLanguage(String code) {
   final flag = emojiFlagFromCode(code);
   final name = languageNameFromCode(code);
-  return '$flag $name';
+  return flag.isNotEmpty ? '$flag $name' : name;
 }

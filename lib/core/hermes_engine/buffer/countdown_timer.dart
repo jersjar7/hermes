@@ -1,41 +1,47 @@
+// lib/core/hermes_engine/buffer/countdown_timer.dart
+
 import 'dart:async';
 
 /// A reusable countdown timer that ticks every second
-/// and notifies listeners on each tick and when finished.
+/// and notifies listeners when ticking and upon completion.
 class CountdownTimer {
   Timer? _timer;
   int _remainingSeconds = 0;
 
-  /// Called every second with the updated time.
+  /// Callback for each tick with seconds remaining.
   void Function(int secondsRemaining)? onTick;
 
-  /// Called once when countdown completes.
+  /// Callback when countdown completes.
   void Function()? onComplete;
 
+  /// Whether the countdown is currently running.
   bool get isRunning => _timer?.isActive ?? false;
+
+  /// Seconds still remaining.
   int get remainingSeconds => _remainingSeconds;
 
-  /// Starts the countdown for the given duration.
+  /// Starts the countdown from [durationInSeconds].
   void start(int durationInSeconds) {
-    _cancel(); // Clear any previous timer
+    _cancel();
     _remainingSeconds = durationInSeconds;
+
+    // Trigger an immediate tick for UI to show start value
+    onTick?.call(_remainingSeconds);
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _remainingSeconds--;
-
-      if (onTick != null) onTick!(_remainingSeconds);
+      onTick?.call(_remainingSeconds);
 
       if (_remainingSeconds <= 0) {
         _cancel();
-        if (onComplete != null) onComplete!();
+        onComplete?.call();
       }
     });
   }
 
-  /// Stops and resets the countdown.
+  /// Stops and resets the countdown without firing callbacks.
   void stop() => _cancel();
 
-  /// Cancels the timer without triggering any callbacks.
   void _cancel() {
     _timer?.cancel();
     _timer = null;

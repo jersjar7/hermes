@@ -1,26 +1,28 @@
-/// Represents the lifecycle status of the HermesEngine during a live session.
+// lib/core/hermes_engine/state/hermes_status.dart
+
+/// Represents the high-level lifecycle states of the HermesEngine.
 enum HermesStatus {
-  /// The engine is not running or has been explicitly stopped.
+  /// Engine is idle; no active session or operations.
   idle,
 
-  /// Actively listening to speech input (STT is running).
+  /// Engine is actively listening for speech input.
   listening,
 
-  /// Actively translating a chunk of transcribed speech.
+  /// Engine is translating a received transcript.
   translating,
 
-  /// The engine is speaking a translated segment.
-  speaking,
-
-  /// The engine is buffering translated text before starting playback.
+  /// Engine is buffering translated segments before speaking.
   buffering,
 
-  /// Countdown timer is running before TTS playback begins or resumes.
+  /// Engine is in countdown mode before starting/resuming playback.
   countdown,
 
-  /// The engine paused because the speaker stopped and buffer was exhausted.
+  /// Engine is actively speaking translated text via TTS.
+  speaking,
+
+  /// Engine is paused due to buffer depletion or connectivity loss.
   paused,
 
-  /// An error occurred — UI should react accordingly.
+  /// An error has occurred; engine is in an error state.
   error,
 }

@@ -1,23 +1,25 @@
+// lib/core/hermes_engine/state/hermes_session_state.dart
+
 import 'hermes_status.dart';
 
-/// Represents the complete state of a Hermes session.
+/// Immutable state representing the entire Hermes session at a point in time.
 class HermesSessionState {
-  /// Current high-level status of the engine.
+  /// Current engine status
   final HermesStatus status;
 
-  /// Current countdown seconds remaining, if in countdown mode.
+  /// Countdown seconds remaining (when in countdown)
   final int? countdownSeconds;
 
-  /// The last received transcription from STT (raw input).
+  /// Last raw transcription received from STT
   final String? lastTranscript;
 
-  /// The last translated sentence received.
+  /// Last translation received from TranslationService
   final String? lastTranslation;
 
-  /// The list of pending translations in the buffer.
+  /// Buffered translated segments awaiting playback
   final List<String> buffer;
 
-  /// Error message if an error occurred.
+  /// Error message, if any
   final String? errorMessage;
 
   const HermesSessionState({
@@ -29,11 +31,12 @@ class HermesSessionState {
     this.errorMessage,
   });
 
-  /// Initial state of the engine when idle.
-  factory HermesSessionState.initial() =>
-      const HermesSessionState(status: HermesStatus.idle, buffer: []);
+  /// Initial engine state before any session starts
+  factory HermesSessionState.initial() {
+    return const HermesSessionState(status: HermesStatus.idle, buffer: []);
+  }
 
-  /// Helper method to update session state reactively.
+  /// Returns a copy of this state with any provided overrides
   HermesSessionState copyWith({
     HermesStatus? status,
     int? countdownSeconds,
@@ -55,7 +58,7 @@ class HermesSessionState {
   @override
   String toString() {
     return 'HermesSessionState(status: $status, '
-        'countdown: $countdownSeconds, '
+        'countdownSeconds: $countdownSeconds, '
         'lastTranscript: $lastTranscript, '
         'lastTranslation: $lastTranslation, '
         'bufferSize: ${buffer.length}, '

@@ -1,41 +1,43 @@
-/// Represents an internal event that drives the HermesEngine state machine.
+// lib/core/hermes_engine/state/hermes_event.dart
+
+/// Defines internal events for driving the HermesEngine state machine.
 sealed class HermesEvent {
   const HermesEvent();
 }
 
-/// Emitted when a final speech result is received from STT.
+/// Fired when a final speech result is ready for translation.
 class SpeechFinalized extends HermesEvent {
   final String transcript;
   const SpeechFinalized(this.transcript);
 }
 
-/// Emitted when a translated string is returned from the translator.
+/// Fired when the translation of a transcript completes.
 class TranslationCompleted extends HermesEvent {
   final String translatedText;
   const TranslationCompleted(this.translatedText);
 }
 
-/// Emitted when the buffer reaches the threshold to start speaking.
+/// Fired when the buffer has enough segments to start playback.
 class BufferReady extends HermesEvent {
   const BufferReady();
 }
 
-/// Emitted when playback of a sentence has finished.
+/// Fired when playback of one segment finishes.
 class PlaybackFinished extends HermesEvent {
   const PlaybackFinished();
 }
 
-/// Emitted when the buffer is empty and the engine should pause.
+/// Fired when the buffer becomes empty during playback.
 class BufferEmpty extends HermesEvent {
   const BufferEmpty();
 }
 
-/// Emitted when the countdown timer completes.
+/// Fired when the countdown timer completes.
 class CountdownFinished extends HermesEvent {
   const CountdownFinished();
 }
 
-/// Emitted when a recoverable error occurs.
+/// Fired when any recoverable error occurs in the engine.
 class EngineErrorOccurred extends HermesEvent {
   final String message;
   const EngineErrorOccurred(this.message);
