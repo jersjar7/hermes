@@ -1,3 +1,4 @@
+// lib/core/services/session/session_info.dart
 /// Represents the current session's metadata.
 class SessionInfo {
   final String sessionId;

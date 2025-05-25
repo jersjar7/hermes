@@ -1,3 +1,4 @@
+// lib/core/services/translation/translation_result.dart
 /// Represents the result of a translation operation.
 class TranslationResult {
   final String translatedText;

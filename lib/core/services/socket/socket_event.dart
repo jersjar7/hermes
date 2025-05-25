@@ -1,3 +1,4 @@
+// lib/core/services/socket/socket_event.dart
 /// Base class for all socket events.
 abstract class SocketEvent {}
 

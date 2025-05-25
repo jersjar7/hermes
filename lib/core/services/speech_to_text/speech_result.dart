@@ -1,3 +1,4 @@
+// lib/core/services/speech_to_text/speech_result.dart
 /// Represents the result of a speech recognition operation.
 class SpeechResult {
   final String transcript;

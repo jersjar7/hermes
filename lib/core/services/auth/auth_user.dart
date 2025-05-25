@@ -1,3 +1,4 @@
+// lib/core/services/auth/auth_user.dart
 /// Represents a basic authenticated user.
 class AuthUser {
   final String uid;

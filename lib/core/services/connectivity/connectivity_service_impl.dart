@@ -1,3 +1,4 @@
+// lib/core/services/connectivity/connectivity_service_impl.dart
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'connectivity_service.dart';

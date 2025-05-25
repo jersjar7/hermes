@@ -1,3 +1,4 @@
+// lib/core/services/text_to_speech/tts_settings.dart
 /// Encapsulates text-to-speech configuration options.
 class TtsSettings {
   final String languageCode;
