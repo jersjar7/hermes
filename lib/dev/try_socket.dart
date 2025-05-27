@@ -1,28 +1,48 @@
-import 'package:flutter/widgets.dart';
-import 'package:hermes/core/service_locator.dart';
-import 'package:hermes/core/services/socket/socket_service.dart';
-import 'package:hermes/core/services/socket/socket_event.dart';
+// lib/dev/try_socket.dart
 
-void main() async {
+import 'package:flutter/widgets.dart';
+import 'package:get_it/get_it.dart';
+
+import '../core/service_locator.dart';
+import '../core/services/socket/socket_service.dart';
+import '../core/services/socket/socket_event.dart'; // import your events
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await setupServiceLocator();
 
-  final socket = getIt<ISocketService>();
-  await socket.connect('dev-session');
+  final socket = GetIt.I<ISocketService>();
 
-  socket.onEvent.listen((event) {
-    if (event is TranscriptEvent) {
-      print('🟢 Transcript received: ${event.text} | Final: ${event.isFinal}');
-    } else if (event is TranslationEvent) {
-      print('🌍 Translation received: ${event.translatedText}');
+  // Listen for any incoming socket events
+  socket.onEvent.listen((e) {
+    if (e is TranscriptEvent) {
+      print(
+        '→ TranscriptEvent: session=${e.sessionId}, text="${e.text}", isFinal=${e.isFinal}',
+      );
+    } else if (e is TranslationEvent) {
+      print(
+        '→ TranslationEvent: session=${e.sessionId}, text="${e.translatedText}", lang=${e.targetLanguage}',
+      );
+    } else {
+      print('→ Unknown event: $e');
     }
   });
 
+  print('Connecting…');
+  await socket.connect('TEST_SESSION');
+
+  // Send a test transcript event
   await socket.send(
     TranscriptEvent(
-      sessionId: 'dev-session',
-      text: 'Hello from the socket!',
-      isFinal: false,
+      sessionId: 'TEST_SESSION',
+      text: 'Hello, world!',
+      isFinal: true,
     ),
   );
+
+  // Keep the runner alive for a few seconds to see replies
+  await Future.delayed(const Duration(seconds: 5));
+
+  await socket.disconnect();
+  print('Disconnected.');
 }
