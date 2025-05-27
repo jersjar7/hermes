@@ -1,6 +1,7 @@
 # ─────────────────────────────────────────────────
 # Environment file (contains secrets [api keys] & URLs)
 .env
+assets/env/.env
 
 # ─────────────────────────────────────────────────
 # Miscellaneous

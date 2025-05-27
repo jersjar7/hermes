@@ -3,73 +3,75 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:hermes/core/service_locator.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hermes/core/theme/app_theme_dark.dart';
+import 'package:hermes/core/theme/app_theme_light.dart';
+import 'package:hermes/core/theme/theme_provider.dart';
+import 'package:hermes/features/app/presentation/providers/app_router.dart';
+
+import 'core/service_locator.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load environment variables from the .env file
-  await dotenv.load();
+  // Load from assets/env/.env in the asset bundle
+  await dotenv.load(fileName: 'assets/env/.env');
 
-  await Firebase.initializeApp(); // ✅ Init Firebase
-  await setupServiceLocator(); // ✅ Register services
-  runApp(const MyApp());
+  await Firebase.initializeApp();
+  await setupServiceLocator();
+  runApp(const ProviderScope(child: MyApp()));
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+
+    return MaterialApp.router(
       title: 'Hermes',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Hermes Home'),
+      theme: AppThemeLight.themeData,
+      darkTheme: AppThemeDark.themeData,
+      themeMode: themeMode,
+
+      // 👇 Use the routerDelegate & routeInformationParser
+      routerDelegate: appRouter.routerDelegate,
+      routeInformationParser: appRouter.routeInformationParser,
+      routeInformationProvider: appRouter.routeInformationProvider,
+
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
+class MyHomePage extends ConsumerWidget {
   const MyHomePage({super.key, required this.title});
-
   final String title;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    // To toggle theme, call:
+    // ref.read(themeModeProvider.notifier).toggle();
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() => _counter++);
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
+        title: Text(title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.brightness_6),
+            onPressed: () => ref.read(themeModeProvider.notifier).toggle(),
+          ),
+        ],
       ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
             const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
+            Text('0', style: Theme.of(context).textTheme.headlineMedium),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
       ),
     );
   }
