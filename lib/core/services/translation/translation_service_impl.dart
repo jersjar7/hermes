@@ -1,13 +1,21 @@
 // lib/core/services/translation/translation_service_impl.dart
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 import 'translation_service.dart';
 import 'translation_result.dart';
 
 class TranslationServiceImpl implements ITranslationService {
+  /// API key loaded from .env
   final String apiKey;
 
-  TranslationServiceImpl({required this.apiKey});
+  /// Base URL loaded from .env
+  final String baseUrl;
+
+  TranslationServiceImpl({required this.apiKey})
+    : baseUrl = dotenv.env['TRANSLATION_API_BASE_URL']!;
 
   @override
   Future<TranslationResult> translate({
@@ -15,11 +23,11 @@ class TranslationServiceImpl implements ITranslationService {
     required String targetLanguageCode,
     String? sourceLanguageCode,
   }) async {
-    final url = Uri.parse(
-      'https://translation.googleapis.com/language/translate/v2?key=$apiKey',
-    );
-    final resp = await http.post(
-      url,
+    // Build the URL from environment
+    final uri = Uri.parse('$baseUrl?key=$apiKey');
+
+    final response = await http.post(
+      uri,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'q': text,
@@ -28,12 +36,17 @@ class TranslationServiceImpl implements ITranslationService {
         'format': 'text',
       }),
     );
-    if (resp.statusCode != 200) {
-      throw Exception('Translation failed: ${resp.body}');
+
+    if (response.statusCode != 200) {
+      throw Exception('Translation failed: ${response.body}');
     }
-    final data = jsonDecode(resp.body);
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final translated =
+        data['data']['translations'][0]['translatedText'] as String;
+
     return TranslationResult(
-      translatedText: data['data']['translations'][0]['translatedText'],
+      translatedText: translated,
       targetLanguageCode: targetLanguageCode,
       sourceLanguageCode: sourceLanguageCode,
       originalText: text,

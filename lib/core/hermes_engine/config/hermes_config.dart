@@ -3,6 +3,8 @@
 /// HermesEngine configuration constants
 library;
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 /// Number of seconds to buffer before starting playback.
 const int kInitialBufferCountdownSeconds = 8;
 
@@ -16,8 +18,5 @@ const int kResumeBufferThreshold = 1;
 const int kBufferDepletionTimeoutSeconds = 5;
 
 /// No trailing slash!
-/// Override at build time with --dart-define=HERMES_WS_URL=...
-const String kWebSocketBaseUrl = String.fromEnvironment(
-  'HERMES_WS_URL',
-  defaultValue: 'ws://localhost:8080',
-);
+/// Reads from .env via flutter_dotenv; crashes early if missing.
+final String kWebSocketBaseUrl = dotenv.env['HERMES_WS_URL']!;

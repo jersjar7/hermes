@@ -1,5 +1,7 @@
 // lib/core/service_locator.dart
+
 import 'package:get_it/get_it.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'package:hermes/core/services/auth/auth_service.dart';
 import 'package:hermes/core/services/auth/auth_service_impl.dart';
@@ -55,11 +57,9 @@ Future<void> setupServiceLocator() async {
     () => SpeechToTextServiceImpl(getIt<ILoggerService>()),
   );
 
-  // 🌐 Translation
+  // 🌐 Translation (API key from .env)
   getIt.registerLazySingleton<ITranslationService>(
-    () => TranslationServiceImpl(
-      apiKey: 'AIzaSyCLILZYMgAPdqa_iw_8Yf8EjMdzBdGz11A',
-    ),
+    () => TranslationServiceImpl(apiKey: dotenv.env['TRANSLATION_API_KEY']!),
   );
 
   // 🔊 Text-to-Speech (needs logger)

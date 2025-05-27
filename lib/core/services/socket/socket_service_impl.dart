@@ -30,6 +30,8 @@ class SocketServiceImpl implements ISocketService {
   @override
   Future<void> connect(String sessionId) async {
     _currentSessionId = sessionId;
+
+    // kWebSocketBaseUrl is now loaded from .env in hermes_config.dart
     final uri = Uri.parse('$kWebSocketBaseUrl/ws/$sessionId');
     _logger.logInfo(
       'Connecting to WebSocket at $uri',
