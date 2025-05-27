@@ -1,3 +1,8 @@
+# ─────────────────────────────────────────────────
+# Environment file (contains secrets [api keys] & URLs)
+.env
+
+# ─────────────────────────────────────────────────
 # Miscellaneous
 *.class
 *.log
@@ -43,3 +48,4 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+.env
