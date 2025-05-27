@@ -1,3 +1,4 @@
+// lib/core/services/session/session_service.dart
 import 'session_info.dart';
 
 abstract class ISessionService {
