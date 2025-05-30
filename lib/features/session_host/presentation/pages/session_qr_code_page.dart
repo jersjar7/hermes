@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hermes/features/session_host/presentation/widgets/connectivity_lost_banner.dart';
 import 'package:qr_flutter/qr_flutter.dart'; // Flutter widget for QR codes
 import 'package:go_router/go_router.dart';
 import 'package:hermes/features/session_host/presentation/providers/host_session_controller.dart';
@@ -24,6 +25,8 @@ class SessionQRCodePage extends ConsumerWidget {
                 : Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    const ConnectivityLostBanner(),
+                    const SizedBox(height: 16),
                     // Use QrImageView from qr_flutter for proper named-parameter API
                     QrImageView(
                       data: code,

@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 import 'package:hermes/core/hermes_engine/state/hermes_session_state.dart';
 import 'package:hermes/core/hermes_engine/state/hermes_status.dart';
+import 'package:hermes/features/session_host/presentation/widgets/connectivity_lost_banner.dart';
 
 /// Live session page showing buffering, countdown, live transcript & translation, and stop control.
 class HostLiveSessionPage extends ConsumerWidget {
@@ -43,6 +44,9 @@ class HostLiveSessionPage extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const ConnectivityLostBanner(),
+            const SizedBox(height: 16),
+
             // 1) Buffering indicator
             if (state.status == HermesStatus.buffering) ...[
               const LinearProgressIndicator(),

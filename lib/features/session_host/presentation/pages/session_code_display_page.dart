@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hermes/features/session_host/presentation/providers/host_session_controller.dart';
+import 'package:hermes/features/session_host/presentation/widgets/connectivity_lost_banner.dart';
 
 /// Displays the generated session code and navigation options.
 class SessionCodeDisplayPage extends ConsumerWidget {
@@ -26,6 +27,8 @@ class SessionCodeDisplayPage extends ConsumerWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    const ConnectivityLostBanner(),
+                    const SizedBox(height: 16),
                     const Text(
                       'Your session code is:',
                       style: TextStyle(fontSize: 18),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hermes/features/session_host/presentation/providers/host_session_controller.dart';
+import 'package:hermes/features/session_host/presentation/widgets/connectivity_lost_banner.dart';
 
 /// Placeholder page shown while waiting for audience members or the first speech.
 class HostWaitingRoomPage extends ConsumerWidget {
@@ -21,6 +22,8 @@ class HostWaitingRoomPage extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            const ConnectivityLostBanner(),
+            const SizedBox(height: 16),
             const CircularProgressIndicator(),
             const SizedBox(height: 24),
             Text(

@@ -3,7 +3,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+import 'package:hermes/core/service_locator.dart';
+import 'package:hermes/core/services/permission/permission_service.dart';
 import 'package:hermes/features/session_host/presentation/providers/host_session_controller.dart';
+import 'package:hermes/features/session_host/presentation/widgets/connectivity_lost_banner.dart';
+import 'package:hermes/features/session_host/presentation/widgets/permission_denied_dialog.dart';
 
 /// Page where the speaker selects a language and starts a new session.
 class StartSessionPage extends ConsumerStatefulWidget {
@@ -22,7 +27,6 @@ class _StartSessionPageState extends ConsumerState<StartSessionPage> {
     'German': 'de',
     'Chinese': 'zh',
   };
-
   String? _selectedLanguage;
 
   @override
@@ -31,28 +35,41 @@ class _StartSessionPageState extends ConsumerState<StartSessionPage> {
     _selectedLanguage = _languages.values.first;
   }
 
+  Future<void> _handleStart() async {
+    final permissionService = getIt<IPermissionService>();
+    final granted = await permissionService.requestMicrophonePermission();
+    if (!granted) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (_) => const PermissionDeniedDialog(),
+      );
+      return;
+    }
+    if (!mounted) return;
+    final controller = ref.read(hostSessionControllerProvider.notifier);
+    await controller.startSession(_selectedLanguage!);
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Listen for the sessionCode being set, then navigate
-    ref.listen<HostSessionState>(hostSessionControllerProvider, (
-      previous,
-      next,
-    ) {
-      if (previous?.sessionCode == null && next.sessionCode != null) {
+    ref.listen<HostSessionState>(hostSessionControllerProvider, (prev, next) {
+      if (prev?.sessionCode == null && next.sessionCode != null) {
         context.go('/host/code');
       }
     });
 
     final state = ref.watch(hostSessionControllerProvider);
-    final controller = ref.read(hostSessionControllerProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Start Session')),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const ConnectivityLostBanner(),
+            const SizedBox(height: 16),
             const Text('Select language:'),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
@@ -70,18 +87,14 @@ class _StartSessionPageState extends ConsumerState<StartSessionPage> {
               onChanged:
                   state.isLoading
                       ? null
-                      : (lang) => setState(() {
-                        _selectedLanguage = lang;
-                      }),
+                      : (lang) => setState(() => _selectedLanguage = lang),
             ),
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed:
                   state.isLoading || _selectedLanguage == null
                       ? null
-                      : () async {
-                        await controller.startSession(_selectedLanguage!);
-                      },
+                      : _handleStart,
               child:
                   state.isLoading
                       ? const SizedBox(
