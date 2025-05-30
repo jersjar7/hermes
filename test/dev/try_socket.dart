@@ -3,9 +3,9 @@
 import 'package:flutter/widgets.dart';
 import 'package:get_it/get_it.dart';
 
-import '../core/service_locator.dart';
-import '../core/services/socket/socket_service.dart';
-import '../core/services/socket/socket_event.dart'; // import your events
+import 'package:hermes/core/service_locator.dart';
+import 'package:hermes/core/services/socket/socket_service.dart';
+import 'package:hermes/core/services/socket/socket_event.dart'; // import your events
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

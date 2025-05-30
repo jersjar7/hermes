@@ -3,7 +3,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:hermes/features/session_host/presentation/providers/host_session_controller.dart';
+
+import 'package:hermes/core/service_locator.dart';
+import 'package:hermes/core/services/session/session_service.dart';
+import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 import 'package:hermes/features/session_host/presentation/widgets/connectivity_lost_banner.dart';
 
 /// Placeholder page shown while waiting for audience members or the first speech.
@@ -12,61 +15,70 @@ class HostWaitingRoomPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(hostSessionControllerProvider);
-    final controller = ref.read(hostSessionControllerProvider.notifier);
+    // Watch the Hermes engine state
+    final asyncState = ref.watch(hermesControllerProvider);
+    final controller = ref.read(hermesControllerProvider.notifier);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Host Waiting Room')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const ConnectivityLostBanner(),
-            const SizedBox(height: 16),
-            const CircularProgressIndicator(),
-            const SizedBox(height: 24),
-            Text(
-              'Waiting for audience members to join…',
-              style: Theme.of(context).textTheme.titleLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            if (state.sessionCode != null) ...[
-              Text(
-                'Session Code:',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 4),
-              SelectableText(
-                state.sessionCode!,
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 2,
+    return asyncState.when(
+      loading:
+          () =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error:
+          (err, _) => Scaffold(
+            appBar: AppBar(title: const Text('Host Waiting Room')),
+            body: Center(child: Text('Error: $err')),
+          ),
+      data: (_) {
+        // Use core session service to get the code
+        final sessionService = getIt<ISessionService>();
+        final code = sessionService.currentSession?.sessionId;
+
+        return Scaffold(
+          appBar: AppBar(title: const Text('Host Waiting Room')),
+          body: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const ConnectivityLostBanner(),
+                const SizedBox(height: 16),
+                const CircularProgressIndicator(),
+                const SizedBox(height: 24),
+                const Text(
+                  'Waiting for audience members to join…',
+                  style: TextStyle(fontSize: 20),
+                  textAlign: TextAlign.center,
                 ),
-              ),
-            ],
-            if (state.errorMessage != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                state.errorMessage!,
-                style: const TextStyle(color: Colors.red),
-              ),
-            ],
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: () async {
-                await controller.stopSession();
-                // Guard against using context if this widget was disposed
-                if (!context.mounted) return;
-                context.go('/host');
-              },
-              child: const Text('Stop Session'),
+                const SizedBox(height: 16),
+                if (code != null) ...[
+                  Text(
+                    'Session Code:',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    code,
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  onPressed: () async {
+                    await controller.stop();
+                    if (!context.mounted) return;
+                    context.go('/host');
+                  },
+                  child: const Text('Stop Session'),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

@@ -3,14 +3,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 
 import 'package:hermes/core/service_locator.dart';
 import 'package:hermes/core/services/permission/permission_service.dart';
-import 'package:hermes/features/session_host/presentation/providers/host_session_controller.dart';
 import 'package:hermes/features/session_host/presentation/widgets/connectivity_lost_banner.dart';
 import 'package:hermes/features/session_host/presentation/widgets/permission_denied_dialog.dart';
+import 'package:hermes/core/hermes_engine/state/hermes_session_state.dart';
+import 'package:hermes/core/hermes_engine/state/hermes_status.dart';
 
-/// Page where the speaker selects a language and starts a new session.
 class StartSessionPage extends ConsumerStatefulWidget {
   const StartSessionPage({super.key});
 
@@ -19,7 +20,6 @@ class StartSessionPage extends ConsumerStatefulWidget {
 }
 
 class _StartSessionPageState extends ConsumerState<StartSessionPage> {
-  // Supported languages map: display name → code
   final Map<String, String> _languages = {
     'English': 'en',
     'Spanish': 'es',
@@ -47,19 +47,40 @@ class _StartSessionPageState extends ConsumerState<StartSessionPage> {
       return;
     }
     if (!mounted) return;
-    final controller = ref.read(hostSessionControllerProvider.notifier);
-    await controller.startSession(_selectedLanguage!);
+    await ref
+        .read(hermesControllerProvider.notifier)
+        .startSession(_selectedLanguage!);
   }
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<HostSessionState>(hostSessionControllerProvider, (prev, next) {
-      if (prev?.sessionCode == null && next.sessionCode != null) {
+    // Listen to engine state changes to navigate when we go from idle→buffering
+    ref.listen<AsyncValue<HermesSessionState>>(hermesControllerProvider, (
+      prev,
+      next,
+    ) {
+      final prevStatus = prev?.asData?.value.status;
+      final currStatus = next.asData?.value.status;
+      if (prevStatus == HermesStatus.idle &&
+          currStatus == HermesStatus.buffering) {
         context.go('/host/code');
       }
     });
 
-    final state = ref.watch(hostSessionControllerProvider);
+    // Watch the AsyncValue from the engine
+    final asyncValue = ref.watch(hermesControllerProvider);
+
+    // Derive isLoading + errorMessage from the AsyncValue
+    final isLoading = asyncValue.when(
+      data: (s) => s.status == HermesStatus.buffering,
+      loading: () => true,
+      error: (_, __) => false,
+    );
+    final errorMessage = asyncValue.when(
+      data: (s) => s.errorMessage,
+      loading: () => null,
+      error: (e, __) => e.toString(),
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Start Session')),
@@ -85,18 +106,18 @@ class _StartSessionPageState extends ConsumerState<StartSessionPage> {
                       )
                       .toList(),
               onChanged:
-                  state.isLoading
+                  isLoading
                       ? null
                       : (lang) => setState(() => _selectedLanguage = lang),
             ),
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed:
-                  state.isLoading || _selectedLanguage == null
+                  (isLoading || _selectedLanguage == null)
                       ? null
                       : _handleStart,
               child:
-                  state.isLoading
+                  isLoading
                       ? const SizedBox(
                         height: 20,
                         width: 20,
@@ -104,12 +125,9 @@ class _StartSessionPageState extends ConsumerState<StartSessionPage> {
                       )
                       : const Text('Start Session'),
             ),
-            if (state.errorMessage != null) ...[
+            if (errorMessage != null) ...[
               const SizedBox(height: 16),
-              Text(
-                state.errorMessage!,
-                style: const TextStyle(color: Colors.red),
-              ),
+              Text(errorMessage, style: const TextStyle(color: Colors.red)),
             ],
           ],
         ),
