@@ -25,19 +25,7 @@ import 'package:hermes/core/services/socket/socket_service_impl.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/core/services/session/session_service_impl.dart';
 
-// Session-host feature data layer
-import 'package:hermes/features/session_host/data/datasources/session_local_datasource.dart';
-import 'package:hermes/features/session_host/data/datasources/session_remote_datasource.dart';
-import 'package:hermes/features/session_host/data/repositories/session_repository_impl.dart';
-import 'package:hermes/features/session_host/domain/repositories/session_repository.dart';
-
-// Session-host feature use-cases
-import 'package:hermes/features/session_host/domain/usecases/start_session_usecase.dart';
-import 'package:hermes/features/session_host/domain/usecases/get_session_code_usecase.dart';
-import 'package:hermes/features/session_host/domain/usecases/stop_session_usecase.dart';
-import 'package:hermes/features/session_host/domain/usecases/monitor_session_usecase.dart';
-
-// ADD: HermesEngine components
+// HermesEngine components
 import 'package:hermes/core/hermes_engine/speaker/speaker_engine.dart';
 import 'package:hermes/core/hermes_engine/audience/audience_engine.dart';
 import 'package:hermes/core/hermes_engine/buffer/translation_buffer.dart';
@@ -101,43 +89,7 @@ Future<void> setupServiceLocator() async {
   );
 
   // ─────────────────────────────────────────────
-  // Session-Host Feature Registrations
-
-  // Local & Remote data sources
-  getIt.registerLazySingleton<SessionLocalDataSource>(
-    () => SessionLocalDataSource(),
-  );
-  getIt.registerLazySingleton<SessionRemoteDataSource>(
-    () => SessionRemoteDataSource(
-      sessionService: getIt<ISessionService>(),
-      socketService: getIt<ISocketService>(),
-    ),
-  );
-
-  // Repository
-  getIt.registerLazySingleton<SessionRepository>(
-    () => SessionRepositoryImpl(
-      remote: getIt<SessionRemoteDataSource>(),
-      local: getIt<SessionLocalDataSource>(),
-    ),
-  );
-
-  // Use-Cases
-  getIt.registerLazySingleton<StartSessionUseCase>(
-    () => StartSessionUseCase(getIt<SessionRepository>()),
-  );
-  getIt.registerLazySingleton<GetSessionCodeUseCase>(
-    () => GetSessionCodeUseCase(getIt<SessionRepository>()),
-  );
-  getIt.registerLazySingleton<StopSessionUseCase>(
-    () => StopSessionUseCase(getIt<SessionRepository>()),
-  );
-  getIt.registerLazySingleton<MonitorSessionUseCase>(
-    () => MonitorSessionUseCase(getIt<SessionRepository>()),
-  );
-
-  // ─────────────────────────────────────────────
-  // ADD: HermesEngine Components (for hermesControllerProvider)
+  // HermesEngine Components (for hermesControllerProvider)
 
   // Shared buffer instance
   getIt.registerLazySingleton<TranslationBuffer>(() => TranslationBuffer());
