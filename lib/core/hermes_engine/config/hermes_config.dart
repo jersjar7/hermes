@@ -9,10 +9,10 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 const int kInitialBufferCountdownSeconds = 8;
 
 /// Minimum number of translated segments required before playback begins.
-const int kMinBufferSegments = 2;
+const int kMinBufferSegments = 3;
 
 /// Minimum number of buffered segments to resume playback after a pause.
-const int kResumeBufferThreshold = 1;
+const int kResumeBufferThreshold = 2;
 
 /// After buffer depletes, how many seconds before entering paused state.
 const int kBufferDepletionTimeoutSeconds = 5;
