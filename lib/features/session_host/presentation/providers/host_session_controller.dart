@@ -8,6 +8,8 @@ import 'package:hermes/features/session_host/domain/usecases/start_session_useca
 import 'package:hermes/features/session_host/domain/usecases/stop_session_usecase.dart';
 import 'package:hermes/features/session_host/domain/usecases/monitor_session_usecase.dart';
 import 'package:hermes/core/service_locator.dart';
+// ADD: Import HermesController
+import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 
 /// Holds the UI state for the host session flow.
 class HostSessionState {
@@ -44,6 +46,8 @@ class HostSessionState {
 final hostSessionControllerProvider =
     StateNotifierProvider<HostSessionController, HostSessionState>((ref) {
       return HostSessionController(
+        // ADD: Pass ref for HermesController access
+        ref: ref,
         startSessionUc: getIt<StartSessionUseCase>(),
         stopSessionUc: getIt<StopSessionUseCase>(),
         monitorSessionUc: getIt<MonitorSessionUseCase>(),
@@ -52,6 +56,8 @@ final hostSessionControllerProvider =
 
 /// Manages starting, monitoring, and stopping a host session.
 class HostSessionController extends StateNotifier<HostSessionState> {
+  // ADD: Ref for HermesController access
+  final Ref _ref;
   final StartSessionUseCase _startSessionUc;
   final StopSessionUseCase _stopSessionUc;
   final MonitorSessionUseCase _monitorSessionUc;
@@ -59,10 +65,13 @@ class HostSessionController extends StateNotifier<HostSessionState> {
   StreamSubscription<SessionInfo>? _monitorSub;
 
   HostSessionController({
+    // ADD: Accept ref
+    required Ref ref,
     required StartSessionUseCase startSessionUc,
     required StopSessionUseCase stopSessionUc,
     required MonitorSessionUseCase monitorSessionUc,
-  }) : _startSessionUc = startSessionUc,
+  }) : _ref = ref,
+       _startSessionUc = startSessionUc,
        _stopSessionUc = stopSessionUc,
        _monitorSessionUc = monitorSessionUc,
        super(HostSessionState.initial());
@@ -71,6 +80,10 @@ class HostSessionController extends StateNotifier<HostSessionState> {
   Future<void> startSession(String languageCode) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
+      // ADD: Start HermesEngine
+      final hermesController = _ref.read(hermesControllerProvider.notifier);
+      await hermesController.startSession(languageCode);
+
       final code = await _startSessionUc.execute(languageCode);
       state = state.copyWith(isLoading: false, sessionCode: code);
 
@@ -88,6 +101,10 @@ class HostSessionController extends StateNotifier<HostSessionState> {
   Future<void> stopSession() async {
     final code = state.sessionCode;
     if (code != null) {
+      // ADD: Stop HermesEngine
+      final hermesController = _ref.read(hermesControllerProvider.notifier);
+      await hermesController.stop();
+
       await _stopSessionUc.execute(code);
       _monitorSub?.cancel();
       state = HostSessionState.initial();

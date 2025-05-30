@@ -37,6 +37,14 @@ import 'package:hermes/features/session_host/domain/usecases/get_session_code_us
 import 'package:hermes/features/session_host/domain/usecases/stop_session_usecase.dart';
 import 'package:hermes/features/session_host/domain/usecases/monitor_session_usecase.dart';
 
+// ADD: HermesEngine components
+import 'package:hermes/core/hermes_engine/speaker/speaker_engine.dart';
+import 'package:hermes/core/hermes_engine/audience/audience_engine.dart';
+import 'package:hermes/core/hermes_engine/buffer/translation_buffer.dart';
+import 'package:hermes/core/hermes_engine/buffer/countdown_timer.dart';
+import 'package:hermes/core/hermes_engine/usecases/playback_control.dart';
+import 'package:hermes/core/hermes_engine/utils/log.dart';
+
 final getIt = GetIt.instance;
 
 Future<void> setupServiceLocator() async {
@@ -126,5 +134,53 @@ Future<void> setupServiceLocator() async {
   );
   getIt.registerLazySingleton<MonitorSessionUseCase>(
     () => MonitorSessionUseCase(getIt<SessionRepository>()),
+  );
+
+  // ─────────────────────────────────────────────
+  // ADD: HermesEngine Components (for hermesControllerProvider)
+
+  // Shared buffer instance
+  getIt.registerLazySingleton<TranslationBuffer>(() => TranslationBuffer());
+
+  // HermesLogger instance
+  getIt.registerLazySingleton<HermesLogger>(
+    () => HermesLogger(getIt<ILoggerService>()),
+  );
+
+  // Countdown timer
+  getIt.registerLazySingleton<CountdownTimer>(() => CountdownTimer());
+
+  // Playback control use case
+  getIt.registerLazySingleton<PlaybackControlUseCase>(
+    () => PlaybackControlUseCase(
+      ttsService: getIt<ITextToSpeechService>(),
+      buffer: getIt<TranslationBuffer>(),
+      logger: getIt<HermesLogger>(),
+    ),
+  );
+
+  // Speaker engine
+  getIt.registerLazySingleton<SpeakerEngine>(
+    () => SpeakerEngine(
+      permission: getIt<IPermissionService>(),
+      stt: getIt<ISpeechToTextService>(),
+      translator: getIt<ITranslationService>(),
+      tts: getIt<ITextToSpeechService>(),
+      session: getIt<ISessionService>(),
+      socket: getIt<ISocketService>(),
+      connectivity: getIt<IConnectivityService>(),
+      logger: getIt<ILoggerService>(),
+    ),
+  );
+
+  // Audience engine (uses shared buffer)
+  getIt.registerLazySingleton<AudienceEngine>(
+    () => AudienceEngine(
+      buffer: getIt<TranslationBuffer>(),
+      session: getIt<ISessionService>(),
+      socket: getIt<ISocketService>(),
+      connectivity: getIt<IConnectivityService>(),
+      logger: getIt<ILoggerService>(),
+    ),
   );
 }
