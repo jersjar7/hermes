@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hermes/core/theme/app_theme_dark.dart';
 import 'package:hermes/core/theme/app_theme_light.dart';
 import 'package:hermes/core/theme/theme_provider.dart';
-import 'package:hermes/features/app/presentation/providers/app_router.dart';
+import 'package:hermes/core/app_router.dart';
 
 import 'core/service_locator.dart';
 
