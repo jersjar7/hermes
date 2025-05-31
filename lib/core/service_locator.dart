@@ -76,6 +76,7 @@ Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton<IConnectivityService>(
     () => ConnectivityServiceImpl(),
   );
+  await getIt<IConnectivityService>().initialize();
 
   // 👤 Authentication
   getIt.registerLazySingleton<IAuthService>(() => AuthServiceImpl());

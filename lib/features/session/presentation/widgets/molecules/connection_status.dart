@@ -46,6 +46,7 @@ class ConnectionStatus extends StatelessWidget {
   }
 
   String _getStatusText() {
+    if (customMessage != null) return customMessage!;
     if (isConnecting) return 'Connecting...';
     return isConnected ? 'Connected' : 'Disconnected';
   }

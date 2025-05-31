@@ -6,6 +6,7 @@ import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 import 'package:hermes/core/hermes_engine/state/hermes_status.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
 import 'package:hermes/core/presentation/constants/hermes_icons.dart';
+import 'package:hermes/features/session/providers/connection_state_provider.dart';
 import '../molecules/connection_status.dart';
 import '../molecules/session_code_display.dart';
 import '../atoms/status_dot.dart';
@@ -60,10 +61,19 @@ class SessionHeader extends ConsumerWidget {
                       ],
                     ),
 
-                    // Connection indicator (simplified)
-                    const ConnectionStatus(
-                      isConnected: true, // TODO: Get from socket service
-                      showText: false,
+                    // Real connection status
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final connectionStatus = ref.watch(
+                          connectionStatusProvider,
+                        );
+                        return ConnectionStatus(
+                          isConnected: connectionStatus.connected,
+                          isConnecting: connectionStatus.connecting,
+                          customMessage: connectionStatus.message,
+                          showText: false,
+                        );
+                      },
                     ),
                   ],
                 ),
