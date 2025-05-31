@@ -32,7 +32,7 @@ class _JoinSessionPageState extends ConsumerState<JoinSessionPage> {
         child: Column(
           children: [
             // Session status header
-            const SessionHeader(showSessionCode: false),
+            const SessionHeader(),
 
             // Main content
             Expanded(

@@ -10,52 +10,74 @@ import 'package:hermes/core/presentation/widgets/buttons/primary_button.dart';
 import 'package:hermes/core/presentation/widgets/cards/elevated_card.dart';
 import '../molecules/waveform_display.dart';
 import '../molecules/countdown_widget.dart';
+import '../organisms/recent_transcript_display.dart';
 
-/// Main control panel for speakers with mic controls, waveform, and status.
-/// Central interaction area for starting/stopping sessions and monitoring activity.
-class SpeakerControlPanel extends ConsumerWidget {
+/// Simplified control panel for speakers focused on mic controls and speech feedback.
+/// No longer shows translations - only transcripts and speaking status.
+class SpeakerControlPanel extends ConsumerStatefulWidget {
   final String languageCode;
 
   const SpeakerControlPanel({super.key, required this.languageCode});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SpeakerControlPanel> createState() =>
+      _SpeakerControlPanelState();
+}
+
+class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
+  final List<TranscriptEntry> _transcriptHistory = [];
+
+  @override
+  Widget build(BuildContext context) {
     final sessionState = ref.watch(hermesControllerProvider);
 
-    return ElevatedCard(
-      padding: const EdgeInsets.all(HermesSpacing.lg),
-      child: sessionState.when(
-        data:
-            (state) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Status display area
-                _buildStatusArea(context, state),
+    return sessionState.when(
+      data: (state) {
+        // Update transcript history when new final transcripts arrive
+        _updateTranscriptHistory(state);
 
-                const SizedBox(height: HermesSpacing.lg),
+        return Column(
+          children: [
+            // Main control card
+            ElevatedCard(
+              padding: const EdgeInsets.all(HermesSpacing.lg),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Status display area
+                  _buildStatusArea(context, state),
 
-                // Control button
-                _buildControlButton(context, ref, state),
+                  const SizedBox(height: HermesSpacing.lg),
 
-                // Real-time transcript display (only show during listening)
-                if (state.status == HermesStatus.listening &&
-                    state.lastTranscript != null &&
-                    state.lastTranscript!.isNotEmpty) ...[
-                  const SizedBox(height: HermesSpacing.md),
-                  _buildRealTimeTranscript(context, state.lastTranscript!),
+                  // Control button
+                  _buildControlButton(context, ref, state),
+
+                  // Real-time transcript display (only during listening)
+                  if (state.status == HermesStatus.listening &&
+                      state.lastTranscript != null &&
+                      state.lastTranscript!.isNotEmpty) ...[
+                    const SizedBox(height: HermesSpacing.md),
+                    _buildRealTimeTranscript(context, state.lastTranscript!),
+                  ],
                 ],
-
-                // Last completed translation (only show when available)
-                if (state.lastTranslation != null &&
-                    state.lastTranslation!.isNotEmpty) ...[
-                  const SizedBox(height: HermesSpacing.md),
-                  _buildLastTranslation(context, state.lastTranslation!),
-                ],
-              ],
+              ),
             ),
-        loading: () => const _ControlPanelSkeleton(),
-        error: (error, _) => _ControlPanelError(error: error),
-      ),
+
+            const SizedBox(height: HermesSpacing.md),
+
+            // Recent transcript history
+            if (_transcriptHistory.isNotEmpty)
+              RecentTranscriptDisplay(
+                entries: _transcriptHistory,
+                recentCount: 3,
+                autoScroll: true,
+                onClear: () => setState(() => _transcriptHistory.clear()),
+              ),
+          ],
+        );
+      },
+      loading: () => const _ControlPanelSkeleton(),
+      error: (error, _) => _ControlPanelError(error: error),
     );
   }
 
@@ -91,7 +113,7 @@ class SpeakerControlPanel extends ConsumerWidget {
             Icon(HermesIcons.translating, size: 48, color: Colors.amber),
             const SizedBox(height: HermesSpacing.sm),
             Text(
-              'Translating...',
+              'Sending to audience...',
               style: theme.textTheme.titleMedium?.copyWith(color: Colors.amber),
             ),
             const SizedBox(height: HermesSpacing.xs),
@@ -113,29 +135,10 @@ class SpeakerControlPanel extends ConsumerWidget {
           ],
         );
 
-      case HermesStatus.speaking:
-        return Column(
-          children: [
-            Icon(HermesIcons.speaker, size: 48, color: Colors.green),
-            const SizedBox(height: HermesSpacing.sm),
-            Text(
-              'Playing Translation',
-              style: theme.textTheme.titleMedium?.copyWith(color: Colors.green),
-            ),
-            const SizedBox(height: HermesSpacing.xs),
-            Text(
-              'Translation is being spoken',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ],
-        );
-
       case HermesStatus.buffering:
         return Column(
           children: [
-            SizedBox(
+            const SizedBox(
               width: 24,
               height: 24,
               child: CircularProgressIndicator(strokeWidth: 2),
@@ -149,7 +152,7 @@ class SpeakerControlPanel extends ConsumerWidget {
             ),
             const SizedBox(height: HermesSpacing.xs),
             Text(
-              'Setting up translation session',
+              'Setting up session',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.outline,
               ),
@@ -170,11 +173,35 @@ class SpeakerControlPanel extends ConsumerWidget {
             ),
             const SizedBox(height: HermesSpacing.xs),
             Text(
-              'Tap Resume to continue listening',
+              'Tap Resume to continue',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.outline,
               ),
             ),
+          ],
+        );
+
+      case HermesStatus.error:
+        return Column(
+          children: [
+            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
+            const SizedBox(height: HermesSpacing.sm),
+            Text(
+              'Session Error',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+            if (state.errorMessage != null) ...[
+              const SizedBox(height: HermesSpacing.xs),
+              Text(
+                state.errorMessage!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ],
         );
 
@@ -204,7 +231,6 @@ class SpeakerControlPanel extends ConsumerWidget {
     final isSessionActive =
         state.status == HermesStatus.listening ||
         state.status == HermesStatus.translating ||
-        state.status == HermesStatus.speaking ||
         state.status == HermesStatus.countdown ||
         state.status == HermesStatus.paused;
 
@@ -289,21 +315,13 @@ class SpeakerControlPanel extends ConsumerWidget {
                 ),
               ),
               const Spacer(),
-              // Add a pulsing indicator to show it's live
+              // Live indicator
               Container(
                 width: 8,
                 height: 8,
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primary,
                   shape: BoxShape.circle,
-                ),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 1000),
-                  curve: Curves.easeInOut,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                    shape: BoxShape.circle,
-                  ),
                 ),
               ),
             ],
@@ -325,85 +343,53 @@ class SpeakerControlPanel extends ConsumerWidget {
     );
   }
 
-  Widget _buildLastTranslation(BuildContext context, String translation) {
-    final theme = Theme.of(context);
+  void _updateTranscriptHistory(state) {
+    // Add final transcripts to history (avoid duplicates)
+    if (state.lastTranscript != null &&
+        state.lastTranscript!.isNotEmpty &&
+        state.status != HermesStatus.listening && // Only add when finalized
+        (_transcriptHistory.isEmpty ||
+            _transcriptHistory.last.text != state.lastTranscript)) {
+      setState(() {
+        _transcriptHistory.add(
+          TranscriptEntry(
+            text: state.lastTranscript!,
+            timestamp: DateTime.now(),
+            isFinal: true,
+          ),
+        );
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(HermesSpacing.md),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(HermesSpacing.sm),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(HermesIcons.translating, size: 16, color: Colors.green),
-              const SizedBox(width: HermesSpacing.xs),
-              Text(
-                'Latest translation:',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.green,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: HermesSpacing.xs),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 80),
-            child: SingleChildScrollView(
-              child: Text(
-                translation,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.green,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+        // Keep only last 20 entries to avoid memory issues
+        if (_transcriptHistory.length > 20) {
+          _transcriptHistory.removeAt(0);
+        }
+      });
+    }
   }
 
-  /// Handles the main control button tap (start/stop session)
   void _handleControlTap(WidgetRef ref, bool isActive) {
     if (isActive) {
       ref.read(hermesControllerProvider.notifier).stop();
     } else {
-      ref.read(hermesControllerProvider.notifier).startSession(languageCode);
+      ref
+          .read(hermesControllerProvider.notifier)
+          .startSession(widget.languageCode);
     }
   }
 
-  /// Handles pausing the current session
   void _handlePause(WidgetRef ref) async {
     try {
-      print('⏸️ [SpeakerControlPanel] Pausing session...');
       await ref.read(hermesControllerProvider.notifier).pauseSession();
     } catch (e) {
       print('❌ [SpeakerControlPanel] Failed to pause session: $e');
-      // Optionally show a snackbar or error to the user
-      // You could add this if you want user feedback:
-      // ScaffoldMessenger.of(context).showSnackBar(
-      //   SnackBar(content: Text('Failed to pause session: $e')),
-      // );
     }
   }
 
-  /// Handles resuming the current session
   void _handleResume(WidgetRef ref) async {
     try {
-      print('▶️ [SpeakerControlPanel] Resuming session...');
       await ref.read(hermesControllerProvider.notifier).resumeSession();
     } catch (e) {
       print('❌ [SpeakerControlPanel] Failed to resume session: $e');
-      // Optionally show a snackbar or error to the user
-      // You could add this if you want user feedback:
-      // ScaffoldMessenger.of(context).showSnackBar(
-      //   SnackBar(content: Text('Failed to resume session: $e')),
-      // );
     }
   }
 }

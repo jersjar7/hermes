@@ -5,13 +5,9 @@ import 'dart:async';
 import 'package:hermes/core/services/logger/logger_service.dart';
 import 'package:hermes/core/services/socket/socket_event.dart';
 
-import '../buffer/translation_buffer.dart';
-import '../config/hermes_config.dart';
 import '../state/hermes_session_state.dart';
 import '../state/hermes_status.dart';
 import '../usecases/start_session.dart';
-import '../usecases/process_transcript.dart';
-import '../usecases/buffer_management.dart';
 import '../usecases/connectivity_handler.dart';
 import '../utils/log.dart';
 import 'package:hermes/core/services/speech_to_text/speech_to_text_service.dart';
@@ -22,11 +18,11 @@ import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/permission/permission_service.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 
-/// Orchestrates speaker-side flow: listen, translate, buffer, playback, connectivity.
+/// Orchestrates speaker-side flow: listen, send transcripts, track audience, connectivity.
+/// Note: Speakers now send transcripts only - translation happens server-side.
 class SpeakerEngine {
   final IPermissionService _permission;
   final ISpeechToTextService _stt;
-  final ITranslationService _translator;
   final ISessionService _session;
   final ISocketService _socket;
   final IConnectivityService _connectivity;
@@ -39,7 +35,6 @@ class SpeakerEngine {
 
   // Session management
   bool _isSessionActive = false;
-  String? _currentLanguageCode;
 
   // Audience tracking
   int _audienceCount = 0;
@@ -50,10 +45,7 @@ class SpeakerEngine {
 
   // Infrastructure
   late final StartSessionUseCase _startUseCase;
-  late final ProcessTranscriptUseCase _processUseCase;
-  late final BufferManagementUseCase _bufferMgr;
   late final ConnectivityHandlerUseCase _connHandler;
-  final TranslationBuffer _buffer = TranslationBuffer();
 
   SpeakerEngine({
     required IPermissionService permission,
@@ -66,7 +58,6 @@ class SpeakerEngine {
     required ILoggerService logger,
   }) : _permission = permission,
        _stt = stt,
-       _translator = translator,
        _session = session,
        _socket = socket,
        _connectivity = connectivity,
@@ -78,22 +69,15 @@ class SpeakerEngine {
       socketService: _socket,
       logger: _log,
     );
-    _processUseCase = ProcessTranscriptUseCase(
-      translator: _translator,
-      buffer: _buffer,
-      logger: _log,
-    );
-    _bufferMgr = BufferManagementUseCase(buffer: _buffer, logger: _log);
     _connHandler = ConnectivityHandlerUseCase(
       connectivityService: _connectivity,
       logger: _log,
     );
   }
 
-  /// Starts speaker flow: session setup, STT listening, translation, socket.
+  /// Starts speaker flow: session setup, STT listening, socket connection.
   Future<void> start({required String languageCode}) async {
     print('🎤 [SpeakerEngine] Starting speaker session...');
-    _currentLanguageCode = languageCode;
 
     try {
       // Set initial state
@@ -193,18 +177,14 @@ class SpeakerEngine {
       ),
     );
 
-    // Only process final results for translation
+    // Only process final results for transmission
     if (!res.isFinal) return;
 
-    print('🔄 [SpeakerEngine] Processing final transcript for translation');
+    print('📡 [SpeakerEngine] Sending final transcript to audience');
 
     try {
-      // Note: For speaker UI, we don't translate their own speech
-      // We just send the transcript to connected audience members
-      // who will receive translations in their selected languages
-
-      // Send the original transcript over socket
-      _socket.send(
+      // Send transcript to audience via socket for server-side translation
+      await _socket.send(
         TranscriptEvent(
           sessionId: _session.currentSession!.sessionId,
           text: res.transcript,
@@ -268,7 +248,6 @@ class SpeakerEngine {
     print('🛑 [SpeakerEngine] Stopping speaker session...');
 
     _isSessionActive = false;
-    _currentLanguageCode = null;
 
     // Stop listening
     await _stt.stopListening();
@@ -306,6 +285,13 @@ class SpeakerEngine {
       _startListening();
     }
   }
+
+  /// Gets current audience count
+  int get audienceCount => _audienceCount;
+
+  /// Gets current language distribution
+  Map<String, int> get languageDistribution =>
+      Map.unmodifiable(_languageDistribution);
 
   void _emit(HermesSessionState s) {
     _state = s;

@@ -1,50 +1,71 @@
 // lib/features/session/presentation/pages/active_session_page.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 import 'package:hermes/core/service_locator.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
+import 'package:hermes/core/presentation/constants/spacing.dart';
 import '../widgets/organisms/session_header.dart';
 import '../widgets/organisms/speaker_control_panel.dart';
-import '../widgets/organisms/translation_feed.dart';
+import '../widgets/organisms/session_status_bar.dart';
 import '../widgets/organisms/audience_display.dart';
 
 /// Active session page that adapts based on user role (speaker vs audience).
 /// Shows appropriate interface and controls for each session participant.
-class ActiveSessionPage extends ConsumerWidget {
+///
+/// Key Features:
+/// - Role-aware interface (speakers see transcripts, audience sees translations)
+/// - Real-time session status and audience tracking for speakers
+/// - Simplified, distraction-free interface during active speaking
+/// - Proper component separation based on architectural decisions
+class ActiveSessionPage extends ConsumerStatefulWidget {
   const ActiveSessionPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ActiveSessionPage> createState() => _ActiveSessionPageState();
+}
+
+class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
+  DateTime? sessionStartTime;
+
+  @override
+  void initState() {
+    super.initState();
+    sessionStartTime = DateTime.now();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final sessionService = getIt<ISessionService>();
     final sessionState = ref.watch(hermesControllerProvider);
 
     return Scaffold(
-      appBar: HermesAppBar(),
+      appBar: const HermesAppBar(),
       body: SafeArea(
         child: sessionState.when(
           data:
               (state) => Column(
                 children: [
-                  // Session header with current session code
-                  SessionHeader(
-                    sessionCode: sessionService.currentSession?.sessionId,
-                    showSessionCode: true,
-                  ),
+                  // Minimal session header
+                  const SessionHeader(showMinimal: true),
 
                   // Role-specific content
                   Expanded(
                     child:
                         sessionService.isSpeaker
-                            ? _buildSpeakerView(sessionService)
-                            : _buildAudienceView(sessionService),
+                            ? _buildSpeakerView(sessionService, state)
+                            : _buildAudienceView(sessionService, state),
                   ),
 
-                  // Session controls
-                  _buildSessionControls(context, ref),
+                  // Role-specific status/control bars
+                  if (sessionService.isSpeaker)
+                    _buildSpeakerStatusBar(sessionService, state)
+                  else
+                    _buildAudienceControls(),
                 ],
               ),
           loading: () => const _ActiveSessionSkeleton(),
@@ -58,32 +79,48 @@ class ActiveSessionPage extends ConsumerWidget {
     );
   }
 
-  Widget _buildSpeakerView(ISessionService sessionService) {
+  Widget _buildSpeakerView(ISessionService sessionService, state) {
     return Column(
       children: [
-        // Speaker control panel
+        // Main speaker control panel (no translations shown)
         SpeakerControlPanel(
           languageCode: sessionService.currentSession?.languageCode ?? 'en-US',
         ),
 
-        // Translation feed
-        const Expanded(child: TranslationFeed()),
+        // Optional: Add spacing or other speaker-specific UI elements
+        const SizedBox(height: HermesSpacing.sm),
       ],
     );
   }
 
-  Widget _buildAudienceView(ISessionService sessionService) {
-    // For now, using placeholder values - in a real app, these would come from user preferences
+  Widget _buildAudienceView(ISessionService sessionService, state) {
+    // For audience members - show translation interface
     return AudienceDisplay(
-      targetLanguageCode: 'es-ES',
-      targetLanguageName: 'Spanish',
-      languageFlag: '🇪🇸',
+      targetLanguageCode: 'es-ES', // TODO: Get from user preferences
+      targetLanguageName: 'Spanish', // TODO: Get from user preferences
+      languageFlag: '🇪🇸', // TODO: Get from user preferences
     );
   }
 
-  Widget _buildSessionControls(BuildContext context, WidgetRef ref) {
+  Widget _buildSpeakerStatusBar(ISessionService sessionService, state) {
+    final sessionCode = sessionService.currentSession?.sessionId ?? '';
+    final duration =
+        sessionStartTime != null
+            ? DateTime.now().difference(sessionStartTime!)
+            : Duration.zero;
+
+    return SessionStatusBar(
+      sessionCode: sessionCode,
+      sessionDuration: duration,
+      audienceCount: state.audienceCount,
+      languageDistribution: state.languageDistribution,
+      onSessionCodeTap: () => _copySessionCode(sessionCode),
+    );
+  }
+
+  Widget _buildAudienceControls() {
     return Container(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(HermesSpacing.md),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         border: Border(
@@ -94,7 +131,7 @@ class ActiveSessionPage extends ConsumerWidget {
         ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           TextButton.icon(
             onPressed: () => _handleLeaveSession(context, ref),
@@ -106,8 +143,35 @@ class ActiveSessionPage extends ConsumerWidget {
     );
   }
 
+  Future<void> _copySessionCode(String sessionCode) async {
+    if (sessionCode.isNotEmpty) {
+      await Clipboard.setData(ClipboardData(text: sessionCode));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session code copied to clipboard'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _handleLeaveSession(BuildContext context, WidgetRef ref) async {
-    final confirmed = await _showLeaveConfirmation(context);
+    final sessionService = getIt<ISessionService>();
+    final actionText =
+        sessionService.isSpeaker ? 'End Session' : 'Leave Session';
+    final contentText =
+        sessionService.isSpeaker
+            ? 'Are you sure you want to end this session? All audience members will be disconnected.'
+            : 'Are you sure you want to leave this session?';
+
+    final confirmed = await _showConfirmationDialog(
+      context,
+      actionText,
+      contentText,
+    );
+
     if (confirmed && context.mounted) {
       await ref.read(hermesControllerProvider.notifier).stop();
       if (context.mounted) {
@@ -116,15 +180,17 @@ class ActiveSessionPage extends ConsumerWidget {
     }
   }
 
-  Future<bool> _showLeaveConfirmation(BuildContext context) async {
+  Future<bool> _showConfirmationDialog(
+    BuildContext context,
+    String title,
+    String content,
+  ) async {
     return await showDialog<bool>(
           context: context,
           builder:
               (context) => AlertDialog(
-                title: const Text('Leave Session'),
-                content: const Text(
-                  'Are you sure you want to leave this session?',
-                ),
+                title: Text(title),
+                content: Text(content),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(false),
@@ -132,7 +198,7 @@ class ActiveSessionPage extends ConsumerWidget {
                   ),
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(true),
-                    child: const Text('Leave'),
+                    child: Text(title),
                   ),
                 ],
               ),
@@ -141,22 +207,82 @@ class ActiveSessionPage extends ConsumerWidget {
   }
 }
 
+/// Loading skeleton for active session page
 class _ActiveSessionSkeleton extends StatelessWidget {
   const _ActiveSessionSkeleton();
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Column(
       children: [
-        Container(height: 80, color: Colors.grey.withValues(alpha: 0.3)),
-        const SizedBox(height: 16),
+        // Header skeleton
+        Container(
+          height: 60,
+          color: theme.colorScheme.surface,
+          padding: const EdgeInsets.all(HermesSpacing.md),
+          child: Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: HermesSpacing.sm),
+              Container(
+                width: 120,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: HermesSpacing.md),
+
+        // Main content skeleton
         Expanded(
           child: Container(
-            margin: const EdgeInsets.all(16),
+            margin: const EdgeInsets.all(HermesSpacing.md),
             decoration: BoxDecoration(
-              color: Colors.grey.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(8),
+              color: theme.colorScheme.outline.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
             ),
+          ),
+        ),
+
+        // Status bar skeleton
+        Container(
+          height: 50,
+          color: theme.colorScheme.surface,
+          padding: const EdgeInsets.all(HermesSpacing.md),
+          child: Row(
+            children: [
+              Container(
+                width: 60,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const Spacer(),
+              Container(
+                width: 80,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -164,6 +290,7 @@ class _ActiveSessionSkeleton extends StatelessWidget {
   }
 }
 
+/// Error state for active session page
 class _ActiveSessionError extends StatelessWidget {
   final Object error;
   final VoidCallback onRetry;
@@ -176,25 +303,25 @@ class _ActiveSessionError extends StatelessWidget {
 
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(HermesSpacing.lg),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
+            const SizedBox(height: HermesSpacing.md),
             Text(
               'Session Error',
               style: theme.textTheme.headlineSmall?.copyWith(
                 color: theme.colorScheme.error,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: HermesSpacing.sm),
             Text(
-              error.toString(),
+              'Unable to connect to the session. Please check your connection and try again.',
               style: theme.textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: HermesSpacing.lg),
             ElevatedButton(
               onPressed: onRetry,
               child: const Text('Back to Home'),
