@@ -186,7 +186,7 @@ class SessionLobby extends ConsumerWidget {
 
     return GlassCard(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Row(
             children: [

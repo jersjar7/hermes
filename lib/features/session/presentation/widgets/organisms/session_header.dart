@@ -298,7 +298,7 @@ class SessionHeader extends ConsumerWidget {
       case HermesStatus.translating:
         return 'Processing';
       case HermesStatus.buffering:
-        return 'Buffering';
+        return 'Ready'; // Changed from 'Buffering'
       case HermesStatus.countdown:
         return 'Starting';
       case HermesStatus.speaking:
@@ -319,7 +319,7 @@ class SessionHeader extends ConsumerWidget {
       case HermesStatus.translating:
         return 'Processing speech';
       case HermesStatus.buffering:
-        return 'Preparing session';
+        return isSpeaker ? 'Ready for your speech' : 'Preparing session';
       case HermesStatus.countdown:
         return 'Starting soon';
       case HermesStatus.speaking:
@@ -342,7 +342,9 @@ class SessionHeader extends ConsumerWidget {
             ? 'Your speech is being processed for translation'
             : 'Speaker\'s words are being translated';
       case HermesStatus.buffering:
-        return 'Setting up the translation session';
+        return isSpeaker
+            ? 'Ready to listen - start speaking when you\'re ready'
+            : 'Waiting for the session to begin';
       case HermesStatus.countdown:
         return 'Session will begin shortly';
       case HermesStatus.speaking:

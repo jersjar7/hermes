@@ -145,14 +145,14 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
             ),
             const SizedBox(height: HermesSpacing.sm),
             Text(
-              'Preparing...',
+              'Ready to listen',
               style: theme.textTheme.titleMedium?.copyWith(
                 color: theme.colorScheme.primary,
               ),
             ),
             const SizedBox(height: HermesSpacing.xs),
             Text(
-              'Setting up session',
+              'Start speaking when ready',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.outline,
               ),
