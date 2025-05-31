@@ -37,6 +37,10 @@ class SpeakerEngine {
   final _stateController = StreamController<HermesSessionState>.broadcast();
   Stream<HermesSessionState> get stream => _stateController.stream;
 
+  // Session management
+  bool _isSessionActive = false;
+  String? _currentLanguageCode;
+
   // Infrastructure
   late final StartSessionUseCase _startUseCase;
   late final ProcessTranscriptUseCase _processUseCase;
@@ -79,124 +83,204 @@ class SpeakerEngine {
     );
   }
 
-  /// Starts speaker flow: session start, STT listening, translation, socket.
+  /// Starts speaker flow: session setup, STT listening, translation, socket.
   Future<void> start({required String languageCode}) async {
-    _emit(_state.copyWith(status: HermesStatus.buffering));
+    print('🎤 [SpeakerEngine] Starting speaker session...');
+    _currentLanguageCode = languageCode;
 
-    await _startUseCase.execute(isSpeaker: true, languageCode: languageCode);
+    try {
+      // Set initial state
+      _emit(_state.copyWith(status: HermesStatus.buffering));
 
-    // Begin connectivity monitoring
-    _connHandler.startMonitoring(
-      onOffline: _handleOffline,
-      onOnline: _handleOnline,
+      // Initialize session
+      await _startUseCase.execute(isSpeaker: true, languageCode: languageCode);
+
+      // Start connectivity monitoring
+      _connHandler.startMonitoring(
+        onOffline: _handleOffline,
+        onOnline: _handleOnline,
+      );
+
+      // Session is now active
+      _isSessionActive = true;
+
+      // Start listening immediately
+      _startListening();
+    } catch (e, stackTrace) {
+      print('❌ [SpeakerEngine] Failed to start session: $e');
+      _log.error(
+        'Speaker session start failed',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      _emit(
+        _state.copyWith(
+          status: HermesStatus.error,
+          errorMessage: 'Failed to start session: $e',
+        ),
+      );
+    }
+  }
+
+  void _startListening() {
+    if (!_isSessionActive) return;
+
+    print('🎤 [SpeakerEngine] Starting continuous listening...');
+    _emit(_state.copyWith(status: HermesStatus.listening));
+
+    _stt.startListening(
+      onResult: _handleSpeechResult,
+      onError: _handleSpeechError,
+    );
+  }
+
+  void _handleSpeechResult(res) async {
+    if (!_isSessionActive) return;
+
+    print(
+      '📝 [SpeakerEngine] Speech result: "${res.transcript}" (final: ${res.isFinal})',
     );
 
-    // Start listening loop
-    _stt.startListening(
-      onResult: (res) async {
-        print(
-          '📝 [SpeakerEngine] Received transcript: "${res.transcript}" (final: ${res.isFinal})',
-        );
+    // Always update UI with latest transcript for real-time feedback
+    _emit(
+      _state.copyWith(
+        status: res.isFinal ? HermesStatus.translating : HermesStatus.listening,
+        lastTranscript: res.transcript,
+      ),
+    );
 
-        // Update state with partial transcripts too (for real-time display)
+    // Only process final results for translation
+    if (!res.isFinal) return;
+
+    print('🔄 [SpeakerEngine] Processing final transcript for translation');
+
+    try {
+      // Translate the transcript
+      final event = await _processUseCase.execute(
+        res.transcript,
+        _currentLanguageCode!,
+      );
+
+      print(
+        '✅ [SpeakerEngine] Translation completed: "${event.translatedText}"',
+      );
+
+      // Update state with translation
+      _emit(
+        _state.copyWith(
+          status: HermesStatus.listening, // Continue listening
+          lastTranslation: event.translatedText,
+          buffer: _buffer.all,
+        ),
+      );
+
+      // Send translation over socket
+      _socket.send(
+        TranslationEvent(
+          sessionId: _session.currentSession!.sessionId,
+          translatedText: event.translatedText,
+          targetLanguage: _currentLanguageCode!,
+        ),
+      );
+
+      // Check buffer readiness (for potential playback)
+      final ready = _bufferMgr.checkBufferReady();
+      if (ready != null) {
         _emit(
           _state.copyWith(
-            status:
-                res.isFinal ? HermesStatus.translating : HermesStatus.listening,
-            lastTranscript: res.transcript,
+            status: HermesStatus.countdown,
+            countdownSeconds: kInitialBufferCountdownSeconds,
           ),
         );
+      }
+    } catch (e, stackTrace) {
+      print('❌ [SpeakerEngine] Translation failed: $e');
+      _log.error('Translation failed', error: e, stackTrace: stackTrace);
 
-        // Only process final results for translation
-        if (!res.isFinal) return;
+      // Don't stop the session on translation errors, just continue listening
+      _emit(
+        _state.copyWith(
+          status: HermesStatus.listening,
+          errorMessage: 'Translation failed: $e',
+        ),
+      );
+    }
+  }
 
-        print('🔄 [SpeakerEngine] Processing final transcript for translation');
+  void _handleSpeechError(Exception error) {
+    print('⚠️ [SpeakerEngine] Speech error: $error');
 
-        // Update status to translating
-        _emit(
-          _state.copyWith(
-            status: HermesStatus.translating,
-            lastTranscript: res.transcript,
-          ),
-        );
+    // For non-critical errors, just continue listening
+    // The STT service should handle auto-recovery
+    if (!_isSessionActive) return;
 
-        // Translate & buffer
-        try {
-          final event = await _processUseCase.execute(
-            res.transcript,
-            languageCode,
-          );
-
-          print(
-            '✅ [SpeakerEngine] Translation completed: "${event.translatedText}"',
-          );
-
-          _emit(
-            _state.copyWith(
-              lastTranslation: event.translatedText,
-              buffer: _buffer.all,
-            ),
-          );
-
-          // Send over socket
-          _socket.send(
-            TranslationEvent(
-              sessionId: _session.currentSession!.sessionId,
-              translatedText: event.translatedText,
-              targetLanguage: languageCode,
-            ),
-          );
-
-          // Check buffer readiness
-          final ready = _bufferMgr.checkBufferReady();
-          if (ready != null) {
-            _emit(
-              _state.copyWith(
-                status: HermesStatus.countdown,
-                countdownSeconds: kInitialBufferCountdownSeconds,
-              ),
-            );
-            // Start countdown externally in root engine
-          }
-        } catch (e) {
-          print('❌ [SpeakerEngine] Translation failed: $e');
-          _emit(
-            _state.copyWith(
-              status: HermesStatus.error,
-              errorMessage: e.toString(),
-            ),
-          );
-        }
-      },
-      onError: (e) {
-        print('❌ [SpeakerEngine] STT Error: $e');
-        _emit(
-          _state.copyWith(
-            status: HermesStatus.error,
-            errorMessage: e.toString(),
-          ),
-        );
-      },
+    // Update UI but keep session active
+    _emit(
+      _state.copyWith(
+        status: HermesStatus.listening, // Keep showing as listening
+        errorMessage: null, // Clear any previous errors
+      ),
     );
   }
 
   void _handleOffline() {
-    _stt.stopListening();
+    print('📵 [SpeakerEngine] Going offline - pausing session');
     _emit(_state.copyWith(status: HermesStatus.paused));
   }
 
   void _handleOnline() {
-    _stt.startListening(onResult: (_) {}, onError: (_) {});
-    _emit(_state.copyWith(status: HermesStatus.buffering));
+    print('📶 [SpeakerEngine] Coming online - resuming session');
+    if (_isSessionActive) {
+      _startListening();
+    }
+  }
+
+  /// Stops the speaker session
+  Future<void> stop() async {
+    print('🛑 [SpeakerEngine] Stopping speaker session...');
+
+    _isSessionActive = false;
+    _currentLanguageCode = null;
+
+    // Stop listening
+    await _stt.stopListening();
+
+    // Stop connectivity monitoring
+    _connHandler.dispose();
+
+    // Disconnect socket
+    await _socket.disconnect();
+
+    // Update state
+    _emit(_state.copyWith(status: HermesStatus.idle));
+
+    print('✅ [SpeakerEngine] Speaker session stopped');
+  }
+
+  /// Pauses the session (stops listening but keeps session active)
+  Future<void> pause() async {
+    print('⏸️ [SpeakerEngine] Pausing session...');
+    await _stt.stopListening();
+    _emit(_state.copyWith(status: HermesStatus.paused));
+  }
+
+  /// Resumes the session (starts listening again)
+  Future<void> resume() async {
+    print('▶️ [SpeakerEngine] Resuming session...');
+    if (_isSessionActive) {
+      _startListening();
+    }
   }
 
   void _emit(HermesSessionState s) {
     _state = s;
     _stateController.add(s);
+    print('🔄 [SpeakerEngine] State: ${s.status}');
   }
 
   void dispose() {
-    _stt.stopListening();
+    _isSessionActive = false;
+    _stt.dispose();
     _connHandler.dispose();
     _stateController.close();
   }

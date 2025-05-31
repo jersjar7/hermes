@@ -1,6 +1,7 @@
 // lib/core/services/speech_to_text/speech_to_text_service_impl.dart
 
 import 'dart:async';
+import 'package:speech_to_text/speech_recognition_error.dart' as stt;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../logger/logger_service.dart';
 import 'speech_to_text_service.dart';
@@ -15,11 +16,14 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
 
   // For managing finalization timeouts
   Timer? _finalizationTimer;
+  Timer? _restartTimer;
   String? _lastPartialResult;
   void Function(SpeechResult)? _currentOnResult;
+  void Function(Exception)? _currentOnError;
 
   // Timeout after which we consider a partial result "final"
-  static const Duration _finalizationTimeout = Duration(seconds: 3);
+  static const Duration _finalizationTimeout = Duration(seconds: 2);
+  static const Duration _restartDelay = Duration(milliseconds: 500);
 
   SpeechToTextServiceImpl(this._logger);
 
@@ -30,30 +34,34 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     try {
       _isAvailable = await _speech.initialize(
         onStatus: (status) {
-          _isListening = status == 'listening';
           print('🎙️ [STTService] Status changed: $status');
           _logger.logInfo('STT status: $status', context: 'STT');
 
-          // Handle status changes that might indicate finalization
+          final wasListening = _isListening;
+          _isListening = status == 'listening';
+
+          // Handle status changes
           if (status == 'notListening' || status == 'done') {
             _handlePotentialFinalization();
+
+            // Auto-restart listening if we were in a listening session
+            if (wasListening && _currentOnResult != null) {
+              _scheduleRestart();
+            }
           }
         },
         onError: (err) {
           print('❌ [STTService] Error: $err');
           _logger.logError('STT error: $err', context: 'STT');
+          _handleSpeechError(err);
         },
       );
 
       print('📱 [STTService] Initialization result: $_isAvailable');
 
       if (_isAvailable) {
-        // Log available locales for debugging
         final locales = await _speech.locales();
         print('🌍 [STTService] Available locales: ${locales.length}');
-        for (final locale in locales.take(5)) {
-          print('   - ${locale.localeId}: ${locale.name}');
-        }
       } else {
         print(
           '⚠️ [STTService] Speech recognition not available on this device',
@@ -81,74 +89,133 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     if (!_isAvailable) {
       final msg = 'Speech recognition not available';
       print('❌ [STTService] $msg');
-      _logger.logError(msg, context: 'STT');
       onError(Exception(msg));
       return;
     }
 
     print('🎤 [STTService] Starting to listen with locale: $_locale');
 
-    // Store the callback for finalization
+    // Store callbacks
     _currentOnResult = onResult;
+    _currentOnError = onError;
 
+    await _startListeningInternal();
+  }
+
+  Future<void> _startListeningInternal() async {
     try {
       await _speech.listen(
         localeId: _locale,
         onResult: (res) {
-          final transcript = res.recognizedWords;
+          final transcript = res.recognizedWords.trim();
           final isFinal = res.finalResult;
 
-          print('📝 [STTService] Result: "$transcript" (final: $isFinal)');
+          print(
+            '📝 [STTService] Result: "$transcript" (final: $isFinal, confidence: ${res.confidence})',
+          );
 
-          if (isFinal) {
-            // Clear any pending finalization timer
-            _finalizationTimer?.cancel();
-            _lastPartialResult = null;
+          if (transcript.isNotEmpty) {
+            if (isFinal) {
+              // Clear timers and emit final result
+              _finalizationTimer?.cancel();
+              _lastPartialResult = null;
 
-            // Emit final result
-            final out = SpeechResult(
-              transcript: transcript,
-              isFinal: true,
-              timestamp: DateTime.now(),
-              locale: _locale,
-            );
-            onResult(out);
-          } else {
-            // Handle partial result
-            _lastPartialResult = transcript;
+              final out = SpeechResult(
+                transcript: transcript,
+                isFinal: true,
+                timestamp: DateTime.now(),
+                locale: _locale,
+              );
+              _currentOnResult?.call(out);
 
-            // Emit partial result
-            final out = SpeechResult(
-              transcript: transcript,
-              isFinal: false,
-              timestamp: DateTime.now(),
-              locale: _locale,
-            );
-            onResult(out);
+              // Continue listening for more speech
+              _scheduleRestart();
+            } else {
+              // Handle partial result
+              _lastPartialResult = transcript;
 
-            // Set up finalization timer for partial results
-            _startFinalizationTimer();
+              final out = SpeechResult(
+                transcript: transcript,
+                isFinal: false,
+                timestamp: DateTime.now(),
+                locale: _locale,
+              );
+              _currentOnResult?.call(out);
+
+              // Set up finalization timer
+              _startFinalizationTimer();
+            }
           }
         },
-        cancelOnError: true,
+        cancelOnError: false, // Don't cancel on errors, handle them gracefully
         partialResults: true,
-        // Configure listening session
-        listenFor: const Duration(minutes: 10), // Listen for longer periods
-        pauseFor: const Duration(
-          seconds: 5,
-        ), // Pause detection after 5 seconds of silence
+        listenFor: const Duration(seconds: 30), // Listen for longer periods
+        pauseFor: const Duration(seconds: 3), // Pause detection after 3 seconds
       );
     } catch (e) {
       print('❌ [STTService] Start listening failed: $e');
-      onError(Exception('Failed to start listening: $e'));
+      _handleSpeechError(stt.SpeechRecognitionError('start_error', true));
     }
   }
 
-  void _startFinalizationTimer() {
-    // Cancel any existing timer
-    _finalizationTimer?.cancel();
+  void _handleSpeechError(stt.SpeechRecognitionError error) {
+    print('🔧 [STTService] Handling speech error: ${error.errorMsg}');
 
-    // Start new timer
+    // Handle different types of errors
+    switch (error.errorMsg) {
+      case 'error_no_match':
+        // No speech detected - this is normal, just restart listening
+        print('🔄 [STTService] No speech detected, restarting...');
+        _scheduleRestart();
+        break;
+
+      case 'error_speech_timeout':
+        // Speech timeout - restart listening
+        print('🔄 [STTService] Speech timeout, restarting...');
+        _scheduleRestart();
+        break;
+
+      case 'error_audio':
+        // Audio error - might be temporary, try restarting
+        print('🔄 [STTService] Audio error, attempting restart...');
+        _scheduleRestart();
+        break;
+
+      case 'error_network':
+        // Network error - inform user but try to restart
+        print('🌐 [STTService] Network error, will retry...');
+        _currentOnError?.call(Exception('Network error, retrying...'));
+        _scheduleRestart();
+        break;
+
+      default:
+        // Other errors - inform user
+        print('❌ [STTService] Unhandled error: ${error.errorMsg}');
+        if (error.permanent) {
+          _currentOnError?.call(
+            Exception('Speech recognition error: ${error.errorMsg}'),
+          );
+        } else {
+          _scheduleRestart();
+        }
+        break;
+    }
+  }
+
+  void _scheduleRestart() {
+    if (_currentOnResult == null) return; // Not in a listening session
+
+    _restartTimer?.cancel();
+    _restartTimer = Timer(_restartDelay, () {
+      if (_currentOnResult != null && _isAvailable) {
+        print('🔄 [STTService] Auto-restarting listening...');
+        _startListeningInternal();
+      }
+    });
+  }
+
+  void _startFinalizationTimer() {
+    _finalizationTimer?.cancel();
     _finalizationTimer = Timer(_finalizationTimeout, () {
       _handlePotentialFinalization();
     });
@@ -158,11 +225,8 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     if (_lastPartialResult != null &&
         _lastPartialResult!.isNotEmpty &&
         _currentOnResult != null) {
-      print(
-        '⏰ [STTService] Finalizing partial result due to timeout: "$_lastPartialResult"',
-      );
+      print('⏰ [STTService] Finalizing partial result: "$_lastPartialResult"');
 
-      // Create a final result from the last partial result
       final finalResult = SpeechResult(
         transcript: _lastPartialResult!,
         isFinal: true,
@@ -171,8 +235,6 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
       );
 
       _currentOnResult!(finalResult);
-
-      // Clear the partial result
       _lastPartialResult = null;
     }
 
@@ -183,24 +245,36 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   Future<void> stopListening() async {
     print('🛑 [STTService] Stopping listening...');
 
-    // Finalize any pending partial result
+    // Clear callbacks to stop auto-restart
+    _currentOnResult = null;
+    _currentOnError = null;
+
+    // Cancel timers
+    _finalizationTimer?.cancel();
+    _restartTimer?.cancel();
+
+    // Finalize any pending result
     _handlePotentialFinalization();
 
+    // Stop the speech service
     await _speech.stop();
     _isListening = false;
-    _currentOnResult = null;
-    _finalizationTimer?.cancel();
+    _lastPartialResult = null;
   }
 
   @override
   Future<void> cancel() async {
     print('❌ [STTService] Cancelling listening...');
 
+    // Clear everything
+    _currentOnResult = null;
+    _currentOnError = null;
+    _finalizationTimer?.cancel();
+    _restartTimer?.cancel();
+
     await _speech.cancel();
     _isListening = false;
-    _currentOnResult = null;
     _lastPartialResult = null;
-    _finalizationTimer?.cancel();
   }
 
   @override
@@ -210,10 +284,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   bool get isListening => _isListening;
 
   @override
-  Future<bool> get hasPermission async {
-    // This is now just informational - permission handled by PermissionService
-    return _isAvailable;
-  }
+  Future<bool> get hasPermission async => _isAvailable;
 
   @override
   Future<List<LocaleName>> getSupportedLocales() async {
@@ -232,7 +303,9 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   @override
   void dispose() {
     _finalizationTimer?.cancel();
+    _restartTimer?.cancel();
     _currentOnResult = null;
+    _currentOnError = null;
     _lastPartialResult = null;
   }
 }

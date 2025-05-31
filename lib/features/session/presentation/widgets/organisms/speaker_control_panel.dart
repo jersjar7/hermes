@@ -180,15 +180,55 @@ class SpeakerControlPanel extends ConsumerWidget {
   }
 
   Widget _buildControlButton(BuildContext context, WidgetRef ref, state) {
-    final isActive =
+    final isSessionActive =
         state.status == HermesStatus.listening ||
+        state.status == HermesStatus.translating ||
+        state.status == HermesStatus.speaking ||
+        state.status == HermesStatus.countdown;
+
+    final isProcessing =
+        state.status == HermesStatus.buffering ||
         state.status == HermesStatus.translating;
 
-    return PrimaryButton(
-      label: isActive ? 'Stop Speaking' : 'Start Speaking',
-      icon: isActive ? HermesIcons.stop : HermesIcons.microphone,
-      isFullWidth: true,
-      onPressed: () => _handleControlTap(ref, isActive),
+    return Column(
+      children: [
+        PrimaryButton(
+          label: isSessionActive ? 'Stop Session' : 'Start Speaking',
+          icon: isSessionActive ? HermesIcons.stop : HermesIcons.microphone,
+          isFullWidth: true,
+          isLoading: isProcessing,
+          onPressed:
+              isProcessing
+                  ? null
+                  : () => _handleControlTap(ref, isSessionActive),
+        ),
+
+        // Show pause/resume buttons when session is active
+        if (isSessionActive && !isProcessing) ...[
+          const SizedBox(height: HermesSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed:
+                      state.status == HermesStatus.listening
+                          ? () => _handlePause(ref)
+                          : () => _handleResume(ref),
+                  icon: Icon(
+                    state.status == HermesStatus.listening
+                        ? HermesIcons.pause
+                        : HermesIcons.play,
+                    size: 18,
+                  ),
+                  label: Text(
+                    state.status == HermesStatus.listening ? 'Pause' : 'Resume',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 
@@ -199,10 +239,10 @@ class SpeakerControlPanel extends ConsumerWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(HermesSpacing.md),
       decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+        color: theme.colorScheme.primaryContainer.withOpacity(0.3),
         borderRadius: BorderRadius.circular(HermesSpacing.sm),
         border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.5),
+          color: theme.colorScheme.primary.withOpacity(0.5),
           width: 1,
         ),
       ),
@@ -237,7 +277,7 @@ class SpeakerControlPanel extends ConsumerWidget {
                   duration: const Duration(milliseconds: 1000),
                   curve: Curves.easeInOut,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                    color: theme.colorScheme.primary.withOpacity(0.3),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -324,7 +364,7 @@ class _ControlPanelSkeleton extends StatelessWidget {
           width: 100,
           height: 100,
           decoration: BoxDecoration(
-            color: Colors.grey.withValues(alpha: 0.3),
+            color: Colors.grey.withOpacity(0.3),
             shape: BoxShape.circle,
           ),
         ),
@@ -333,7 +373,7 @@ class _ControlPanelSkeleton extends StatelessWidget {
           width: double.infinity,
           height: 48,
           decoration: BoxDecoration(
-            color: Colors.grey.withValues(alpha: 0.3),
+            color: Colors.grey.withOpacity(0.3),
             borderRadius: BorderRadius.circular(8),
           ),
         ),
