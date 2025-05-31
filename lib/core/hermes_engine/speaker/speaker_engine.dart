@@ -41,6 +41,13 @@ class SpeakerEngine {
   bool _isSessionActive = false;
   String? _currentLanguageCode;
 
+  // Audience tracking
+  int _audienceCount = 0;
+  Map<String, int> _languageDistribution = {};
+
+  // Socket subscription
+  StreamSubscription<SocketEvent>? _socketSubscription;
+
   // Infrastructure
   late final StartSessionUseCase _startUseCase;
   late final ProcessTranscriptUseCase _processUseCase;
@@ -95,6 +102,9 @@ class SpeakerEngine {
       // Initialize session
       await _startUseCase.execute(isSpeaker: true, languageCode: languageCode);
 
+      // Start listening to socket events
+      _listenToSocketEvents();
+
       // Start connectivity monitoring
       _connHandler.startMonitoring(
         onOffline: _handleOffline,
@@ -120,6 +130,40 @@ class SpeakerEngine {
         ),
       );
     }
+  }
+
+  void _listenToSocketEvents() {
+    _socketSubscription?.cancel();
+    _socketSubscription = _socket.onEvent.listen((event) {
+      if (event is AudienceUpdateEvent) {
+        _handleAudienceUpdate(event);
+      } else if (event is SessionJoinEvent) {
+        print(
+          '👥 [SpeakerEngine] User joined: ${event.userId} (${event.language})',
+        );
+      } else if (event is SessionLeaveEvent) {
+        print('👋 [SpeakerEngine] User left: ${event.userId}');
+      }
+      // We don't handle TranslationEvent here - speakers don't see translations
+    });
+  }
+
+  void _handleAudienceUpdate(AudienceUpdateEvent event) {
+    print(
+      '👥 [SpeakerEngine] Audience update: ${event.totalListeners} listeners',
+    );
+    print('   Languages: ${event.languageDistribution}');
+
+    _audienceCount = event.totalListeners;
+    _languageDistribution = event.languageDistribution;
+
+    // Update state with audience info
+    _emit(
+      _state.copyWith(
+        audienceCount: _audienceCount,
+        languageDistribution: _languageDistribution,
+      ),
+    );
   }
 
   void _startListening() {
@@ -155,53 +199,37 @@ class SpeakerEngine {
     print('🔄 [SpeakerEngine] Processing final transcript for translation');
 
     try {
-      // Translate the transcript
-      final event = await _processUseCase.execute(
-        res.transcript,
-        _currentLanguageCode!,
-      );
+      // Note: For speaker UI, we don't translate their own speech
+      // We just send the transcript to connected audience members
+      // who will receive translations in their selected languages
 
-      print(
-        '✅ [SpeakerEngine] Translation completed: "${event.translatedText}"',
-      );
-
-      // Update state with translation
-      _emit(
-        _state.copyWith(
-          status: HermesStatus.listening, // Continue listening
-          lastTranslation: event.translatedText,
-          buffer: _buffer.all,
-        ),
-      );
-
-      // Send translation over socket
+      // Send the original transcript over socket
       _socket.send(
-        TranslationEvent(
+        TranscriptEvent(
           sessionId: _session.currentSession!.sessionId,
-          translatedText: event.translatedText,
-          targetLanguage: _currentLanguageCode!,
+          text: res.transcript,
+          isFinal: true,
         ),
       );
 
-      // Check buffer readiness (for potential playback)
-      final ready = _bufferMgr.checkBufferReady();
-      if (ready != null) {
-        _emit(
-          _state.copyWith(
-            status: HermesStatus.countdown,
-            countdownSeconds: kInitialBufferCountdownSeconds,
-          ),
-        );
-      }
-    } catch (e, stackTrace) {
-      print('❌ [SpeakerEngine] Translation failed: $e');
-      _log.error('Translation failed', error: e, stackTrace: stackTrace);
+      print('✅ [SpeakerEngine] Transcript sent to audience');
 
-      // Don't stop the session on translation errors, just continue listening
+      // Continue listening
       _emit(
         _state.copyWith(
           status: HermesStatus.listening,
-          errorMessage: 'Translation failed: $e',
+          // Note: We don't set lastTranslation for speakers
+        ),
+      );
+    } catch (e, stackTrace) {
+      print('❌ [SpeakerEngine] Failed to send transcript: $e');
+      _log.error('Failed to send transcript', error: e, stackTrace: stackTrace);
+
+      // Don't stop the session on errors, just continue listening
+      _emit(
+        _state.copyWith(
+          status: HermesStatus.listening,
+          errorMessage: 'Failed to send transcript: $e',
         ),
       );
     }
@@ -245,11 +273,18 @@ class SpeakerEngine {
     // Stop listening
     await _stt.stopListening();
 
+    // Cancel socket subscription
+    _socketSubscription?.cancel();
+
     // Stop connectivity monitoring
     _connHandler.dispose();
 
     // Disconnect socket
     await _socket.disconnect();
+
+    // Reset audience tracking
+    _audienceCount = 0;
+    _languageDistribution = {};
 
     // Update state
     _emit(_state.copyWith(status: HermesStatus.idle));
@@ -281,6 +316,7 @@ class SpeakerEngine {
   void dispose() {
     _isSessionActive = false;
     _stt.dispose();
+    _socketSubscription?.cancel();
     _connHandler.dispose();
     _stateController.close();
   }

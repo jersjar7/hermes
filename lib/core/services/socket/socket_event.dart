@@ -24,6 +24,25 @@ abstract class SocketEvent {
           translatedText: map['translatedText'] as String,
           targetLanguage: map['targetLanguage'] as String,
         );
+      case AudienceUpdateEvent.eventType:
+        return AudienceUpdateEvent(
+          sessionId: map['sessionId'] as String,
+          totalListeners: map['totalListeners'] as int,
+          languageDistribution: Map<String, int>.from(
+            map['languageDistribution'] as Map? ?? {},
+          ),
+        );
+      case SessionJoinEvent.eventType:
+        return SessionJoinEvent(
+          sessionId: map['sessionId'] as String,
+          userId: map['userId'] as String,
+          language: map['language'] as String,
+        );
+      case SessionLeaveEvent.eventType:
+        return SessionLeaveEvent(
+          sessionId: map['sessionId'] as String,
+          userId: map['userId'] as String,
+        );
       default:
         throw UnsupportedError('Unknown SocketEvent type: ${map['type']}');
     }
@@ -83,5 +102,84 @@ class TranslationEvent extends SocketEvent {
     'sessionId': sessionId,
     'translatedText': translatedText,
     'targetLanguage': targetLanguage,
+  };
+}
+
+/// Event to update audience count and language distribution.
+class AudienceUpdateEvent extends SocketEvent {
+  static const eventType = 'audience_update';
+
+  @override
+  String get type => eventType;
+
+  final String sessionId;
+  final int totalListeners;
+  final Map<String, int> languageDistribution;
+
+  AudienceUpdateEvent({
+    required this.sessionId,
+    required this.totalListeners,
+    required this.languageDistribution,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'sessionId': sessionId,
+    'totalListeners': totalListeners,
+    'languageDistribution': languageDistribution,
+  };
+
+  /// Creates an empty audience update (no listeners).
+  factory AudienceUpdateEvent.empty(String sessionId) => AudienceUpdateEvent(
+    sessionId: sessionId,
+    totalListeners: 0,
+    languageDistribution: {},
+  );
+}
+
+/// Event when a user joins a session.
+class SessionJoinEvent extends SocketEvent {
+  static const eventType = 'session_join';
+
+  @override
+  String get type => eventType;
+
+  final String sessionId;
+  final String userId;
+  final String language;
+
+  SessionJoinEvent({
+    required this.sessionId,
+    required this.userId,
+    required this.language,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'sessionId': sessionId,
+    'userId': userId,
+    'language': language,
+  };
+}
+
+/// Event when a user leaves a session.
+class SessionLeaveEvent extends SocketEvent {
+  static const eventType = 'session_leave';
+
+  @override
+  String get type => eventType;
+
+  final String sessionId;
+  final String userId;
+
+  SessionLeaveEvent({required this.sessionId, required this.userId});
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'sessionId': sessionId,
+    'userId': userId,
   };
 }
