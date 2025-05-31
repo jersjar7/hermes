@@ -2,8 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hermes/core/service_locator.dart';
+import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
 import 'package:hermes/features/session/presentation/utils/language_helpers.dart';
+import 'package:hermes/features/session/presentation/widgets/organisms/session_lobby.dart';
 import '../widgets/organisms/session_header.dart';
 import '../widgets/organisms/language_selector.dart';
 import '../widgets/organisms/speaker_control_panel.dart';
@@ -20,6 +23,8 @@ class HostSessionPage extends ConsumerStatefulWidget {
 
 class _HostSessionPageState extends ConsumerState<HostSessionPage> {
   LanguageOption? selectedLanguage;
+  SessionPageState currentState = SessionPageState.languageSelection;
+  String? sessionCode;
 
   @override
   Widget build(BuildContext context) {
@@ -29,19 +34,29 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
         child: Column(
           children: [
             // Session status header
-            const SessionHeader(showSessionCode: false),
+            SessionHeader(
+              sessionCode: sessionCode,
+              showSessionCode:
+                  currentState != SessionPageState.languageSelection,
+            ),
 
             // Main content area
-            Expanded(
-              child:
-                  selectedLanguage != null
-                      ? _buildActiveSession()
-                      : _buildLanguageSelection(),
-            ),
+            Expanded(child: _buildCurrentStateContent()),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildCurrentStateContent() {
+    switch (currentState) {
+      case SessionPageState.languageSelection:
+        return _buildLanguageSelection();
+      case SessionPageState.sessionLobby:
+        return _buildSessionLobby();
+      case SessionPageState.activeSession:
+        return _buildActiveSession();
+    }
   }
 
   Widget _buildLanguageSelection() {
@@ -60,11 +75,22 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
               selectedLanguageCode: selectedLanguage?.code,
               onLanguageSelected: (language) {
                 setState(() => selectedLanguage = language);
+                _createSession();
               },
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSessionLobby() {
+    return SessionLobby(
+      sessionCode: sessionCode!,
+      selectedLanguage: selectedLanguage!,
+      onGoLive: () {
+        setState(() => currentState = SessionPageState.activeSession);
+      },
     );
   }
 
@@ -79,4 +105,24 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
       ],
     );
   }
+
+  Future<void> _createSession() async {
+    try {
+      // Create session without starting it
+      final sessionService = getIt<ISessionService>();
+      await sessionService.startSession(languageCode: selectedLanguage!.code);
+
+      setState(() {
+        sessionCode = sessionService.currentSession?.sessionId;
+        currentState = SessionPageState.sessionLobby;
+      });
+    } catch (e) {
+      print('Failed to create session: $e');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to create session: $e')));
+    }
+  }
 }
+
+enum SessionPageState { languageSelection, sessionLobby, activeSession }

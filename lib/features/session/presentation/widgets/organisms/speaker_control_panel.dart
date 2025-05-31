@@ -37,9 +37,18 @@ class SpeakerControlPanel extends ConsumerWidget {
                 // Control button
                 _buildControlButton(context, ref, state),
 
-                if (state.lastTranscript != null) ...[
+                // Current transcript display
+                if (state.lastTranscript != null &&
+                    state.lastTranscript!.isNotEmpty) ...[
                   const SizedBox(height: HermesSpacing.md),
-                  _buildLastTranscript(context, state.lastTranscript!),
+                  _buildCurrentTranscript(context, state.lastTranscript!),
+                ],
+
+                // Last completed transcript
+                if (state.lastTranslation != null &&
+                    state.lastTranslation!.isNotEmpty) ...[
+                  const SizedBox(height: HermesSpacing.md),
+                  _buildLastTranslation(context, state.lastTranslation!),
                 ],
               ],
             ),
@@ -68,15 +77,6 @@ class SpeakerControlPanel extends ConsumerWidget {
           ],
         );
 
-      case HermesStatus.countdown:
-        return Column(
-          children: [
-            Text('Starting in', style: theme.textTheme.titleMedium),
-            const SizedBox(height: HermesSpacing.sm),
-            CountdownWidget(seconds: state.countdownSeconds ?? 0, size: 100),
-          ],
-        );
-
       case HermesStatus.translating:
         return Column(
           children: [
@@ -86,6 +86,15 @@ class SpeakerControlPanel extends ConsumerWidget {
               'Translating...',
               style: theme.textTheme.titleMedium?.copyWith(color: Colors.amber),
             ),
+          ],
+        );
+
+      case HermesStatus.countdown:
+        return Column(
+          children: [
+            Text('Starting in', style: theme.textTheme.titleMedium),
+            const SizedBox(height: HermesSpacing.sm),
+            CountdownWidget(seconds: state.countdownSeconds ?? 0, size: 100),
           ],
         );
 
@@ -105,17 +114,65 @@ class SpeakerControlPanel extends ConsumerWidget {
   }
 
   Widget _buildControlButton(BuildContext context, WidgetRef ref, state) {
-    final isActive = state.status == HermesStatus.listening;
+    final isActive =
+        state.status == HermesStatus.listening ||
+        state.status == HermesStatus.translating;
 
     return PrimaryButton(
-      label: isActive ? 'Stop Session' : 'Start Speaking',
+      label: isActive ? 'Stop Speaking' : 'Start Speaking',
       icon: isActive ? HermesIcons.stop : HermesIcons.microphone,
       isFullWidth: true,
       onPressed: () => _handleControlTap(ref, isActive),
     );
   }
 
-  Widget _buildLastTranscript(BuildContext context, String transcript) {
+  Widget _buildCurrentTranscript(BuildContext context, String transcript) {
+    final theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(HermesSpacing.md),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(HermesSpacing.sm),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.5),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.mic_rounded,
+                size: 16,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: HermesSpacing.xs),
+              Text(
+                'You\'re saying:',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: HermesSpacing.xs),
+          Text(
+            transcript,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLastTranslation(BuildContext context, String translation) {
     final theme = Theme.of(context);
 
     return Container(
@@ -128,14 +185,24 @@ class SpeakerControlPanel extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Last spoken:',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.outline,
-            ),
+          Row(
+            children: [
+              Icon(HermesIcons.translating, size: 16, color: Colors.green),
+              const SizedBox(width: HermesSpacing.xs),
+              Text(
+                'Latest translation:',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.green,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: HermesSpacing.xs),
-          Text(transcript, style: theme.textTheme.bodyMedium),
+          Text(
+            translation,
+            style: theme.textTheme.bodyMedium?.copyWith(color: Colors.green),
+          ),
         ],
       ),
     );

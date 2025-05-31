@@ -94,7 +94,25 @@ class SpeakerEngine {
     // Start listening loop
     _stt.startListening(
       onResult: (res) async {
+        print(
+          '📝 [SpeakerEngine] Received transcript: "${res.transcript}" (final: ${res.isFinal})',
+        );
+
+        // Update state with partial transcripts too (for real-time display)
+        _emit(
+          _state.copyWith(
+            status:
+                res.isFinal ? HermesStatus.translating : HermesStatus.listening,
+            lastTranscript: res.transcript,
+          ),
+        );
+
+        // Only process final results for translation
         if (!res.isFinal) return;
+
+        print('🔄 [SpeakerEngine] Processing final transcript for translation');
+
+        // Update status to translating
         _emit(
           _state.copyWith(
             status: HermesStatus.translating,
@@ -103,45 +121,62 @@ class SpeakerEngine {
         );
 
         // Translate & buffer
-        final event = await _processUseCase.execute(
-          res.transcript,
-          languageCode,
-        );
-        _emit(
-          _state.copyWith(
-            lastTranslation: event.translatedText,
-            buffer: _buffer.all,
-          ),
-        );
+        try {
+          final event = await _processUseCase.execute(
+            res.transcript,
+            languageCode,
+          );
 
-        // Send over socket
-        _socket.send(
-          TranslationEvent(
-            sessionId: _session.currentSession!.sessionId,
-            translatedText: event.translatedText,
-            targetLanguage: languageCode,
-          ),
-        );
+          print(
+            '✅ [SpeakerEngine] Translation completed: "${event.translatedText}"',
+          );
 
-        // Check buffer readiness
-        final ready = _bufferMgr.checkBufferReady();
-        if (ready != null) {
           _emit(
             _state.copyWith(
-              status: HermesStatus.countdown,
-              countdownSeconds: kInitialBufferCountdownSeconds,
+              lastTranslation: event.translatedText,
+              buffer: _buffer.all,
             ),
           );
-          // Start countdown externally in root engine
-        }
-      },
-      onError:
-          (e) => _emit(
+
+          // Send over socket
+          _socket.send(
+            TranslationEvent(
+              sessionId: _session.currentSession!.sessionId,
+              translatedText: event.translatedText,
+              targetLanguage: languageCode,
+            ),
+          );
+
+          // Check buffer readiness
+          final ready = _bufferMgr.checkBufferReady();
+          if (ready != null) {
+            _emit(
+              _state.copyWith(
+                status: HermesStatus.countdown,
+                countdownSeconds: kInitialBufferCountdownSeconds,
+              ),
+            );
+            // Start countdown externally in root engine
+          }
+        } catch (e) {
+          print('❌ [SpeakerEngine] Translation failed: $e');
+          _emit(
             _state.copyWith(
               status: HermesStatus.error,
               errorMessage: e.toString(),
             ),
+          );
+        }
+      },
+      onError: (e) {
+        print('❌ [SpeakerEngine] STT Error: $e');
+        _emit(
+          _state.copyWith(
+            status: HermesStatus.error,
+            errorMessage: e.toString(),
           ),
+        );
+      },
     );
   }
 
