@@ -104,14 +104,14 @@ class ConnectionDetails extends ConsumerWidget {
     );
   }
 
-  Color _getBorderColor(ThemeData theme, ConnectionState state) {
+  Color _getBorderColor(ThemeData theme, HermesConnectionState state) {
     if (state.error != null) return theme.colorScheme.error;
     if (state.isFullyConnected) return Colors.green;
     if (state.isConnecting) return Colors.amber;
     return theme.colorScheme.error;
   }
 
-  Color _getStatusColor(ThemeData theme, ConnectionState state) {
+  Color _getStatusColor(ThemeData theme, HermesConnectionState state) {
     if (state.error != null) return theme.colorScheme.error;
     if (state.isFullyConnected) return Colors.green;
     if (state.isConnecting) return Colors.amber;

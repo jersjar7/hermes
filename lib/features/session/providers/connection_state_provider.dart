@@ -7,13 +7,13 @@ import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 import 'package:hermes/core/services/socket/socket_service.dart';
 
 /// Represents the overall connection state of the app.
-class ConnectionState {
+class HermesConnectionState {
   final bool isNetworkOnline;
   final bool isSocketConnected;
   final String connectionType;
   final String? error;
 
-  const ConnectionState({
+  const HermesConnectionState({
     required this.isNetworkOnline,
     required this.isSocketConnected,
     required this.connectionType,
@@ -35,13 +35,13 @@ class ConnectionState {
     return 'Disconnected';
   }
 
-  ConnectionState copyWith({
+  HermesConnectionState copyWith({
     bool? isNetworkOnline,
     bool? isSocketConnected,
     String? connectionType,
     String? error,
   }) {
-    return ConnectionState(
+    return HermesConnectionState(
       isNetworkOnline: isNetworkOnline ?? this.isNetworkOnline,
       isSocketConnected: isSocketConnected ?? this.isSocketConnected,
       connectionType: connectionType ?? this.connectionType,
@@ -51,25 +51,25 @@ class ConnectionState {
 }
 
 /// Provider that monitors both network connectivity and socket connection.
-final connectionStateProvider = StreamProvider<ConnectionState>((ref) {
+final connectionStateProvider = StreamProvider<HermesConnectionState>((ref) {
   final connectivityService = getIt<IConnectivityService>();
   final socketService = getIt<ISocketService>();
 
   // Initialize connectivity service
   connectivityService.initialize();
 
-  late StreamController<ConnectionState> controller;
+  late StreamController<HermesConnectionState> controller;
   late StreamSubscription connectivitySub;
   Timer? socketCheckTimer;
 
-  ConnectionState currentState = ConnectionState(
+  HermesConnectionState currentState = HermesConnectionState(
     isNetworkOnline: connectivityService.isOnline,
     isSocketConnected: socketService.isConnected,
     connectionType: 'unknown',
   );
 
   void updateState() {
-    final newState = ConnectionState(
+    final newState = HermesConnectionState(
       isNetworkOnline: connectivityService.isOnline,
       isSocketConnected: socketService.isConnected,
       connectionType: currentState.connectionType,
@@ -93,7 +93,7 @@ final connectionStateProvider = StreamProvider<ConnectionState>((ref) {
     }
   }
 
-  controller = StreamController<ConnectionState>(
+  controller = StreamController<HermesConnectionState>(
     onListen: () {
       // Initial state
       getConnectionType();
