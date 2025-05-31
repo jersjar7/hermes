@@ -37,14 +37,15 @@ class SpeakerControlPanel extends ConsumerWidget {
                 // Control button
                 _buildControlButton(context, ref, state),
 
-                // Current transcript display
-                if (state.lastTranscript != null &&
+                // Real-time transcript display (only show during listening)
+                if (state.status == HermesStatus.listening &&
+                    state.lastTranscript != null &&
                     state.lastTranscript!.isNotEmpty) ...[
                   const SizedBox(height: HermesSpacing.md),
-                  _buildCurrentTranscript(context, state.lastTranscript!),
+                  _buildRealTimeTranscript(context, state.lastTranscript!),
                 ],
 
-                // Last completed transcript
+                // Last completed translation (only show when available)
                 if (state.lastTranslation != null &&
                     state.lastTranslation!.isNotEmpty) ...[
                   const SizedBox(height: HermesSpacing.md),
@@ -72,6 +73,13 @@ class SpeakerControlPanel extends ConsumerWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            const SizedBox(height: HermesSpacing.sm),
+            Text(
+              'Speak clearly into your microphone',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
             const SizedBox(height: HermesSpacing.md),
             const WaveformDisplay(isActive: true),
           ],
@@ -86,6 +94,13 @@ class SpeakerControlPanel extends ConsumerWidget {
               'Translating...',
               style: theme.textTheme.titleMedium?.copyWith(color: Colors.amber),
             ),
+            const SizedBox(height: HermesSpacing.xs),
+            Text(
+              'Processing your speech',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
           ],
         );
 
@@ -95,6 +110,50 @@ class SpeakerControlPanel extends ConsumerWidget {
             Text('Starting in', style: theme.textTheme.titleMedium),
             const SizedBox(height: HermesSpacing.sm),
             CountdownWidget(seconds: state.countdownSeconds ?? 0, size: 100),
+          ],
+        );
+
+      case HermesStatus.speaking:
+        return Column(
+          children: [
+            Icon(HermesIcons.speaker, size: 48, color: Colors.green),
+            const SizedBox(height: HermesSpacing.sm),
+            Text(
+              'Playing Translation',
+              style: theme.textTheme.titleMedium?.copyWith(color: Colors.green),
+            ),
+            const SizedBox(height: HermesSpacing.xs),
+            Text(
+              'Translation is being spoken',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ],
+        );
+
+      case HermesStatus.buffering:
+        return Column(
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(height: HermesSpacing.sm),
+            Text(
+              'Preparing...',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: HermesSpacing.xs),
+            Text(
+              'Setting up translation session',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
           ],
         );
 
@@ -108,6 +167,13 @@ class SpeakerControlPanel extends ConsumerWidget {
             ),
             const SizedBox(height: HermesSpacing.sm),
             Text('Ready to start', style: theme.textTheme.titleMedium),
+            const SizedBox(height: HermesSpacing.xs),
+            Text(
+              'Tap the button below to begin speaking',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
           ],
         );
     }
@@ -126,7 +192,7 @@ class SpeakerControlPanel extends ConsumerWidget {
     );
   }
 
-  Widget _buildCurrentTranscript(BuildContext context, String transcript) {
+  Widget _buildRealTimeTranscript(BuildContext context, String transcript) {
     final theme = Theme.of(context);
 
     return Container(
@@ -158,13 +224,36 @@ class SpeakerControlPanel extends ConsumerWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              const Spacer(),
+              // Add a pulsing indicator to show it's live
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 1000),
+                  curve: Curves.easeInOut,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: HermesSpacing.xs),
-          Text(
-            transcript,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.primary,
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 100),
+            child: SingleChildScrollView(
+              child: Text(
+                transcript,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                ),
+              ),
             ),
           ),
         ],
@@ -199,9 +288,16 @@ class SpeakerControlPanel extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: HermesSpacing.xs),
-          Text(
-            translation,
-            style: theme.textTheme.bodyMedium?.copyWith(color: Colors.green),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 80),
+            child: SingleChildScrollView(
+              child: Text(
+                translation,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.green,
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -262,6 +358,13 @@ class _ControlPanelError extends StatelessWidget {
           'Control Error',
           style: theme.textTheme.titleMedium?.copyWith(
             color: theme.colorScheme.error,
+          ),
+        ),
+        const SizedBox(height: HermesSpacing.xs),
+        Text(
+          'Please try restarting the session',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
           ),
         ),
       ],

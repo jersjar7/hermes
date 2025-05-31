@@ -1,3 +1,5 @@
+// lib/core/services/speech_to_text/speech_to_text_service.dart
+
 import 'speech_result.dart';
 
 abstract class ISpeechToTextService {
@@ -33,6 +35,9 @@ abstract class ISpeechToTextService {
 
   /// Sets the active locale for transcription (e.g., 'en-US').
   Future<void> setLocale(String localeId);
+
+  /// Dispose of resources and cancel any pending operations.
+  void dispose();
 }
 
 /// Represents a supported locale (e.g., English-US, Spanish-MX).

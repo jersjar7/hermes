@@ -3,8 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
-import 'package:hermes/core/hermes_engine/state/hermes_status.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
+import 'package:hermes/core/service_locator.dart';
+import 'package:hermes/core/services/session/session_service.dart';
 import '../molecules/transcript_bubble.dart';
 
 /// Scrollable feed of transcripts and translations during active sessions.
@@ -38,10 +39,12 @@ class _TranslationFeedState extends ConsumerState<TranslationFeed> {
   @override
   Widget build(BuildContext context) {
     final sessionState = ref.watch(hermesControllerProvider);
+    final sessionService = getIt<ISessionService>();
+    final isSpeaker = sessionService.isSpeaker;
 
     return sessionState.when(
       data: (state) {
-        _updateFeedItems(state);
+        _updateFeedItems(state, isSpeaker);
 
         return Container(
           decoration: BoxDecoration(
@@ -53,13 +56,13 @@ class _TranslationFeedState extends ConsumerState<TranslationFeed> {
           child: Column(
             children: [
               // Feed header
-              _buildFeedHeader(context, state),
+              _buildFeedHeader(context, state, isSpeaker),
 
               // Feed content
               Expanded(
                 child:
                     _feedItems.isEmpty
-                        ? _buildEmptyState(context)
+                        ? _buildEmptyState(context, isSpeaker)
                         : _buildFeed(context),
               ),
             ],
@@ -71,15 +74,17 @@ class _TranslationFeedState extends ConsumerState<TranslationFeed> {
     );
   }
 
-  Widget _buildFeedHeader(BuildContext context, state) {
+  Widget _buildFeedHeader(BuildContext context, state, bool isSpeaker) {
     final theme = Theme.of(context);
+    final title =
+        isSpeaker ? 'Speech & Translation History' : 'Translation History';
 
     return Container(
       padding: const EdgeInsets.all(HermesSpacing.md),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: theme.colorScheme.outline.withValues(alpha: 0.2),
+            color: theme.colorScheme.outline.withOpacity(0.2),
             width: 1,
           ),
         ),
@@ -93,7 +98,7 @@ class _TranslationFeedState extends ConsumerState<TranslationFeed> {
           ),
           const SizedBox(width: HermesSpacing.sm),
           Text(
-            'Translation History',
+            title,
             style: theme.textTheme.titleSmall?.copyWith(
               color: theme.colorScheme.outline,
               fontWeight: FontWeight.w600,
@@ -128,34 +133,42 @@ class _TranslationFeedState extends ConsumerState<TranslationFeed> {
     );
   }
 
-  Widget _buildEmptyState(BuildContext context) {
+  Widget _buildEmptyState(BuildContext context, bool isSpeaker) {
     final theme = Theme.of(context);
 
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.mic_none_rounded,
-            size: 64,
-            color: theme.colorScheme.outline,
-          ),
-          const SizedBox(height: HermesSpacing.md),
-          Text(
-            'Start speaking to see translations',
-            style: theme.textTheme.titleMedium?.copyWith(
+      child: Padding(
+        padding: const EdgeInsets.all(HermesSpacing.lg),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.mic_none_rounded,
+              size: 64,
               color: theme.colorScheme.outline,
             ),
-          ),
-          const SizedBox(height: HermesSpacing.xs),
-          Text(
-            'Your conversation will appear here in real-time',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.outline,
+            const SizedBox(height: HermesSpacing.md),
+            Text(
+              isSpeaker
+                  ? 'Start speaking to see your words'
+                  : 'Waiting for translations',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
             ),
-            textAlign: TextAlign.center,
-          ),
-        ],
+            const SizedBox(height: HermesSpacing.xs),
+            Text(
+              isSpeaker
+                  ? 'Your speech and translations will appear here'
+                  : 'Translated content will appear here in real-time',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -184,7 +197,7 @@ class _TranslationFeedState extends ConsumerState<TranslationFeed> {
     );
   }
 
-  void _updateFeedItems(state) {
+  void _updateFeedItems(state, bool isSpeaker) {
     final now = DateTime.now();
     bool shouldScroll = false;
 
@@ -192,18 +205,28 @@ class _TranslationFeedState extends ConsumerState<TranslationFeed> {
     print('   Last transcript: "${state.lastTranscript}"');
     print('   Last translation: "${state.lastTranslation}"');
     print('   Current status: ${state.status}');
+    print('   Is speaker: $isSpeaker');
 
-    // Add new final transcript if available
-    if (state.lastTranscript != null &&
+    // For speakers: Add transcripts when they're available (even partial ones for real-time feedback)
+    if (isSpeaker &&
+        state.lastTranscript != null &&
         state.lastTranscript!.isNotEmpty &&
-        state.lastTranscript != _lastProcessedTranscript &&
-        state.status != HermesStatus.listening) {
-      // Only add when not actively listening (final results)
-
-      if (widget.showOriginalText) {
+        state.lastTranscript != _lastProcessedTranscript) {
+      // For speakers, show their speech in real-time, but only add to history when it's substantial
+      if (state.lastTranscript!.length > 10) {
+        // Only add if transcript is substantial
         print(
-          '✅ [TranslationFeed] Adding transcript: "${state.lastTranscript}"',
+          '✅ [TranslationFeed] Adding speaker transcript: "${state.lastTranscript}"',
         );
+
+        // Remove previous transcript if it was just updated (real-time editing)
+        if (_feedItems.isNotEmpty &&
+            !_feedItems.last.isTranslation &&
+            _lastProcessedTranscript != null &&
+            state.lastTranscript!.startsWith(_lastProcessedTranscript!)) {
+          _feedItems.removeLast();
+        }
+
         _feedItems.add(
           _FeedItem(
             text: state.lastTranscript!,
@@ -216,7 +239,7 @@ class _TranslationFeedState extends ConsumerState<TranslationFeed> {
       }
     }
 
-    // Add new translation if available
+    // For both speakers and audience: Add translations when available
     if (state.lastTranslation != null &&
         state.lastTranslation!.isNotEmpty &&
         state.lastTranslation != _lastProcessedTranslation) {
@@ -238,11 +261,13 @@ class _TranslationFeedState extends ConsumerState<TranslationFeed> {
     if (shouldScroll && widget.autoScroll && _scrollController.hasClients) {
       print('📜 [TranslationFeed] Auto-scrolling to bottom');
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
       });
     }
 
