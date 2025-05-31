@@ -157,6 +157,27 @@ class SpeakerControlPanel extends ConsumerWidget {
           ],
         );
 
+      case HermesStatus.paused:
+        return Column(
+          children: [
+            Icon(HermesIcons.pause, size: 48, color: theme.colorScheme.outline),
+            const SizedBox(height: HermesSpacing.sm),
+            Text(
+              'Session Paused',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: HermesSpacing.xs),
+            Text(
+              'Tap Resume to continue listening',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ],
+        );
+
       default:
         return Column(
           children: [
@@ -184,7 +205,8 @@ class SpeakerControlPanel extends ConsumerWidget {
         state.status == HermesStatus.listening ||
         state.status == HermesStatus.translating ||
         state.status == HermesStatus.speaking ||
-        state.status == HermesStatus.countdown;
+        state.status == HermesStatus.countdown ||
+        state.status == HermesStatus.paused;
 
     final isProcessing =
         state.status == HermesStatus.buffering ||
@@ -213,7 +235,9 @@ class SpeakerControlPanel extends ConsumerWidget {
                   onPressed:
                       state.status == HermesStatus.listening
                           ? () => _handlePause(ref)
-                          : () => _handleResume(ref),
+                          : state.status == HermesStatus.paused
+                          ? () => _handleResume(ref)
+                          : null,
                   icon: Icon(
                     state.status == HermesStatus.listening
                         ? HermesIcons.pause
@@ -239,10 +263,10 @@ class SpeakerControlPanel extends ConsumerWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(HermesSpacing.md),
       decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withOpacity(0.3),
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(HermesSpacing.sm),
         border: Border.all(
-          color: theme.colorScheme.primary.withOpacity(0.5),
+          color: theme.colorScheme.primary.withValues(alpha: 0.5),
           width: 1,
         ),
       ),
@@ -277,7 +301,7 @@ class SpeakerControlPanel extends ConsumerWidget {
                   duration: const Duration(milliseconds: 1000),
                   curve: Curves.easeInOut,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withOpacity(0.3),
+                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -344,11 +368,42 @@ class SpeakerControlPanel extends ConsumerWidget {
     );
   }
 
+  /// Handles the main control button tap (start/stop session)
   void _handleControlTap(WidgetRef ref, bool isActive) {
     if (isActive) {
       ref.read(hermesControllerProvider.notifier).stop();
     } else {
       ref.read(hermesControllerProvider.notifier).startSession(languageCode);
+    }
+  }
+
+  /// Handles pausing the current session
+  void _handlePause(WidgetRef ref) async {
+    try {
+      print('⏸️ [SpeakerControlPanel] Pausing session...');
+      await ref.read(hermesControllerProvider.notifier).pauseSession();
+    } catch (e) {
+      print('❌ [SpeakerControlPanel] Failed to pause session: $e');
+      // Optionally show a snackbar or error to the user
+      // You could add this if you want user feedback:
+      // ScaffoldMessenger.of(context).showSnackBar(
+      //   SnackBar(content: Text('Failed to pause session: $e')),
+      // );
+    }
+  }
+
+  /// Handles resuming the current session
+  void _handleResume(WidgetRef ref) async {
+    try {
+      print('▶️ [SpeakerControlPanel] Resuming session...');
+      await ref.read(hermesControllerProvider.notifier).resumeSession();
+    } catch (e) {
+      print('❌ [SpeakerControlPanel] Failed to resume session: $e');
+      // Optionally show a snackbar or error to the user
+      // You could add this if you want user feedback:
+      // ScaffoldMessenger.of(context).showSnackBar(
+      //   SnackBar(content: Text('Failed to resume session: $e')),
+      // );
     }
   }
 }
@@ -364,7 +419,7 @@ class _ControlPanelSkeleton extends StatelessWidget {
           width: 100,
           height: 100,
           decoration: BoxDecoration(
-            color: Colors.grey.withOpacity(0.3),
+            color: Colors.grey.withValues(alpha: 0.3),
             shape: BoxShape.circle,
           ),
         ),
@@ -373,7 +428,7 @@ class _ControlPanelSkeleton extends StatelessWidget {
           width: double.infinity,
           height: 48,
           decoration: BoxDecoration(
-            color: Colors.grey.withOpacity(0.3),
+            color: Colors.grey.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(8),
           ),
         ),

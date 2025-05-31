@@ -18,19 +18,22 @@ final hermesControllerProvider =
 
 class HermesController extends AsyncNotifier<HermesSessionState> {
   late final HermesEngine _engine;
+  late final SpeakerEngine _speakerEngine;
+  late final AudienceEngine _audienceEngine;
   StreamSubscription<HermesSessionState>? _subscription;
+  bool _isSpeakerSession = false;
 
   @override
   Future<HermesSessionState> build() async {
     // Construct the engine using our DI container
-    final speakerEngine = getIt<SpeakerEngine>();
-    final audienceEngine = getIt<AudienceEngine>();
+    _speakerEngine = getIt<SpeakerEngine>();
+    _audienceEngine = getIt<AudienceEngine>();
     final playbackCtrl = getIt<PlaybackControlUseCase>();
     final countdown = getIt<CountdownTimer>();
 
     _engine = HermesEngine(
-      speakerEngine: speakerEngine,
-      audienceEngine: audienceEngine,
+      speakerEngine: _speakerEngine,
+      audienceEngine: _audienceEngine,
       playbackControl: playbackCtrl,
       countdown: countdown,
     );
@@ -45,18 +48,47 @@ class HermesController extends AsyncNotifier<HermesSessionState> {
       _subscription?.cancel();
     });
 
-    // Return the “idle” initial state
+    // Return the "idle" initial state
     return HermesSessionState.initial();
   }
 
   /// Start a speaker session in [languageCode].
-  Future<void> startSession(String languageCode) =>
-      _engine.startSession(languageCode);
+  Future<void> startSession(String languageCode) async {
+    _isSpeakerSession = true;
+    await _engine.startSession(languageCode);
+  }
 
   /// Join an audience session with [sessionCode].
-  Future<void> joinSession(String sessionCode) =>
-      _engine.joinSession(sessionCode);
+  Future<void> joinSession(String sessionCode) async {
+    _isSpeakerSession = false;
+    await _engine.joinSession(sessionCode);
+  }
+
+  /// Pause the current session (only for speaker sessions).
+  Future<void> pauseSession() async {
+    if (_isSpeakerSession) {
+      await _speakerEngine.pause();
+    }
+    // Note: Audience sessions don't have pause functionality as they're passive
+  }
+
+  /// Resume the current session (only for speaker sessions).
+  Future<void> resumeSession() async {
+    if (_isSpeakerSession) {
+      await _speakerEngine.resume();
+    }
+    // Note: Audience sessions don't have resume functionality as they're passive
+  }
 
   /// Stop and clean up the current session.
-  Future<void> stop() => _engine.stop();
+  Future<void> stop() async {
+    if (_isSpeakerSession) {
+      await _speakerEngine.stop();
+    }
+    await _engine.stop();
+    _isSpeakerSession = false;
+  }
+
+  /// Whether the current session is a speaker session
+  bool get isSpeakerSession => _isSpeakerSession;
 }
