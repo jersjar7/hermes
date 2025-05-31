@@ -33,32 +33,113 @@ class StartSessionUseCase {
     String? sessionCode,
   }) async {
     if (isSpeaker) {
-      logger.info('Requesting microphone permission', tag: 'StartSession');
+      await _startSpeakerSession(languageCode);
+    } else {
+      await _joinAudienceSession(sessionCode!);
+    }
+  }
+
+  Future<void> _startSpeakerSession(String languageCode) async {
+    try {
+      // Step 1: Check and request microphone permission
+      logger.info('🎤 Checking microphone permission...', tag: 'StartSession');
+      print('🎤 [StartSession] Requesting microphone permission...');
+
       final granted = await permissionService.requestMicrophonePermission();
       if (!granted) {
-        throw EngineErrorOccurred('Microphone permission denied');
+        print('❌ [StartSession] Microphone permission denied');
+        throw EngineErrorOccurred(
+          'Microphone access is required for speech translation. '
+          'Please enable microphone permissions in your device settings.',
+        );
       }
 
-      logger.info('Initializing speech-to-text', tag: 'StartSession');
-      final ok = await sttService.initialize();
-      if (!ok) {
-        throw EngineErrorOccurred('STT initialization failed');
+      print('✅ [StartSession] Microphone permission granted');
+      logger.info('✅ Microphone permission granted', tag: 'StartSession');
+
+      // Step 2: Initialize speech-to-text
+      logger.info(
+        '🎙️ Initializing speech recognition...',
+        tag: 'StartSession',
+      );
+      print('🎙️ [StartSession] Initializing STT service...');
+
+      final sttReady = await sttService.initialize();
+      if (!sttReady) {
+        print('❌ [StartSession] STT initialization failed');
+        throw EngineErrorOccurred(
+          'Speech recognition is not available on this device. '
+          'Please ensure your device supports speech recognition.',
+        );
       }
 
-      logger.info('Starting session as speaker', tag: 'StartSession');
+      print('✅ [StartSession] STT service initialized successfully');
+      logger.info('✅ Speech recognition ready', tag: 'StartSession');
+
+      // Step 3: Start session
+      logger.info('📱 Creating session...', tag: 'StartSession');
+      print('📱 [StartSession] Starting session with language: $languageCode');
+
       await sessionService.startSession(languageCode: languageCode);
-      final id = sessionService.currentSession!.sessionId;
+      final sessionId = sessionService.currentSession!.sessionId;
 
-      logger.info('Connecting socket for session $id', tag: 'StartSession');
-      await socketService.connect(id);
-    } else {
-      final code = sessionCode;
-      if (code == null) {
-        throw EngineErrorOccurred('Session code is required to join');
+      print('✅ [StartSession] Session created with ID: $sessionId');
+      logger.info('✅ Session created: $sessionId', tag: 'StartSession');
+
+      // Step 4: Connect to WebSocket
+      logger.info('🌐 Connecting to session...', tag: 'StartSession');
+      print('🌐 [StartSession] Connecting socket for session: $sessionId');
+
+      await socketService.connect(sessionId);
+
+      print('✅ [StartSession] Successfully connected to session');
+      logger.info('✅ Connected to session successfully', tag: 'StartSession');
+    } catch (e, stackTrace) {
+      print('💥 [StartSession] Speaker session failed: $e');
+      logger.error(
+        'Speaker session start failed',
+        error: e,
+        stackTrace: stackTrace,
+        tag: 'StartSession',
+      );
+
+      // Re-throw with context if it's not already an EngineErrorOccurred
+      if (e is EngineErrorOccurred) {
+        rethrow;
+      } else {
+        throw EngineErrorOccurred('Failed to start session: ${e.toString()}');
       }
-      logger.info('Joining session $code as audience', tag: 'StartSession');
-      await sessionService.joinSession(code);
-      await socketService.connect(code);
+    }
+  }
+
+  Future<void> _joinAudienceSession(String sessionCode) async {
+    try {
+      if (sessionCode.isEmpty) {
+        throw EngineErrorOccurred('Session code is required to join a session');
+      }
+
+      logger.info('👥 Joining session as audience...', tag: 'StartSession');
+      print('👥 [StartSession] Joining session: $sessionCode');
+
+      await sessionService.joinSession(sessionCode);
+      await socketService.connect(sessionCode);
+
+      print('✅ [StartSession] Successfully joined session: $sessionCode');
+      logger.info('✅ Joined session successfully', tag: 'StartSession');
+    } catch (e, stackTrace) {
+      print('💥 [StartSession] Join session failed: $e');
+      logger.error(
+        'Join session failed',
+        error: e,
+        stackTrace: stackTrace,
+        tag: 'StartSession',
+      );
+
+      if (e is EngineErrorOccurred) {
+        rethrow;
+      } else {
+        throw EngineErrorOccurred('Failed to join session: ${e.toString()}');
+      }
     }
   }
 }
