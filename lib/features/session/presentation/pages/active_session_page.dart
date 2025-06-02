@@ -15,12 +15,8 @@ import '../widgets/organisms/session_status_bar.dart';
 import '../widgets/organisms/audience_display.dart';
 import '../widgets/organisms/transcript_chat_box.dart';
 
-/// Active session page with redesigned speaker view:
-/// 1. App bar
-/// 2. Speaker controls (compact)
-/// 3. Fixed-size transcript chat box
-/// 4. Session control buttons row
-/// 5. Session status bar
+/// Active session page with optimized layout for both speaker and audience modes.
+/// Features proper space allocation ensuring all components are visible.
 class ActiveSessionPage extends ConsumerStatefulWidget {
   const ActiveSessionPage({super.key});
 
@@ -44,7 +40,6 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
 
     return Scaffold(
       appBar: HermesAppBar(
-        // Custom confirmation messages based on user role
         customBackTitle:
             sessionService.isSpeaker ? 'End Session' : 'Leave Session',
         customBackMessage:
@@ -54,25 +49,13 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
       ),
       body: SafeArea(
         child: sessionState.when(
-          data:
-              (state) => Column(
-                children: [
-                  // Minimal session header
-                  const SessionHeader(showMinimal: true),
-
-                  // Main content area - different layout for speaker vs audience
-                  if (sessionService.isSpeaker)
-                    ..._buildSpeakerLayout(sessionService, state)
-                  else
-                    Expanded(child: _buildAudienceView(sessionService, state)),
-
-                  // Bottom controls based on role
-                  if (sessionService.isSpeaker)
-                    _buildSpeakerStatusBar(sessionService, state)
-                  else
-                    _buildAudienceBottomControls(),
-                ],
-              ),
+          data: (state) {
+            if (sessionService.isSpeaker) {
+              return _buildSpeakerLayout(sessionService, state);
+            } else {
+              return _buildAudienceLayout(sessionService, state);
+            }
+          },
           loading: () => const _ActiveSessionSkeleton(),
           error:
               (error, _) => _ActiveSessionError(
@@ -84,58 +67,102 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     );
   }
 
-  /// NEW: Speaker layout with fixed structure
-  List<Widget> _buildSpeakerLayout(ISessionService sessionService, state) {
-    return [
-      // 1. Compact speaker controls
-      Padding(
-        padding: const EdgeInsets.fromLTRB(
-          HermesSpacing.md,
-          HermesSpacing.sm,
-          HermesSpacing.md,
-          0,
-        ),
-        child: SpeakerControlPanel(
-          languageCode: sessionService.currentSession?.languageCode ?? 'en-US',
-          isCompact: true, // NEW: compact mode
-        ),
-      ),
+  /// Speaker layout with optimized space allocation for transcript visibility
+  Widget _buildSpeakerLayout(ISessionService sessionService, state) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate space allocation
+        const headerHeight = 50.0;
+        const statusBarHeight = 60.0;
+        const sessionControlsHeight = 80.0;
+        const speakerControlHeight = 100.0;
+        const spacing = HermesSpacing.sm * 4;
 
-      const SizedBox(height: HermesSpacing.sm),
+        final fixedHeight =
+            headerHeight +
+            statusBarHeight +
+            sessionControlsHeight +
+            speakerControlHeight +
+            spacing;
+        final availableHeight = constraints.maxHeight;
+        final transcriptHeight = (availableHeight - fixedHeight).clamp(
+          250.0,
+          double.infinity,
+        );
 
-      // 2. Fixed-size transcript chat box (takes remaining space)
-      Expanded(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: HermesSpacing.md),
-          child: TranscriptChatBox(),
-        ),
-      ),
+        return Column(
+          children: [
+            // 1. Minimal session header
+            SizedBox(
+              height: headerHeight,
+              child: const SessionHeader(showMinimal: true),
+            ),
 
-      const SizedBox(height: HermesSpacing.sm),
+            // 2. Compact speaker controls
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                HermesSpacing.md,
+                HermesSpacing.sm,
+                HermesSpacing.md,
+                0,
+              ),
+              child: SpeakerControlPanel(
+                languageCode:
+                    sessionService.currentSession?.languageCode ?? 'en-US',
+                isCompact: true,
+              ),
+            ),
 
-      // 3. Session control buttons row
-      _buildSessionControlsRow(),
-    ];
-  }
+            const SizedBox(height: HermesSpacing.sm),
 
-  Widget _buildAudienceView(ISessionService sessionService, state) {
-    return AudienceDisplay(
-      targetLanguageCode: 'es-ES', // TODO: Get from user preferences
-      targetLanguageName: 'Spanish', // TODO: Get from user preferences
-      languageFlag: '🇪🇸', // TODO: Get from user preferences
+            // 3. Transcript chat box with guaranteed space
+            Container(
+              height: transcriptHeight,
+              margin: const EdgeInsets.symmetric(horizontal: HermesSpacing.md),
+              child: const TranscriptChatBox(),
+            ),
+
+            const SizedBox(height: HermesSpacing.sm),
+
+            // 4. Session control buttons
+            _buildSessionControlsRow(),
+
+            // 5. Status bar
+            _buildSpeakerStatusBar(sessionService, state),
+          ],
+        );
+      },
     );
   }
 
-  /// NEW: Clean session controls row (separate from speaking controls)
+  /// Audience layout with full-screen translation display
+  Widget _buildAudienceLayout(ISessionService sessionService, state) {
+    return Column(
+      children: [
+        const SessionHeader(showMinimal: true),
+        Expanded(
+          child: AudienceDisplay(
+            targetLanguageCode: 'es-ES', // TODO: Get from user preferences
+            targetLanguageName: 'Spanish', // TODO: Get from user preferences
+            languageFlag: '🇪🇸', // TODO: Get from user preferences
+          ),
+        ),
+        _buildAudienceBottomControls(),
+      ],
+    );
+  }
+
+  /// Session control buttons row for speakers
   Widget _buildSessionControlsRow() {
     return Container(
+      height: 80,
       padding: const EdgeInsets.symmetric(
         horizontal: HermesSpacing.md,
         vertical: HermesSpacing.sm,
       ),
       child: Row(
         children: [
-          // End Session (primary destructive action)
+          // End Session button
           Expanded(
             child: OutlinedButton.icon(
               onPressed: _showEndSessionDialog,
@@ -157,13 +184,16 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
                   width: 2,
                 ),
                 padding: const EdgeInsets.symmetric(vertical: HermesSpacing.sm),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(HermesSpacing.sm),
+                ),
               ),
             ),
           ),
 
           const SizedBox(width: HermesSpacing.md),
 
-          // Session Info (secondary action)
+          // Session Info button
           Expanded(
             child: OutlinedButton.icon(
               onPressed: _showSessionDetails,
@@ -174,6 +204,9 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
               ),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: HermesSpacing.sm),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(HermesSpacing.sm),
+                ),
               ),
             ),
           ),
@@ -182,7 +215,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     );
   }
 
-  /// Speaker status bar (compact version)
+  /// Speaker status bar at bottom
   Widget _buildSpeakerStatusBar(ISessionService sessionService, state) {
     final sessionCode = sessionService.currentSession?.sessionId ?? '';
     final duration =
@@ -190,16 +223,19 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
             ? DateTime.now().difference(sessionStartTime!)
             : Duration.zero;
 
-    return SessionStatusBar(
-      sessionCode: sessionCode,
-      sessionDuration: duration,
-      audienceCount: state.audienceCount,
-      languageDistribution: state.languageDistribution,
-      onSessionCodeTap: () => _copySessionCode(sessionCode),
+    return SizedBox(
+      height: 60,
+      child: SessionStatusBar(
+        sessionCode: sessionCode,
+        sessionDuration: duration,
+        audienceCount: state.audienceCount,
+        languageDistribution: state.languageDistribution,
+        onSessionCodeTap: () => _copySessionCode(sessionCode),
+      ),
     );
   }
 
-  /// Simple audience controls
+  /// Audience bottom controls
   Widget _buildAudienceBottomControls() {
     return Container(
       padding: const EdgeInsets.all(HermesSpacing.md),
@@ -212,28 +248,45 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
           ),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          OutlinedButton.icon(
-            onPressed: () => _handleManualExit(),
-            icon: Icon(
-              Icons.exit_to_app,
-              color: Theme.of(context).colorScheme.error,
+      child: SafeArea(
+        top: false,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => _handleManualExit(),
+              icon: Icon(
+                Icons.exit_to_app_rounded,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              label: Text(
+                'Leave Session',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                  color: Theme.of(context).colorScheme.error,
+                  width: 2,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HermesSpacing.lg,
+                  vertical: HermesSpacing.sm,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(HermesSpacing.sm),
+                ),
+              ),
             ),
-            label: Text(
-              'Leave Session',
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-            style: OutlinedButton.styleFrom(
-              side: BorderSide(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
+  /// Copy session code to clipboard
   Future<void> _copySessionCode(String sessionCode) async {
     if (sessionCode.isNotEmpty) {
       await Clipboard.setData(ClipboardData(text: sessionCode));
@@ -242,20 +295,28 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
           SnackBar(
             content: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
                 const SizedBox(width: HermesSpacing.sm),
                 Text('Session code copied: $sessionCode'),
               ],
             ),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(HermesSpacing.sm),
+            ),
           ),
         );
       }
     }
   }
 
-  /// IMPROVED: Better end session dialog with clear consequences
+  /// Show end session confirmation dialog
   Future<void> _showEndSessionDialog() async {
     final sessionState = ref.read(hermesControllerProvider);
     final audienceCount = sessionState.when(
@@ -269,11 +330,15 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
       barrierDismissible: false,
       builder:
           (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(HermesSpacing.md),
+            ),
             title: Row(
               children: [
                 Icon(
                   Icons.warning_amber_rounded,
                   color: Theme.of(context).colorScheme.error,
+                  size: 24,
                 ),
                 const SizedBox(width: HermesSpacing.sm),
                 const Text('End Session'),
@@ -287,7 +352,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
                   'Are you sure you want to end this session?',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: HermesSpacing.sm),
+                const SizedBox(height: HermesSpacing.md),
                 const Text('This will:'),
                 const SizedBox(height: HermesSpacing.xs),
                 const Text('• Stop all translation services'),
@@ -295,7 +360,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
                   Text('• Disconnect $audienceCount audience members'),
                 ],
                 const Text('• Delete the session permanently'),
-                const SizedBox(height: HermesSpacing.sm),
+                const SizedBox(height: HermesSpacing.md),
                 Container(
                   padding: const EdgeInsets.all(HermesSpacing.sm),
                   decoration: BoxDecoration(
@@ -304,12 +369,25 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
                     ).colorScheme.errorContainer.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(HermesSpacing.sm),
                   ),
-                  child: Text(
-                    'This action cannot be undone.',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(width: HermesSpacing.xs),
+                      Expanded(
+                        child: Text(
+                          'This action cannot be undone.',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -335,7 +413,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     }
   }
 
-  /// IMPROVED: Better session info dialog
+  /// Show session details dialog
   void _showSessionDetails() {
     final sessionState = ref.read(hermesControllerProvider);
     final sessionService = getIt<ISessionService>();
@@ -345,6 +423,9 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
         context: context,
         builder:
             (context) => AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(HermesSpacing.md),
+              ),
               title: const Text('Session Information'),
               content: SingleChildScrollView(
                 child: Column(
@@ -372,7 +453,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
                         ),
                     ]),
 
-                    const SizedBox(height: HermesSpacing.md),
+                    const SizedBox(height: HermesSpacing.lg),
 
                     _buildInfoSection('Audience', [
                       _buildDetailRow(
@@ -390,10 +471,11 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
                           (entry) => Padding(
                             padding: const EdgeInsets.only(
                               left: HermesSpacing.md,
-                              bottom: HermesSpacing.xs,
+                              bottom: 4,
                             ),
                             child: Text(
                               '• ${entry.key}: ${entry.value} listeners',
+                              style: const TextStyle(fontSize: 14),
                             ),
                           ),
                         ),
@@ -414,7 +496,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
                       sessionService.currentSession?.sessionId ?? '',
                     );
                   },
-                  child: const Text('Copy Session Code'),
+                  child: const Text('Copy Code'),
                 ),
               ],
             ),
@@ -428,7 +510,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
       children: [
         Text(
           title,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
         ),
         const SizedBox(height: HermesSpacing.sm),
         ...children,
@@ -466,39 +548,41 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
 
   String _getLanguageName(String? languageCode) {
     if (languageCode == null) return 'Unknown';
-    // Simple mapping - in a real app, you'd use the language helpers
-    switch (languageCode) {
-      case 'en-US':
-        return 'English (US)';
-      case 'es-ES':
-        return 'Spanish (Spain)';
-      case 'fr-FR':
-        return 'French (France)';
-      case 'de-DE':
-        return 'German (Germany)';
-      default:
-        return languageCode;
-    }
+
+    final languageNames = {
+      'en-US': 'English (US)',
+      'es-ES': 'Spanish (Spain)',
+      'fr-FR': 'French (France)',
+      'de-DE': 'German (Germany)',
+      'it-IT': 'Italian (Italy)',
+      'pt-BR': 'Portuguese (Brazil)',
+      'ru-RU': 'Russian (Russia)',
+      'ja-JP': 'Japanese (Japan)',
+      'ko-KR': 'Korean (Korea)',
+      'zh-CN': 'Chinese (China)',
+    };
+
+    return languageNames[languageCode] ?? languageCode;
   }
 
-  String _getStatusText(state) {
-    // Use the same status text from the original file
-    switch (state.runtimeType.toString()) {
-      case 'HermesStatus.idle':
+  String _getStatusText(dynamic status) {
+    final statusStr = status.toString().split('.').last;
+    switch (statusStr) {
+      case 'idle':
         return 'Ready';
-      case 'HermesStatus.listening':
+      case 'listening':
         return 'Live';
-      case 'HermesStatus.translating':
+      case 'translating':
         return 'Processing';
-      case 'HermesStatus.buffering':
+      case 'buffering':
         return 'Buffering';
-      case 'HermesStatus.countdown':
+      case 'countdown':
         return 'Starting';
-      case 'HermesStatus.speaking':
+      case 'speaking':
         return 'Playing';
-      case 'HermesStatus.paused':
+      case 'paused':
         return 'Paused';
-      case 'HermesStatus.error':
+      case 'error':
         return 'Error';
       default:
         return 'Unknown';
@@ -519,6 +603,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     }
   }
 
+  /// End the session
   Future<void> _endSession() async {
     try {
       await ref.read(hermesControllerProvider.notifier).stop();
@@ -526,9 +611,19 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
         // Navigate to home with a success message
         Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Session ended successfully'),
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                SizedBox(width: HermesSpacing.sm),
+                Text('Session ended successfully'),
+              ],
+            ),
             backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(HermesSpacing.sm),
+            ),
           ),
         );
       }
@@ -539,19 +634,23 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
           SnackBar(
             content: Text('Failed to end session: $e'),
             backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(HermesSpacing.sm),
+            ),
           ),
         );
       }
     }
   }
 
-  /// Handles manual exit (e.g., from audience controls)
+  /// Handle manual exit for audience
   Future<void> _handleManualExit() async {
     await context.smartGoBack(ref);
   }
 }
 
-/// Loading skeleton for active session page
+/// Loading skeleton while session state loads
 class _ActiveSessionSkeleton extends StatelessWidget {
   const _ActiveSessionSkeleton();
 
@@ -563,7 +662,7 @@ class _ActiveSessionSkeleton extends StatelessWidget {
       children: [
         // Header skeleton
         Container(
-          height: 60,
+          height: 50,
           color: theme.colorScheme.surface,
           padding: const EdgeInsets.all(HermesSpacing.md),
           child: Row(
@@ -597,33 +696,50 @@ class _ActiveSessionSkeleton extends StatelessWidget {
             margin: const EdgeInsets.all(HermesSpacing.md),
             decoration: BoxDecoration(
               color: theme.colorScheme.outline.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(HermesSpacing.md),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(strokeWidth: 2),
+                  const SizedBox(height: HermesSpacing.md),
+                  Text(
+                    'Loading session...',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
 
         // Bottom controls skeleton
         Container(
-          height: 100,
+          height: 80,
           color: theme.colorScheme.surface,
           padding: const EdgeInsets.all(HermesSpacing.md),
-          child: Column(
+          child: Row(
             children: [
-              Container(
-                width: double.infinity,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.outline.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(4),
+              Expanded(
+                child: Container(
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(HermesSpacing.sm),
+                  ),
                 ),
               ),
-              const SizedBox(height: HermesSpacing.sm),
-              Container(
-                width: double.infinity,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.outline.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(4),
+              const SizedBox(width: HermesSpacing.md),
+              Expanded(
+                child: Container(
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(HermesSpacing.sm),
+                  ),
                 ),
               ),
             ],
@@ -634,7 +750,7 @@ class _ActiveSessionSkeleton extends StatelessWidget {
   }
 }
 
-/// Error state for active session page
+/// Error state when session fails to load
 class _ActiveSessionError extends StatelessWidget {
   final Object error;
   final VoidCallback onRetry;
@@ -647,28 +763,40 @@ class _ActiveSessionError extends StatelessWidget {
 
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(HermesSpacing.lg),
+        padding: const EdgeInsets.all(HermesSpacing.xl),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
-            const SizedBox(height: HermesSpacing.md),
+            Icon(
+              Icons.error_outline_rounded,
+              size: 80,
+              color: theme.colorScheme.error,
+            ),
+            const SizedBox(height: HermesSpacing.lg),
             Text(
               'Session Error',
               style: theme.textTheme.headlineSmall?.copyWith(
                 color: theme.colorScheme.error,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: HermesSpacing.sm),
+            const SizedBox(height: HermesSpacing.md),
             Text(
               'Unable to connect to the session. Please check your connection and try again.',
-              style: theme.textTheme.bodyMedium,
+              style: theme.textTheme.bodyLarge,
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: HermesSpacing.lg),
-            ElevatedButton(
+            const SizedBox(height: HermesSpacing.xl),
+            ElevatedButton.icon(
               onPressed: onRetry,
-              child: const Text('Back to Home'),
+              icon: const Icon(Icons.home_rounded),
+              label: const Text('Back to Home'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HermesSpacing.lg,
+                  vertical: HermesSpacing.md,
+                ),
+              ),
             ),
           ],
         ),

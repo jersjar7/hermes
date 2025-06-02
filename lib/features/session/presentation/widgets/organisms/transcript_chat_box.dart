@@ -8,9 +8,10 @@ import 'package:hermes/core/presentation/constants/spacing.dart';
 import 'package:hermes/core/presentation/constants/hermes_icons.dart';
 import 'package:hermes/core/presentation/constants/durations.dart';
 import 'package:hermes/core/presentation/widgets/animations/fade_in_widget.dart';
+import 'package:hermes/core/presentation/widgets/animations/pulse_animation.dart';
 
-/// Chat-like transcript box that displays speaker's speech in real-time.
-/// Behaves like a messaging app with auto-scroll and manual scroll capability.
+/// Enhanced chat-like transcript box that displays speaker's speech in real-time.
+/// Features elegant empty states and smooth animations.
 class TranscriptChatBox extends ConsumerStatefulWidget {
   const TranscriptChatBox({super.key});
 
@@ -22,8 +23,10 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
   final ScrollController _scrollController = ScrollController();
   final List<TranscriptMessage> _messages = [];
   String? _lastProcessedTranscript;
+  String? _currentPartialTranscript;
   bool _userHasScrolledUp = false;
   bool _showScrollToBottomButton = false;
+  bool _hasEverSpoken = false;
 
   @override
   void initState() {
@@ -56,60 +59,61 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     final sessionState = ref.watch(hermesControllerProvider);
     final theme = Theme.of(context);
 
-    return sessionState.when(
-      data: (state) {
-        _updateMessages(state);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(HermesSpacing.md),
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: 0.2),
+          width: 1,
+        ),
+      ),
+      child: sessionState.when(
+        data: (state) {
+          _updateTranscripts(state);
 
-        return Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(HermesSpacing.md),
-            border: Border.all(
-              color: theme.colorScheme.outline.withValues(alpha: 0.2),
-              width: 1,
-            ),
-          ),
-          child: Column(
+          return Column(
             children: [
-              // Header
-              _buildHeader(context, theme),
+              // Header with dynamic status
+              _buildHeader(context, theme, state),
 
-              // Messages area
+              // Messages area - always visible
               Expanded(
                 child: Stack(
                   children: [
-                    // Chat messages
                     _buildMessagesArea(context, theme, state),
-
-                    // Scroll to bottom button
                     if (_showScrollToBottomButton)
                       _buildScrollToBottomButton(context, theme),
                   ],
                 ),
               ),
 
-              // Current speaking indicator (only when actively listening)
-              if (state.status == HermesStatus.listening &&
-                  state.lastTranscript != null &&
-                  state.lastTranscript!.isNotEmpty)
-                _buildCurrentSpeechIndicator(
-                  context,
-                  theme,
-                  state.lastTranscript!,
-                ),
+              // Current speaking indicator
+              _buildCurrentSpeechIndicator(context, theme, state),
             ],
-          ),
-        );
-      },
-      loading: () => _buildLoadingState(context),
-      error: (error, _) => _buildErrorState(context, error),
+          );
+        },
+        loading: () => _buildLoadingState(context, theme),
+        error: (error, _) => _buildErrorState(context, theme, error),
+      ),
     );
   }
 
-  Widget _buildHeader(BuildContext context, ThemeData theme) {
+  Widget _buildHeader(BuildContext context, ThemeData theme, state) {
+    final isListening = state.status == HermesStatus.listening;
+    final isTranslating = state.status == HermesStatus.translating;
+    final hasActivity = isListening || isTranslating || _messages.isNotEmpty;
+
     return Container(
       padding: const EdgeInsets.all(HermesSpacing.md),
       decoration: BoxDecoration(
+        color:
+            hasActivity
+                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.1)
+                : null,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(HermesSpacing.md),
+        ),
         border: Border(
           bottom: BorderSide(
             color: theme.colorScheme.outline.withValues(alpha: 0.2),
@@ -119,59 +123,124 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
       ),
       child: Row(
         children: [
-          Icon(
-            HermesIcons.microphone,
-            size: 20,
-            color: theme.colorScheme.primary,
+          // Dynamic icon with subtle animation
+          PulseAnimation(
+            animate: isListening,
+            minScale: 0.95,
+            maxScale: 1.05,
+            child: Icon(
+              _getHeaderIcon(state.status),
+              size: 20,
+              color:
+                  hasActivity
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outline,
+            ),
           ),
           const SizedBox(width: HermesSpacing.sm),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Speech Transcript',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _getHeaderTitle(state.status, _hasEverSpoken),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color:
+                        hasActivity
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              Text(
-                'Your speech appears here in real-time',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
+                Text(
+                  _getHeaderSubtitle(state.status, _hasEverSpoken),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const Spacer(),
-          if (_messages.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: HermesSpacing.sm,
-                vertical: HermesSpacing.xs,
-              ),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(
-                  alpha: 0.3,
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '${_messages.length}',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              ],
             ),
+          ),
+
+          // Status indicator
+          _buildStatusIndicator(context, theme, state),
         ],
       ),
     );
   }
 
+  Widget _buildStatusIndicator(BuildContext context, ThemeData theme, state) {
+    final isListening = state.status == HermesStatus.listening;
+
+    if (_messages.isNotEmpty) {
+      // Show message count
+      return Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: HermesSpacing.sm,
+          vertical: HermesSpacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          '${_messages.length}',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.primary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    } else if (isListening) {
+      // Show live indicator
+      return Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: HermesSpacing.sm,
+          vertical: HermesSpacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.red.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PulseAnimation(
+              animate: true,
+              child: Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'LIVE',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: Colors.red.shade700,
+                fontWeight: FontWeight.w800,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
   Widget _buildMessagesArea(BuildContext context, ThemeData theme, state) {
     if (_messages.isEmpty) {
-      return _buildEmptyState(context, theme);
+      return _buildEmptyState(context, theme, state);
     }
 
     return ListView.builder(
@@ -191,6 +260,143 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     );
   }
 
+  Widget _buildEmptyState(BuildContext context, ThemeData theme, state) {
+    final isReady =
+        state.status == HermesStatus.listening ||
+        state.status == HermesStatus.buffering;
+    final isListening = state.status == HermesStatus.listening;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(HermesSpacing.xl),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Elegant microphone icon
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer.withValues(
+                  alpha: 0.2,
+                ),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                  width: 1,
+                ),
+              ),
+              child: Icon(
+                isListening ? HermesIcons.listening : HermesIcons.microphone,
+                size: 28,
+                color: theme.colorScheme.primary.withValues(alpha: 0.7),
+              ),
+            ),
+
+            const SizedBox(height: HermesSpacing.lg),
+
+            Text(
+              _getEmptyStateTitle(state.status, _hasEverSpoken),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: HermesSpacing.sm),
+
+            Text(
+              _getEmptyStateSubtitle(state.status, _hasEverSpoken),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.outline,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            // Subtle speaking tips for new sessions
+            if (!_hasEverSpoken && isReady) ...[
+              const SizedBox(height: HermesSpacing.xl),
+              _buildSpeakingTips(theme),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpeakingTips(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(HermesSpacing.md),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(HermesSpacing.sm),
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: 0.1),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.lightbulb_outline_rounded,
+                size: 16,
+                color: theme.colorScheme.outline,
+              ),
+              const SizedBox(width: HermesSpacing.xs),
+              Text(
+                'Speaking Tips',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: HermesSpacing.sm),
+          ...[
+            'Speak clearly at a normal pace',
+            'Pause briefly between sentences',
+            'Keep device 6-12 inches away',
+          ].map((tip) => _buildTip(tip, theme)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTip(String text, ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.only(top: HermesSpacing.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 3,
+            height: 3,
+            margin: const EdgeInsets.only(top: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.outline.withValues(alpha: 0.6),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: HermesSpacing.sm),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMessageBubble(
     BuildContext context,
     ThemeData theme,
@@ -202,7 +408,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Avatar/Icon
+          // Avatar
           Container(
             width: 32,
             height: 32,
@@ -231,7 +437,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                     color:
                         isLatest
                             ? theme.colorScheme.primaryContainer.withValues(
-                              alpha: 0.3,
+                              alpha: 0.2,
                             )
                             : theme.colorScheme.surfaceContainerHighest,
                     borderRadius: const BorderRadius.only(
@@ -244,7 +450,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                         isLatest
                             ? Border.all(
                               color: theme.colorScheme.primary.withValues(
-                                alpha: 0.3,
+                                alpha: 0.2,
                               ),
                               width: 1,
                             )
@@ -259,6 +465,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                               : theme.colorScheme.onSurface,
                       fontWeight:
                           isLatest ? FontWeight.w500 : FontWeight.normal,
+                      height: 1.4,
                     ),
                   ),
                 ),
@@ -283,12 +490,26 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
   Widget _buildCurrentSpeechIndicator(
     BuildContext context,
     ThemeData theme,
-    String currentText,
+    state,
   ) {
-    return Container(
+    final isListening = state.status == HermesStatus.listening;
+    final isTranslating = state.status == HermesStatus.translating;
+    final hasCurrentSpeech =
+        _currentPartialTranscript != null &&
+        _currentPartialTranscript!.isNotEmpty;
+
+    if (!isListening && !isTranslating && !hasCurrentSpeech) {
+      return const SizedBox.shrink();
+    }
+
+    return AnimatedContainer(
+      duration: HermesDurations.fast,
       padding: const EdgeInsets.all(HermesSpacing.md),
       decoration: BoxDecoration(
         color: theme.colorScheme.primaryContainer.withValues(alpha: 0.1),
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(HermesSpacing.md),
+        ),
         border: Border(
           top: BorderSide(
             color: theme.colorScheme.outline.withValues(alpha: 0.2),
@@ -298,40 +519,54 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
       ),
       child: Row(
         children: [
-          // Live indicator with pulsing animation
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary,
-              shape: BoxShape.circle,
+          // Live indicator
+          PulseAnimation(
+            animate: isListening,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: isListening ? Colors.red : Colors.amber,
+                shape: BoxShape.circle,
+              ),
             ),
           ),
           const SizedBox(width: HermesSpacing.sm),
 
-          // "Currently saying" label
+          // Status text
           Text(
-            'Speaking: ',
+            isListening ? 'Listening: ' : 'Processing: ',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.primary,
               fontWeight: FontWeight.w600,
             ),
           ),
 
-          // Current text (limited height)
+          // Current text or placeholder
           Expanded(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 60),
-              child: SingleChildScrollView(
-                child: Text(
-                  currentText,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
-            ),
+            child:
+                hasCurrentSpeech
+                    ? ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 60),
+                      child: SingleChildScrollView(
+                        child: Text(
+                          _currentPartialTranscript!,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.primary,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                    )
+                    : Text(
+                      isListening
+                          ? 'Start speaking...'
+                          : 'Converting to text...',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.outline,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
           ),
         ],
       ),
@@ -346,34 +581,52 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
         onPressed: _scrollToBottom,
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: theme.colorScheme.onPrimary,
+        elevation: 2,
         child: const Icon(Icons.keyboard_arrow_down_rounded),
       ),
     );
   }
 
-  Widget _buildEmptyState(BuildContext context, ThemeData theme) {
+  Widget _buildLoadingState(BuildContext context, ThemeData theme) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(strokeWidth: 2),
+          const SizedBox(height: HermesSpacing.md),
+          Text(
+            'Initializing transcript...',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState(BuildContext context, ThemeData theme, Object error) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(HermesSpacing.lg),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              HermesIcons.microphone,
+              Icons.error_outline_rounded,
               size: 48,
-              color: theme.colorScheme.outline,
+              color: theme.colorScheme.error,
             ),
             const SizedBox(height: HermesSpacing.md),
             Text(
-              'Start speaking',
+              'Transcript Unavailable',
               style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.outline,
+                color: theme.colorScheme.error,
               ),
             ),
             const SizedBox(height: HermesSpacing.xs),
             Text(
-              'Your speech will appear here as chat messages',
+              'Unable to display speech transcript',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.outline,
               ),
@@ -385,75 +638,56 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     );
   }
 
-  Widget _buildLoadingState(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(HermesSpacing.md),
-      ),
-      child: const Center(child: CircularProgressIndicator()),
-    );
-  }
+  void _updateTranscripts(state) {
+    final currentTranscript = state.lastTranscript;
+    final isListening = state.status == HermesStatus.listening;
+    final isTranslating = state.status == HermesStatus.translating;
 
-  Widget _buildErrorState(BuildContext context, Object error) {
-    final theme = Theme.of(context);
+    // Track if user has ever spoken
+    if (currentTranscript != null && currentTranscript.isNotEmpty) {
+      _hasEverSpoken = true;
+    }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(HermesSpacing.md),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-            const SizedBox(height: HermesSpacing.md),
-            Text(
-              'Transcript Error',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.error,
-              ),
-            ),
-            const SizedBox(height: HermesSpacing.xs),
-            Text(
-              'Unable to display speech transcript',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _updateMessages(state) {
-    // Add new final transcripts as chat messages
-    if (state.lastTranscript != null &&
-        state.lastTranscript!.isNotEmpty &&
-        state.status != HermesStatus.listening && // Only add when finalized
-        state.lastTranscript != _lastProcessedTranscript) {
+    // Handle partial transcripts (during listening)
+    if (isListening &&
+        currentTranscript != null &&
+        currentTranscript.isNotEmpty) {
+      setState(() {
+        _currentPartialTranscript = currentTranscript;
+      });
+    }
+    // Handle final transcripts
+    else if (currentTranscript != null &&
+        currentTranscript.isNotEmpty &&
+        currentTranscript != _lastProcessedTranscript &&
+        !isListening) {
       setState(() {
         _messages.add(
-          TranscriptMessage(
-            text: state.lastTranscript!,
-            timestamp: DateTime.now(),
-          ),
+          TranscriptMessage(text: currentTranscript, timestamp: DateTime.now()),
         );
 
-        // Keep only last 50 messages to manage memory
+        _currentPartialTranscript = null;
+
+        // Keep only last 50 messages
         if (_messages.length > 50) {
           _messages.removeAt(0);
         }
       });
 
-      _lastProcessedTranscript = state.lastTranscript;
+      _lastProcessedTranscript = currentTranscript;
 
-      // Auto-scroll to bottom if user hasn't manually scrolled up
+      // Auto-scroll if user hasn't manually scrolled
       if (!_userHasScrolledUp) {
-        _scrollToBottom();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToBottom();
+        });
       }
+    }
+    // Clear partial transcript when not listening
+    else if (!isListening && !isTranslating) {
+      setState(() {
+        _currentPartialTranscript = null;
+      });
     }
   }
 
@@ -464,6 +698,77 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
         duration: HermesDurations.fast,
         curve: Curves.easeOut,
       );
+    }
+  }
+
+  IconData _getHeaderIcon(HermesStatus status) {
+    switch (status) {
+      case HermesStatus.listening:
+        return HermesIcons.listening;
+      case HermesStatus.translating:
+        return HermesIcons.translating;
+      default:
+        return HermesIcons.microphone;
+    }
+  }
+
+  String _getHeaderTitle(HermesStatus status, bool hasEverSpoken) {
+    switch (status) {
+      case HermesStatus.listening:
+        return 'Listening Live';
+      case HermesStatus.translating:
+        return 'Processing Speech';
+      case HermesStatus.buffering:
+        return hasEverSpoken ? 'Speech History' : 'Speech Transcript';
+      default:
+        return hasEverSpoken ? 'Speech History' : 'Ready to Listen';
+    }
+  }
+
+  String _getHeaderSubtitle(HermesStatus status, bool hasEverSpoken) {
+    switch (status) {
+      case HermesStatus.listening:
+        return 'Your speech appears here in real-time';
+      case HermesStatus.translating:
+        return 'Converting speech to text...';
+      case HermesStatus.buffering:
+        return hasEverSpoken
+            ? 'Your recent speech messages'
+            : 'Start speaking to see your words here';
+      default:
+        return hasEverSpoken
+            ? 'Your speech messages from this session'
+            : 'Start speaking when you\'re ready';
+    }
+  }
+
+  String _getEmptyStateTitle(HermesStatus status, bool hasEverSpoken) {
+    if (hasEverSpoken) {
+      return 'No recent messages';
+    }
+
+    switch (status) {
+      case HermesStatus.listening:
+        return 'Start speaking';
+      case HermesStatus.buffering:
+        return 'Ready to listen';
+      default:
+        return 'Welcome to your session';
+    }
+  }
+
+  String _getEmptyStateSubtitle(HermesStatus status, bool hasEverSpoken) {
+    if (hasEverSpoken) {
+      return 'Your speech messages will appear here when you start talking';
+    }
+
+    switch (status) {
+      case HermesStatus.listening:
+        return 'Your words will appear here as you speak';
+      case HermesStatus.buffering:
+        return 'Getting ready to capture your speech';
+      default:
+        return 'Your speech will be displayed here as you talk, creating a real-time transcript for this session';
     }
   }
 
