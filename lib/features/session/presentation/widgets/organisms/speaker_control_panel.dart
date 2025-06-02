@@ -12,8 +12,9 @@ import '../molecules/waveform_display.dart';
 import '../molecules/countdown_widget.dart';
 import '../organisms/recent_transcript_display.dart';
 
-/// Simplified control panel for speakers focused on mic controls and speech feedback.
-/// No longer shows translations - only transcripts and speaking status.
+/// Simplified control panel for speakers focused ONLY on speaking activity controls.
+/// Session-level controls (like ending the session) are handled elsewhere.
+/// This creates a clear separation between speaking controls and session controls.
 class SpeakerControlPanel extends ConsumerStatefulWidget {
   final String languageCode;
 
@@ -38,7 +39,7 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
 
         return Column(
           children: [
-            // Main control card
+            // Main control card - FOCUSED ON SPEAKING ONLY
             ElevatedCard(
               padding: const EdgeInsets.all(HermesSpacing.lg),
               child: Column(
@@ -49,8 +50,8 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
 
                   const SizedBox(height: HermesSpacing.lg),
 
-                  // Control button
-                  _buildControlButton(context, ref, state),
+                  // Speaking control buttons - CLEARER LABELING
+                  _buildSpeakingControls(context, ref, state),
 
                   // Real-time transcript display (only during listening)
                   if (state.status == HermesStatus.listening &&
@@ -89,7 +90,7 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
         return Column(
           children: [
             Text(
-              'Listening...',
+              'Speaking Live',
               style: theme.textTheme.titleLarge?.copyWith(
                 color: theme.colorScheme.primary,
                 fontWeight: FontWeight.w600,
@@ -97,10 +98,11 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
             ),
             const SizedBox(height: HermesSpacing.sm),
             Text(
-              'Speak clearly into your microphone',
+              'Your speech is being translated for the audience',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.outline,
               ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: HermesSpacing.md),
             const WaveformDisplay(isActive: true),
@@ -113,12 +115,12 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
             Icon(HermesIcons.translating, size: 48, color: Colors.amber),
             const SizedBox(height: HermesSpacing.sm),
             Text(
-              'Sending to audience...',
+              'Processing Speech',
               style: theme.textTheme.titleMedium?.copyWith(color: Colors.amber),
             ),
             const SizedBox(height: HermesSpacing.xs),
             Text(
-              'Processing your speech',
+              'Sending translation to audience...',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.outline,
               ),
@@ -145,17 +147,18 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
             ),
             const SizedBox(height: HermesSpacing.sm),
             Text(
-              'Ready to listen',
+              'Starting Session',
               style: theme.textTheme.titleMedium?.copyWith(
                 color: theme.colorScheme.primary,
               ),
             ),
             const SizedBox(height: HermesSpacing.xs),
             Text(
-              'Start speaking when ready',
+              'Initializing microphone and translation services',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.outline,
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         );
@@ -163,20 +166,19 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
       case HermesStatus.paused:
         return Column(
           children: [
-            Icon(HermesIcons.pause, size: 48, color: theme.colorScheme.outline),
+            Icon(HermesIcons.pause, size: 48, color: Colors.amber),
             const SizedBox(height: HermesSpacing.sm),
             Text(
-              'Session Paused',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
+              'Speaking Paused',
+              style: theme.textTheme.titleMedium?.copyWith(color: Colors.amber),
             ),
             const SizedBox(height: HermesSpacing.xs),
             Text(
-              'Tap Resume to continue',
+              'Session is active but your microphone is muted',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.outline,
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         );
@@ -187,7 +189,7 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
             Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
             const SizedBox(height: HermesSpacing.sm),
             Text(
-              'Session Error',
+              'Speaking Error',
               style: theme.textTheme.titleMedium?.copyWith(
                 color: theme.colorScheme.error,
               ),
@@ -214,72 +216,137 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
               color: theme.colorScheme.outline,
             ),
             const SizedBox(height: HermesSpacing.sm),
-            Text('Ready to start', style: theme.textTheme.titleMedium),
+            Text('Session Ready', style: theme.textTheme.titleMedium),
             const SizedBox(height: HermesSpacing.xs),
             Text(
-              'Tap the button below to begin speaking',
+              'Session will begin automatically when started',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.outline,
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         );
     }
   }
 
-  Widget _buildControlButton(BuildContext context, WidgetRef ref, state) {
-    final isSessionActive =
+  /// SIMPLIFIED: Clean pause/resume speaking controls only
+  Widget _buildSpeakingControls(BuildContext context, WidgetRef ref, state) {
+    final isSpeaking =
         state.status == HermesStatus.listening ||
-        state.status == HermesStatus.translating ||
-        state.status == HermesStatus.countdown ||
-        state.status == HermesStatus.paused;
-
+        state.status == HermesStatus.translating;
+    final isPaused = state.status == HermesStatus.paused;
     final isProcessing =
         state.status == HermesStatus.buffering ||
         state.status == HermesStatus.translating;
 
     return Column(
       children: [
-        PrimaryButton(
-          label: isSessionActive ? 'Stop Session' : 'Start Speaking',
-          icon: isSessionActive ? HermesIcons.stop : HermesIcons.microphone,
-          isFullWidth: true,
-          isLoading: isProcessing,
-          onPressed:
-              isProcessing
-                  ? null
-                  : () => _handleControlTap(ref, isSessionActive),
-        ),
-
-        // Show pause/resume buttons when session is active
-        if (isSessionActive && !isProcessing) ...[
-          const SizedBox(height: HermesSpacing.sm),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed:
-                      state.status == HermesStatus.listening
-                          ? () => _handlePause(ref)
-                          : state.status == HermesStatus.paused
-                          ? () => _handleResume(ref)
-                          : null,
-                  icon: Icon(
-                    state.status == HermesStatus.listening
-                        ? HermesIcons.pause
-                        : HermesIcons.play,
-                    size: 18,
+        // Single pause/resume toggle button
+        if (isSpeaking)
+          PrimaryButton(
+            label: 'Pause Speaking',
+            icon: HermesIcons.pause,
+            isFullWidth: true,
+            isLoading: isProcessing,
+            onPressed: isProcessing ? null : () => _handlePauseSpeaking(ref),
+          )
+        else if (isPaused)
+          PrimaryButton(
+            label: 'Resume Speaking',
+            icon: HermesIcons.microphone,
+            isFullWidth: true,
+            onPressed: () => _handleResumeSpeaking(ref),
+          )
+        else
+          // Initial state - session starting
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(HermesSpacing.md),
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(HermesSpacing.sm),
+              border: Border.all(
+                color: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: 0.3),
+                width: 1,
+              ),
+            ),
+            child: Column(
+              children: [
+                Icon(
+                  HermesIcons.microphone,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 24,
+                ),
+                const SizedBox(height: HermesSpacing.xs),
+                Text(
+                  'Session Starting',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
                   ),
-                  label: Text(
-                    state.status == HermesStatus.listening ? 'Pause' : 'Resume',
+                ),
+                const SizedBox(height: HermesSpacing.xs),
+                Text(
+                  'You\'ll start speaking automatically',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+
+        // Help text for clarity
+        const SizedBox(height: HermesSpacing.sm),
+        Container(
+          padding: const EdgeInsets.all(HermesSpacing.sm),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(HermesSpacing.sm),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                _getHelpIcon(isSpeaking, isPaused),
+                size: 16,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+              const SizedBox(width: HermesSpacing.xs),
+              Expanded(
+                child: Text(
+                  _getHelpText(isSpeaking, isPaused),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
                   ),
                 ),
               ),
             ],
           ),
-        ],
+        ),
       ],
     );
+  }
+
+  IconData _getHelpIcon(bool isSpeaking, bool isPaused) {
+    if (isSpeaking) return Icons.mic;
+    if (isPaused) return Icons.pause_circle_outline;
+    return Icons.info_outline;
+  }
+
+  String _getHelpText(bool isSpeaking, bool isPaused) {
+    if (isSpeaking) {
+      return 'Your microphone is active. Speak clearly for best translation quality.';
+    } else if (isPaused) {
+      return 'Your microphone is paused. Tap "Resume" to continue speaking.';
+    } else {
+      return 'Use "End Session" below to stop the entire session for everyone.';
+    }
   }
 
   Widget _buildRealTimeTranscript(BuildContext context, String transcript) {
@@ -367,29 +434,20 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
     }
   }
 
-  void _handleControlTap(WidgetRef ref, bool isActive) {
-    if (isActive) {
-      ref.read(hermesControllerProvider.notifier).stop();
-    } else {
-      ref
-          .read(hermesControllerProvider.notifier)
-          .startSession(widget.languageCode);
-    }
-  }
-
-  void _handlePause(WidgetRef ref) async {
+  // SIMPLIFIED: Only pause/resume controls (session start/end handled elsewhere)
+  void _handlePauseSpeaking(WidgetRef ref) async {
     try {
       await ref.read(hermesControllerProvider.notifier).pauseSession();
     } catch (e) {
-      print('❌ [SpeakerControlPanel] Failed to pause session: $e');
+      print('❌ [SpeakerControlPanel] Failed to pause speaking: $e');
     }
   }
 
-  void _handleResume(WidgetRef ref) async {
+  void _handleResumeSpeaking(WidgetRef ref) async {
     try {
       await ref.read(hermesControllerProvider.notifier).resumeSession();
     } catch (e) {
-      print('❌ [SpeakerControlPanel] Failed to resume session: $e');
+      print('❌ [SpeakerControlPanel] Failed to resume speaking: $e');
     }
   }
 }
@@ -436,14 +494,14 @@ class _ControlPanelError extends StatelessWidget {
         Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
         const SizedBox(height: HermesSpacing.sm),
         Text(
-          'Control Error',
+          'Speaking Control Error',
           style: theme.textTheme.titleMedium?.copyWith(
             color: theme.colorScheme.error,
           ),
         ),
         const SizedBox(height: HermesSpacing.xs),
         Text(
-          'Please try restarting the session',
+          'Please check your microphone and try again',
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.outline,
           ),
