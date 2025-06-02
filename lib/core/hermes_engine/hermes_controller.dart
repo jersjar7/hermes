@@ -17,76 +17,161 @@ final hermesControllerProvider =
     );
 
 class HermesController extends AsyncNotifier<HermesSessionState> {
-  late final HermesEngine _engine;
-  late final SpeakerEngine _speakerEngine;
-  late final AudienceEngine _audienceEngine;
+  // 🎯 CRITICAL CHANGE: Make engines nullable and create fresh instances per session
+  HermesEngine? _engine;
+  SpeakerEngine? _speakerEngine;
+  AudienceEngine? _audienceEngine;
   StreamSubscription<HermesSessionState>? _subscription;
   bool _isSpeakerSession = false;
 
   @override
   Future<HermesSessionState> build() async {
-    // Construct the engine using our DI container
-    _speakerEngine = getIt<SpeakerEngine>();
-    _audienceEngine = getIt<AudienceEngine>();
-    final playbackCtrl = getIt<PlaybackControlUseCase>();
-    final countdown = getIt<CountdownTimer>();
+    // 🎯 CRITICAL CHANGE: Don't create engines here - create them when needed
+    // This prevents reusing closed StreamControllers
 
-    _engine = HermesEngine(
-      speakerEngine: _speakerEngine,
-      audienceEngine: _audienceEngine,
-      playbackControl: playbackCtrl,
-      countdown: countdown,
-    );
-
-    // Listen to all state changes and push them to Riverpod
-    _subscription = _engine.stream.listen((newState) {
-      state = AsyncData(newState);
-    });
-
-    // When the provider is disposed (e.g. on app exit), cancel the subscription
+    // When the provider is disposed (e.g. on app exit), clean up everything
     ref.onDispose(() {
-      _subscription?.cancel();
+      _disposeCurrentEngines();
     });
 
     // Return the "idle" initial state
     return HermesSessionState.initial();
   }
 
-  /// Start a speaker session in [languageCode].
-  Future<void> startSession(String languageCode) async {
-    _isSpeakerSession = true;
-    await _engine.startSession(languageCode);
+  /// 🎯 NEW: Creates fresh engine instances for a new session
+  void _createFreshEngines() {
+    // Dispose old engines if they exist
+    _disposeCurrentEngines();
+
+    print('🔄 [HermesController] Creating fresh engine instances...');
+
+    // Create fresh instances from service locator (now using factories)
+    _speakerEngine = getIt<SpeakerEngine>();
+    _audienceEngine = getIt<AudienceEngine>();
+    final playbackCtrl = getIt<PlaybackControlUseCase>();
+    final countdown = getIt<CountdownTimer>();
+
+    _engine = HermesEngine(
+      speakerEngine: _speakerEngine!,
+      audienceEngine: _audienceEngine!,
+      playbackControl: playbackCtrl,
+      countdown: countdown,
+    );
+
+    print('✅ [HermesController] Created fresh engine instances');
   }
 
-  /// Join an audience session with [sessionCode].
+  /// 🎯 NEW: Dispose current engines properly
+  void _disposeCurrentEngines() {
+    print('🗑️ [HermesController] Disposing old engine instances...');
+
+    _subscription?.cancel();
+    _subscription = null;
+
+    if (_speakerEngine != null) {
+      _speakerEngine!.dispose();
+      _speakerEngine = null;
+    }
+
+    if (_audienceEngine != null) {
+      _audienceEngine!.dispose();
+      _audienceEngine = null;
+    }
+
+    _engine = null;
+    print('✅ [HermesController] Disposed old engine instances');
+  }
+
+  /// IMPROVED: Start a speaker session in [languageCode].
+  Future<void> startSession(String languageCode) async {
+    try {
+      print('🎤 [HermesController] Starting speaker session...');
+
+      // 🎯 CRITICAL: Create fresh engines for this session
+      _createFreshEngines();
+
+      // Listen to all state changes and push them to Riverpod
+      _subscription = _engine!.stream.listen((newState) {
+        state = AsyncData(newState);
+      });
+
+      _isSpeakerSession = true;
+      await _engine!.startSession(languageCode);
+
+      print('✅ [HermesController] Speaker session started');
+    } catch (e, stackTrace) {
+      print('❌ [HermesController] Failed to start speaker session: $e');
+      state = AsyncError(e, stackTrace);
+      _disposeCurrentEngines();
+    }
+  }
+
+  /// IMPROVED: Join an audience session with [sessionCode].
   Future<void> joinSession(String sessionCode) async {
-    _isSpeakerSession = false;
-    await _engine.joinSession(sessionCode);
+    try {
+      print('👥 [HermesController] Joining audience session...');
+
+      // 🎯 CRITICAL: Create fresh engines for this session
+      _createFreshEngines();
+
+      // Listen to all state changes and push them to Riverpod
+      _subscription = _engine!.stream.listen((newState) {
+        state = AsyncData(newState);
+      });
+
+      _isSpeakerSession = false;
+      await _engine!.joinSession(sessionCode);
+
+      print('✅ [HermesController] Audience session joined');
+    } catch (e, stackTrace) {
+      print('❌ [HermesController] Failed to join audience session: $e');
+      state = AsyncError(e, stackTrace);
+      _disposeCurrentEngines();
+    }
   }
 
   /// Pause the current session (only for speaker sessions).
   Future<void> pauseSession() async {
-    if (_isSpeakerSession) {
-      await _speakerEngine.pause();
+    if (_isSpeakerSession && _speakerEngine != null) {
+      await _speakerEngine!.pause();
     }
     // Note: Audience sessions don't have pause functionality as they're passive
   }
 
   /// Resume the current session (only for speaker sessions).
   Future<void> resumeSession() async {
-    if (_isSpeakerSession) {
-      await _speakerEngine.resume();
+    if (_isSpeakerSession && _speakerEngine != null) {
+      await _speakerEngine!.resume();
     }
     // Note: Audience sessions don't have resume functionality as they're passive
   }
 
-  /// Stop and clean up the current session.
+  /// IMPROVED: Stop and clean up the current session.
   Future<void> stop() async {
-    if (_isSpeakerSession) {
-      await _speakerEngine.stop();
+    try {
+      print('🛑 [HermesController] Stopping session...');
+
+      if (_isSpeakerSession && _speakerEngine != null) {
+        await _speakerEngine!.stop();
+      }
+
+      if (_engine != null) {
+        await _engine!.stop();
+      }
+
+      // 🎯 CRITICAL: Dispose and clean up all engines
+      _disposeCurrentEngines();
+      _isSpeakerSession = false;
+
+      // Return to initial state
+      state = AsyncData(HermesSessionState.initial());
+
+      print('✅ [HermesController] Session stopped and cleaned up');
+    } catch (e, stackTrace) {
+      print('❌ [HermesController] Error stopping session: $e');
+      state = AsyncError(e, stackTrace);
+      _disposeCurrentEngines();
     }
-    await _engine.stop();
-    _isSpeakerSession = false;
   }
 
   /// Whether the current session is a speaker session

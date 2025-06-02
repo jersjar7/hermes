@@ -126,7 +126,11 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
                 timestamp: DateTime.now(),
                 locale: _locale,
               );
-              _currentOnResult?.call(out);
+
+              // 🎯 CRITICAL: Check if callback still exists before calling
+              if (_currentOnResult != null) {
+                _currentOnResult!(out);
+              }
 
               // Continue listening for more speech
               _scheduleRestart();
@@ -140,7 +144,11 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
                 timestamp: DateTime.now(),
                 locale: _locale,
               );
-              _currentOnResult?.call(out);
+
+              // 🎯 CRITICAL: Check if callback still exists before calling
+              if (_currentOnResult != null) {
+                _currentOnResult!(out);
+              }
 
               // Set up finalization timer
               _startFinalizationTimer();
@@ -184,15 +192,18 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
       case 'error_network':
         // Network error - inform user but try to restart
         print('🌐 [STTService] Network error, will retry...');
-        _currentOnError?.call(Exception('Network error, retrying...'));
+        // 🎯 CRITICAL: Check if callback still exists before calling
+        if (_currentOnError != null) {
+          _currentOnError!(Exception('Network error, retrying...'));
+        }
         _scheduleRestart();
         break;
 
       default:
         // Other errors - inform user
         print('❌ [STTService] Unhandled error: ${error.errorMsg}');
-        if (error.permanent) {
-          _currentOnError?.call(
+        if (error.permanent && _currentOnError != null) {
+          _currentOnError!(
             Exception('Speech recognition error: ${error.errorMsg}'),
           );
         } else {
@@ -221,10 +232,13 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     });
   }
 
+  // IMPROVED: Enhanced finalization with safety checks
   void _handlePotentialFinalization() {
+    // 🎯 CRITICAL: Only finalize if we still have active callbacks
     if (_lastPartialResult != null &&
         _lastPartialResult!.isNotEmpty &&
         _currentOnResult != null) {
+      // Check if callback still exists
       print('⏰ [STTService] Finalizing partial result: "$_lastPartialResult"');
 
       final finalResult = SpeechResult(
@@ -234,47 +248,77 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
         locale: _locale,
       );
 
-      _currentOnResult!(finalResult);
+      // Double-check callback still exists before calling
+      if (_currentOnResult != null) {
+        _currentOnResult!(finalResult);
+      }
       _lastPartialResult = null;
     }
 
     _finalizationTimer?.cancel();
+    _finalizationTimer = null;
   }
 
+  // IMPROVED: Enhanced stop method with proper cleanup order
   @override
   Future<void> stopListening() async {
     print('🛑 [STTService] Stopping listening...');
 
-    // Clear callbacks to stop auto-restart
+    // 🎯 CRITICAL: Clear callbacks FIRST to stop processing new results
+    final oldOnResult = _currentOnResult;
+
     _currentOnResult = null;
     _currentOnError = null;
 
     // Cancel timers
     _finalizationTimer?.cancel();
+    _finalizationTimer = null;
     _restartTimer?.cancel();
+    _restartTimer = null;
 
-    // Finalize any pending result
-    _handlePotentialFinalization();
+    // Finalize any pending result ONLY if we had active callbacks
+    if (oldOnResult != null) {
+      _handlePotentialFinalization();
+    }
 
     // Stop the speech service
-    await _speech.stop();
+    try {
+      await _speech.stop();
+      print('✅ [STTService] Speech service stopped');
+    } catch (e) {
+      print('⚠️ [STTService] Error stopping speech service: $e');
+    }
+
     _isListening = false;
     _lastPartialResult = null;
+
+    print('✅ [STTService] Listening stopped completely');
   }
 
+  // IMPROVED: Enhanced cancel method with immediate cleanup
   @override
   Future<void> cancel() async {
     print('❌ [STTService] Cancelling listening...');
 
-    // Clear everything
+    // 🎯 CRITICAL: Clear everything immediately
     _currentOnResult = null;
     _currentOnError = null;
     _finalizationTimer?.cancel();
+    _finalizationTimer = null;
     _restartTimer?.cancel();
+    _restartTimer = null;
 
-    await _speech.cancel();
+    try {
+      await _speech.cancel();
+      print('✅ [STTService] Speech service cancelled');
+    } catch (e) {
+      print('⚠️ [STTService] Error cancelling speech service: $e');
+    }
+
     _isListening = false;
     _lastPartialResult = null;
+
+    print('✅ [STTService] Listening cancelled completely');
   }
 
   @override
@@ -360,7 +404,6 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     print('✅ [STTService] Successfully set locale to: $_locale');
   }
 
-  /// 🎯 NEW: Get available locales for debugging
   @override
   Future<List<LocaleName>> getSupportedLocales() async {
     try {
@@ -379,10 +422,16 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
 
   @override
   void dispose() {
+    print('🗑️ [STTService] Disposing STT service...');
+
     _finalizationTimer?.cancel();
+    _finalizationTimer = null;
     _restartTimer?.cancel();
+    _restartTimer = null;
     _currentOnResult = null;
     _currentOnError = null;
     _lastPartialResult = null;
+
+    print('✅ [STTService] STT service disposed');
   }
 }

@@ -90,30 +90,30 @@ Future<void> setupServiceLocator() async {
   );
 
   // ─────────────────────────────────────────────
-  // HermesEngine Components (for hermesControllerProvider)
+  // 🎯 CRITICAL CHANGE: HermesEngine Components - NOW USING FACTORIES FOR FRESH INSTANCES
 
-  // Shared buffer instance
-  getIt.registerLazySingleton<TranslationBuffer>(() => TranslationBuffer());
+  // 🎯 CHANGED: Create fresh buffer for each session
+  getIt.registerFactory<TranslationBuffer>(() => TranslationBuffer());
 
-  // HermesLogger instance
+  // HermesLogger can stay singleton (safe to reuse)
   getIt.registerLazySingleton<HermesLogger>(
     () => HermesLogger(getIt<ILoggerService>()),
   );
 
-  // Countdown timer
-  getIt.registerLazySingleton<CountdownTimer>(() => CountdownTimer());
+  // 🎯 CHANGED: Create fresh countdown timer for each session
+  getIt.registerFactory<CountdownTimer>(() => CountdownTimer());
 
-  // Playback control use case
-  getIt.registerLazySingleton<PlaybackControlUseCase>(
+  // 🎯 CHANGED: Create fresh playback control for each session
+  getIt.registerFactory<PlaybackControlUseCase>(
     () => PlaybackControlUseCase(
       ttsService: getIt<ITextToSpeechService>(),
-      buffer: getIt<TranslationBuffer>(),
+      buffer: getIt<TranslationBuffer>(), // This will get a fresh buffer
       logger: getIt<HermesLogger>(),
     ),
   );
 
-  // Speaker engine - 🎯 HANDLES ALL CONNECTION LOGIC NOW
-  getIt.registerLazySingleton<SpeakerEngine>(
+  // 🎯 CHANGED: Create fresh speaker engine for each session
+  getIt.registerFactory<SpeakerEngine>(
     () => SpeakerEngine(
       permission: getIt<IPermissionService>(),
       stt: getIt<ISpeechToTextService>(),
@@ -126,10 +126,10 @@ Future<void> setupServiceLocator() async {
     ),
   );
 
-  // Audience engine (uses shared buffer)
-  getIt.registerLazySingleton<AudienceEngine>(
+  // 🎯 CHANGED: Create fresh audience engine for each session
+  getIt.registerFactory<AudienceEngine>(
     () => AudienceEngine(
-      buffer: getIt<TranslationBuffer>(),
+      buffer: getIt<TranslationBuffer>(), // This will get a fresh buffer
       session: getIt<ISessionService>(),
       socket: getIt<ISocketService>(),
       connectivity: getIt<IConnectivityService>(),

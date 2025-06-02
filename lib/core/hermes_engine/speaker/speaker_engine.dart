@@ -28,10 +28,11 @@ class SpeakerEngine {
   final IConnectivityService _connectivity;
   final HermesLogger _log;
 
-  // Core state
+  // Core state - IMPROVED: Nullable StreamController for proper management
   HermesSessionState _state = HermesSessionState.initial();
-  final _stateController = StreamController<HermesSessionState>.broadcast();
-  Stream<HermesSessionState> get stream => _stateController.stream;
+  StreamController<HermesSessionState>? _stateController;
+  Stream<HermesSessionState> get stream =>
+      _stateController?.stream ?? const Stream.empty();
 
   // Session management
   bool _isSessionActive = false;
@@ -62,6 +63,8 @@ class SpeakerEngine {
        _socket = socket,
        _connectivity = connectivity,
        _log = HermesLogger(logger) {
+    _ensureStateController(); // Ensure controller exists
+
     _startUseCase = StartSessionUseCase(
       permissionService: _permission,
       sttService: _stt,
@@ -75,11 +78,23 @@ class SpeakerEngine {
     );
   }
 
+  /// Ensures state controller exists and is not closed
+  void _ensureStateController() {
+    if (_stateController == null || _stateController!.isClosed) {
+      _stateController?.close(); // Close old one if it exists
+      _stateController = StreamController<HermesSessionState>.broadcast();
+      print('🔄 [SpeakerEngine] Created new state controller');
+    }
+  }
+
   /// Starts speaker flow: session setup, STT listening, socket connection.
   Future<void> start({required String languageCode}) async {
     print('🎤 [SpeakerEngine] Starting speaker session...');
 
     try {
+      // 🎯 CRITICAL: Ensure we have a fresh state controller
+      _ensureStateController();
+
       // Set initial state
       _emit(_state.copyWith(status: HermesStatus.buffering));
 
@@ -162,8 +177,13 @@ class SpeakerEngine {
     );
   }
 
+  // IMPROVED: Enhanced speech result handling with safety checks
   void _handleSpeechResult(res) async {
-    if (!_isSessionActive) return;
+    // 🎯 CRITICAL: Check if session is still active before processing
+    if (!_isSessionActive) {
+      print('🚫 [SpeakerEngine] Ignoring speech result - session inactive');
+      return;
+    }
 
     print(
       '📝 [SpeakerEngine] Speech result: "${res.transcript}" (final: ${res.isFinal})',
@@ -180,6 +200,12 @@ class SpeakerEngine {
     // Only process final results for transmission
     if (!res.isFinal) return;
 
+    // Double-check session is still active
+    if (!_isSessionActive) {
+      print('🚫 [SpeakerEngine] Ignoring final result - session inactive');
+      return;
+    }
+
     print('📡 [SpeakerEngine] Sending final transcript to audience');
 
     try {
@@ -194,33 +220,38 @@ class SpeakerEngine {
 
       print('✅ [SpeakerEngine] Transcript sent to audience');
 
-      // Continue listening
-      _emit(
-        _state.copyWith(
-          status: HermesStatus.listening,
-          // Note: We don't set lastTranslation for speakers
-        ),
-      );
+      // Continue listening only if session is still active
+      if (_isSessionActive) {
+        _emit(_state.copyWith(status: HermesStatus.listening));
+      }
     } catch (e, stackTrace) {
       print('❌ [SpeakerEngine] Failed to send transcript: $e');
       _log.error('Failed to send transcript', error: e, stackTrace: stackTrace);
 
-      // Don't stop the session on errors, just continue listening
-      _emit(
-        _state.copyWith(
-          status: HermesStatus.listening,
-          errorMessage: 'Failed to send transcript: $e',
-        ),
-      );
+      // Don't stop the session on errors, just continue listening if still active
+      if (_isSessionActive) {
+        _emit(
+          _state.copyWith(
+            status: HermesStatus.listening,
+            errorMessage: 'Failed to send transcript: $e',
+          ),
+        );
+      }
     }
   }
 
+  // IMPROVED: Enhanced speech error handling with safety checks
   void _handleSpeechError(Exception error) {
     print('⚠️ [SpeakerEngine] Speech error: $error');
 
+    // 🎯 CRITICAL: Only handle errors if session is still active
+    if (!_isSessionActive) {
+      print('🚫 [SpeakerEngine] Ignoring speech error - session inactive');
+      return;
+    }
+
     // For non-critical errors, just continue listening
     // The STT service should handle auto-recovery
-    if (!_isSessionActive) return;
 
     // Update UI but keep session active
     _emit(
@@ -243,30 +274,44 @@ class SpeakerEngine {
     }
   }
 
-  /// Stops the speaker session
+  /// IMPROVED: Enhanced stop method with proper cleanup order
   Future<void> stop() async {
     print('🛑 [SpeakerEngine] Stopping speaker session...');
 
     _isSessionActive = false;
 
-    // Stop listening
-    await _stt.stopListening();
+    // 🎯 CRITICAL: Stop STT first and wait for it to fully stop
+    try {
+      await _stt.stopListening();
+      // Give STT a moment to finish any pending operations
+      await Future.delayed(const Duration(milliseconds: 100));
+    } catch (e) {
+      print('⚠️ [SpeakerEngine] Error stopping STT: $e');
+    }
 
     // Cancel socket subscription
     _socketSubscription?.cancel();
+    _socketSubscription = null;
 
     // Stop connectivity monitoring
     _connHandler.dispose();
 
     // Disconnect socket
-    await _socket.disconnect();
+    try {
+      await _socket.disconnect();
+    } catch (e) {
+      print('⚠️ [SpeakerEngine] Error disconnecting socket: $e');
+    }
 
     // Reset audience tracking
     _audienceCount = 0;
     _languageDistribution = {};
 
-    // Update state
+    // Update state one final time
     _emit(_state.copyWith(status: HermesStatus.idle));
+
+    // 🎯 CRITICAL: Small delay to ensure all events are processed
+    await Future.delayed(const Duration(milliseconds: 50));
 
     print('✅ [SpeakerEngine] Speaker session stopped');
   }
@@ -293,17 +338,33 @@ class SpeakerEngine {
   Map<String, int> get languageDistribution =>
       Map.unmodifiable(_languageDistribution);
 
+  // IMPROVED: Enhanced emit method with safety checks
   void _emit(HermesSessionState s) {
-    _state = s;
-    _stateController.add(s);
-    print('🔄 [SpeakerEngine] State: ${s.status}');
+    // 🎯 CRITICAL: Check if controller exists and is not closed
+    if (_stateController != null && !_stateController!.isClosed) {
+      _state = s;
+      _stateController!.add(s);
+      print('🔄 [SpeakerEngine] State: ${s.status}');
+    } else {
+      print('⚠️ [SpeakerEngine] Cannot emit state - controller closed or null');
+    }
   }
 
+  /// IMPROVED: Enhanced dispose that handles cleanup properly
   void dispose() {
+    print('🗑️ [SpeakerEngine] Disposing speaker engine...');
+
     _isSessionActive = false;
     _stt.dispose();
     _socketSubscription?.cancel();
     _connHandler.dispose();
-    _stateController.close();
+
+    // Close state controller if it exists
+    if (_stateController != null && !_stateController!.isClosed) {
+      _stateController!.close();
+    }
+    _stateController = null;
+
+    print('✅ [SpeakerEngine] Speaker engine disposed');
   }
 }
