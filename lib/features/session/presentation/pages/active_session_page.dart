@@ -15,7 +15,12 @@ import '../widgets/organisms/session_status_bar.dart';
 import '../widgets/organisms/audience_display.dart';
 import '../widgets/organisms/transcript_chat_box.dart';
 
-/// Active session page with redesigned speaker view
+/// Active session page with redesigned speaker view:
+/// 1. App bar
+/// 2. Speaker controls (compact)
+/// 3. Fixed-size transcript chat box
+/// 4. Session control buttons row
+/// 5. Session status bar
 class ActiveSessionPage extends ConsumerStatefulWidget {
   const ActiveSessionPage({super.key});
 
@@ -39,6 +44,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
 
     return Scaffold(
       appBar: HermesAppBar(
+        // Custom confirmation messages based on user role
         customBackTitle:
             sessionService.isSpeaker ? 'End Session' : 'Leave Session',
         customBackMessage:
@@ -48,102 +54,25 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
       ),
       body: SafeArea(
         child: sessionState.when(
-          data: (state) {
-            if (sessionService.isSpeaker) {
-              // SPEAKER LAYOUT
-              return Column(
+          data:
+              (state) => Column(
                 children: [
-                  // Session header
+                  // Minimal session header
                   const SessionHeader(showMinimal: true),
 
-                  // Main content area
-                  Expanded(
-                    child: Column(
-                      children: [
-                        // 1. Speaker controls (compact)
-                        Padding(
-                          padding: const EdgeInsets.all(HermesSpacing.md),
-                          child: SpeakerControlPanel(
-                            languageCode:
-                                sessionService.currentSession?.languageCode ??
-                                'en-US',
-                            isCompact: true,
-                          ),
-                        ),
+                  // Main content area - different layout for speaker vs audience
+                  if (sessionService.isSpeaker)
+                    ..._buildSpeakerLayout(sessionService, state)
+                  else
+                    Expanded(child: _buildAudienceView(sessionService, state)),
 
-                        // 2. Transcript box (expands to fill remaining space)
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: HermesSpacing.md,
-                            ),
-                            child: Container(
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: Colors.red.withValues(alpha: 0.3),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.red, width: 3),
-                              ),
-                              child: const Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.chat,
-                                      size: 48,
-                                      color: Colors.red,
-                                    ),
-                                    SizedBox(height: 16),
-                                    Text(
-                                      'TRANSCRIPT BOX SPACE',
-                                      style: TextStyle(
-                                        color: Colors.red,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 18,
-                                      ),
-                                    ),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      'This should be visible!',
-                                      style: TextStyle(
-                                        color: Colors.red,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        // 3. Session control buttons
-                        _buildSessionControlsRow(),
-                      ],
-                    ),
-                  ),
-
-                  // Session status bar
-                  _buildSpeakerStatusBar(sessionService, state),
+                  // Bottom controls based on role
+                  if (sessionService.isSpeaker)
+                    _buildSpeakerStatusBar(sessionService, state)
+                  else
+                    _buildAudienceBottomControls(),
                 ],
-              );
-            } else {
-              // AUDIENCE LAYOUT
-              return Column(
-                children: [
-                  const SessionHeader(showMinimal: true),
-                  Expanded(
-                    child: AudienceDisplay(
-                      targetLanguageCode: 'es-ES',
-                      targetLanguageName: 'Spanish',
-                      languageFlag: '🇪🇸',
-                    ),
-                  ),
-                  _buildAudienceBottomControls(),
-                ],
-              );
-            }
-          },
+              ),
           loading: () => const _ActiveSessionSkeleton(),
           error:
               (error, _) => _ActiveSessionError(
@@ -155,12 +84,58 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     );
   }
 
+  /// NEW: Speaker layout with fixed structure
+  List<Widget> _buildSpeakerLayout(ISessionService sessionService, state) {
+    return [
+      // 1. Compact speaker controls
+      Padding(
+        padding: const EdgeInsets.fromLTRB(
+          HermesSpacing.md,
+          HermesSpacing.sm,
+          HermesSpacing.md,
+          0,
+        ),
+        child: SpeakerControlPanel(
+          languageCode: sessionService.currentSession?.languageCode ?? 'en-US',
+          isCompact: true, // NEW: compact mode
+        ),
+      ),
+
+      const SizedBox(height: HermesSpacing.sm),
+
+      // 2. Fixed-size transcript chat box (takes remaining space)
+      Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: HermesSpacing.md),
+          child: TranscriptChatBox(),
+        ),
+      ),
+
+      const SizedBox(height: HermesSpacing.sm),
+
+      // 3. Session control buttons row
+      _buildSessionControlsRow(),
+    ];
+  }
+
+  Widget _buildAudienceView(ISessionService sessionService, state) {
+    return AudienceDisplay(
+      targetLanguageCode: 'es-ES', // TODO: Get from user preferences
+      targetLanguageName: 'Spanish', // TODO: Get from user preferences
+      languageFlag: '🇪🇸', // TODO: Get from user preferences
+    );
+  }
+
+  /// NEW: Clean session controls row (separate from speaking controls)
   Widget _buildSessionControlsRow() {
     return Container(
-      padding: const EdgeInsets.all(HermesSpacing.md),
+      padding: const EdgeInsets.symmetric(
+        horizontal: HermesSpacing.md,
+        vertical: HermesSpacing.sm,
+      ),
       child: Row(
         children: [
-          // End Session button
+          // End Session (primary destructive action)
           Expanded(
             child: OutlinedButton.icon(
               onPressed: _showEndSessionDialog,
@@ -188,7 +163,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
 
           const SizedBox(width: HermesSpacing.md),
 
-          // Session Info button
+          // Session Info (secondary action)
           Expanded(
             child: OutlinedButton.icon(
               onPressed: _showSessionDetails,
@@ -207,6 +182,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     );
   }
 
+  /// Speaker status bar (compact version)
   Widget _buildSpeakerStatusBar(ISessionService sessionService, state) {
     final sessionCode = sessionService.currentSession?.sessionId ?? '';
     final duration =
@@ -223,6 +199,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     );
   }
 
+  /// Simple audience controls
   Widget _buildAudienceBottomControls() {
     return Container(
       padding: const EdgeInsets.all(HermesSpacing.md),
@@ -265,7 +242,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                Icon(Icons.check_circle, color: Colors.white, size: 20),
                 const SizedBox(width: HermesSpacing.sm),
                 Text('Session code copied: $sessionCode'),
               ],
@@ -278,6 +255,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     }
   }
 
+  /// IMPROVED: Better end session dialog with clear consequences
   Future<void> _showEndSessionDialog() async {
     final sessionState = ref.read(hermesControllerProvider);
     final audienceCount = sessionState.when(
@@ -357,6 +335,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     }
   }
 
+  /// IMPROVED: Better session info dialog
   void _showSessionDetails() {
     final sessionState = ref.read(hermesControllerProvider);
     final sessionService = getIt<ISessionService>();
@@ -392,7 +371,9 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
                           ),
                         ),
                     ]),
+
                     const SizedBox(height: HermesSpacing.md),
+
                     _buildInfoSection('Audience', [
                       _buildDetailRow(
                         'Total Listeners',
@@ -485,6 +466,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
 
   String _getLanguageName(String? languageCode) {
     if (languageCode == null) return 'Unknown';
+    // Simple mapping - in a real app, you'd use the language helpers
     switch (languageCode) {
       case 'en-US':
         return 'English (US)';
@@ -500,6 +482,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
   }
 
   String _getStatusText(state) {
+    // Use the same status text from the original file
     switch (state.runtimeType.toString()) {
       case 'HermesStatus.idle':
         return 'Ready';
@@ -540,6 +523,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     try {
       await ref.read(hermesControllerProvider.notifier).stop();
       if (mounted) {
+        // Navigate to home with a success message
         Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -561,6 +545,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     }
   }
 
+  /// Handles manual exit (e.g., from audience controls)
   Future<void> _handleManualExit() async {
     await context.smartGoBack(ref);
   }
@@ -576,6 +561,7 @@ class _ActiveSessionSkeleton extends StatelessWidget {
 
     return Column(
       children: [
+        // Header skeleton
         Container(
           height: 60,
           color: theme.colorScheme.surface,
@@ -602,7 +588,10 @@ class _ActiveSessionSkeleton extends StatelessWidget {
             ],
           ),
         ),
+
         const SizedBox(height: HermesSpacing.md),
+
+        // Main content skeleton
         Expanded(
           child: Container(
             margin: const EdgeInsets.all(HermesSpacing.md),
@@ -612,6 +601,8 @@ class _ActiveSessionSkeleton extends StatelessWidget {
             ),
           ),
         ),
+
+        // Bottom controls skeleton
         Container(
           height: 100,
           color: theme.colorScheme.surface,
