@@ -37,7 +37,7 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const HermesAppBar(),
+      appBar: _buildContextAwareAppBar(),
       body: SafeArea(
         child: Column(
           children: [
@@ -54,6 +54,36 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
         ),
       ),
     );
+  }
+
+  /// Builds context-aware app bar based on current state
+  HermesAppBar _buildContextAwareAppBar() {
+    switch (currentState) {
+      case SessionPageState.languageSelection:
+        return const HermesAppBar(
+          customTitle: 'Start New Session',
+          // Simple back navigation to home
+        );
+
+      case SessionPageState.sessionLobby:
+        return HermesAppBar(
+          customTitle: 'Session Lobby',
+          // Force show back button and override navigation
+          forceShowBack: true,
+          customBackMessage:
+              'Are you sure you want to cancel this session? The session code will be lost.',
+          customBackTitle: 'Cancel Session',
+        );
+
+      case SessionPageState.activeSession:
+        return const HermesAppBar(
+          customTitle: 'Live Session',
+          // Smart session-aware navigation (handled automatically)
+          customBackMessage:
+              'Are you sure you want to end this session? All audience members will be disconnected.',
+          customBackTitle: 'End Session',
+        );
+    }
   }
 
   Widget _buildStateHeader() {
@@ -135,9 +165,7 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
       children: [
         // Speaker control panel (simplified for active sessions)
         SpeakerControlPanel(languageCode: selectedLanguage!.code),
-
         const SizedBox(height: HermesSpacing.sm),
-
         // Session controls
         _buildSessionControls(),
       ],

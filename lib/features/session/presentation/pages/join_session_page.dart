@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
 import 'package:hermes/features/session/presentation/utils/language_helpers.dart';
+import 'package:hermes/core/presentation/constants/spacing.dart';
 import '../controllers/session_code_input_controller.dart';
 import '../widgets/organisms/session_header.dart';
 import '../widgets/organisms/session_join_form.dart';
@@ -13,6 +14,8 @@ import '../widgets/organisms/language_selector.dart';
 
 /// Page for audience members to join existing sessions.
 /// Handles session code input and target language selection.
+///
+/// Features simple back navigation since no active session exists yet.
 class JoinSessionPage extends ConsumerStatefulWidget {
   const JoinSessionPage({super.key});
 
@@ -27,7 +30,8 @@ class _JoinSessionPageState extends ConsumerState<JoinSessionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const HermesAppBar(),
+      // Simple back navigation - no session confirmation needed
+      appBar: const HermesAppBar(customTitle: 'Join Session'),
       body: SafeArea(
         child: Column(
           children: [
@@ -37,7 +41,7 @@ class _JoinSessionPageState extends ConsumerState<JoinSessionPage> {
             // Main content
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(HermesSpacing.md),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -47,22 +51,10 @@ class _JoinSessionPageState extends ConsumerState<JoinSessionPage> {
                       onJoin: _handleJoinSession,
                     ),
 
-                    const SizedBox(height: 24),
+                    const SizedBox(height: HermesSpacing.lg),
 
-                    // Language selection
-                    Text(
-                      'Select Translation Language',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 16),
-
-                    LanguageSelector(
-                      selectedLanguageCode: selectedLanguage?.code,
-                      maxHeight: 300,
-                      onLanguageSelected: (language) {
-                        setState(() => selectedLanguage = language);
-                      },
-                    ),
+                    // Language selection section
+                    _buildLanguageSelectionSection(),
                   ],
                 ),
               ),
@@ -70,6 +62,149 @@ class _JoinSessionPageState extends ConsumerState<JoinSessionPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildLanguageSelectionSection() {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section header
+        Row(
+          children: [
+            Icon(
+              Icons.translate_rounded,
+              size: 20,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: HermesSpacing.sm),
+            Text(
+              'Select Translation Language',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: HermesSpacing.xs),
+
+        Text(
+          'Choose the language you want to hear translations in',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+        ),
+
+        const SizedBox(height: HermesSpacing.md),
+
+        // Language selector
+        LanguageSelector(
+          selectedLanguageCode: selectedLanguage?.code,
+          maxHeight: 300,
+          onLanguageSelected: (language) {
+            setState(() => selectedLanguage = language);
+          },
+        ),
+
+        // Selected language preview
+        if (selectedLanguage != null) ...[
+          const SizedBox(height: HermesSpacing.md),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(HermesSpacing.md),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(HermesSpacing.sm),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  selectedLanguage!.flag,
+                  style: const TextStyle(fontSize: 24),
+                ),
+                const SizedBox(width: HermesSpacing.sm),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Selected Language',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    Text(
+                      selectedLanguage!.name,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                Icon(
+                  Icons.check_circle_rounded,
+                  color: theme.colorScheme.primary,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        const SizedBox(height: HermesSpacing.lg),
+
+        // Helpful tip
+        Container(
+          padding: const EdgeInsets.all(HermesSpacing.md),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest.withValues(
+              alpha: 0.5,
+            ),
+            borderRadius: BorderRadius.circular(HermesSpacing.sm),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.lightbulb_outline,
+                size: 20,
+                color: theme.colorScheme.outline,
+              ),
+              const SizedBox(width: HermesSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tip',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.outline,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: HermesSpacing.xs),
+                    Text(
+                      'You can change your translation language anytime during the session from the settings menu.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -83,6 +218,8 @@ class _JoinSessionPageState extends ConsumerState<JoinSessionPage> {
 
     try {
       final sessionCode = ref.read(sessionCodeInputProvider).value;
+
+      // Start joining the session
       await ref
           .read(hermesControllerProvider.notifier)
           .joinSession(sessionCode);
@@ -103,13 +240,33 @@ class _JoinSessionPageState extends ConsumerState<JoinSessionPage> {
 
   void _showLanguageRequiredSnackBar() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please select a language first')),
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.white),
+            SizedBox(width: 8),
+            Text('Please select a language first'),
+          ],
+        ),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
   void _showErrorSnackBar(String error) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Failed to join session: $error')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Failed to join session: $error')),
+          ],
+        ),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 }

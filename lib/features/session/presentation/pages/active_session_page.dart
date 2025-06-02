@@ -3,9 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 import 'package:hermes/core/service_locator.dart';
+import 'package:hermes/core/services/navigation/back_navigation_service.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
@@ -22,6 +22,7 @@ import '../widgets/organisms/audience_display.dart';
 /// - Real-time session status and audience tracking for speakers
 /// - Simplified, distraction-free interface during active speaking
 /// - Proper component separation based on architectural decisions
+/// - Now features smart back navigation that handles session cleanup automatically.
 class ActiveSessionPage extends ConsumerStatefulWidget {
   const ActiveSessionPage({super.key});
 
@@ -44,7 +45,15 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     final sessionState = ref.watch(hermesControllerProvider);
 
     return Scaffold(
-      appBar: const HermesAppBar(),
+      appBar: HermesAppBar(
+        // Custom confirmation messages based on user role
+        customBackTitle:
+            sessionService.isSpeaker ? 'End Session' : 'Leave Session',
+        customBackMessage:
+            sessionService.isSpeaker
+                ? 'Are you sure you want to end this session? All audience members will be disconnected.'
+                : 'Are you sure you want to leave this session?',
+      ),
       body: SafeArea(
         child: sessionState.when(
           data:
@@ -72,7 +81,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
           error:
               (error, _) => _ActiveSessionError(
                 error: error,
-                onRetry: () => context.go('/'),
+                onRetry: () => _handleManualExit(),
               ),
         ),
       ),
@@ -134,7 +143,7 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           TextButton.icon(
-            onPressed: () => _handleLeaveSession(context, ref),
+            onPressed: () => _handleManualExit(),
             icon: const Icon(Icons.exit_to_app),
             label: const Text('Leave Session'),
           ),
@@ -157,53 +166,11 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     }
   }
 
-  Future<void> _handleLeaveSession(BuildContext context, WidgetRef ref) async {
-    final sessionService = getIt<ISessionService>();
-    final actionText =
-        sessionService.isSpeaker ? 'End Session' : 'Leave Session';
-    final contentText =
-        sessionService.isSpeaker
-            ? 'Are you sure you want to end this session? All audience members will be disconnected.'
-            : 'Are you sure you want to leave this session?';
-
-    final confirmed = await _showConfirmationDialog(
-      context,
-      actionText,
-      contentText,
-    );
-
-    if (confirmed && context.mounted) {
-      await ref.read(hermesControllerProvider.notifier).stop();
-      if (context.mounted) {
-        context.go('/');
-      }
-    }
-  }
-
-  Future<bool> _showConfirmationDialog(
-    BuildContext context,
-    String title,
-    String content,
-  ) async {
-    return await showDialog<bool>(
-          context: context,
-          builder:
-              (context) => AlertDialog(
-                title: Text(title),
-                content: Text(content),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: const Text('Cancel'),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    child: Text(title),
-                  ),
-                ],
-              ),
-        ) ??
-        false;
+  /// Handles manual exit (e.g., from audience controls)
+  /// The back button will be handled automatically by HermesAppBar
+  Future<void> _handleManualExit() async {
+    // Use the same smart navigation logic as the back button
+    await context.smartGoBack(ref);
   }
 }
 
