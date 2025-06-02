@@ -81,11 +81,11 @@ Future<void> setupServiceLocator() async {
   // 👤 Authentication
   getIt.registerLazySingleton<IAuthService>(() => AuthServiceImpl());
 
-  // 🎛️ Session orchestration (only needs socket & logger now)
+  // 🎛️ Session management - 🎯 SIMPLIFIED: Only needs logger now
   getIt.registerLazySingleton<ISessionService>(
     () => SessionServiceImpl(
-      socketService: getIt<ISocketService>(),
       logger: getIt<ILoggerService>(),
+      // 🎯 NO MORE SOCKET DEPENDENCY: Socket connection moved to speaker engine
     ),
   );
 
@@ -112,7 +112,7 @@ Future<void> setupServiceLocator() async {
     ),
   );
 
-  // Speaker engine
+  // Speaker engine - 🎯 HANDLES ALL CONNECTION LOGIC NOW
   getIt.registerLazySingleton<SpeakerEngine>(
     () => SpeakerEngine(
       permission: getIt<IPermissionService>(),

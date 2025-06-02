@@ -3,21 +3,15 @@ import 'dart:math';
 
 import 'session_info.dart';
 import 'session_service.dart';
-import '../socket/socket_service.dart';
 import '../logger/logger_service.dart';
 
 class SessionServiceImpl implements ISessionService {
-  final ISocketService _socketService;
   final ILoggerService _logger;
 
   SessionInfo? _session;
   bool _isSpeaker = false;
 
-  SessionServiceImpl({
-    required ISocketService socketService,
-    required ILoggerService logger,
-  }) : _socketService = socketService,
-       _logger = logger;
+  SessionServiceImpl({required ILoggerService logger}) : _logger = logger;
 
   @override
   bool get isSpeaker => _isSpeaker;
@@ -40,8 +34,14 @@ class SessionServiceImpl implements ISessionService {
       startedAt: DateTime.now(),
     );
     _isSpeaker = true;
-    _logger.logInfo('Started session: $sessionId', context: 'SessionService');
-    await _socketService.connect(sessionId);
+
+    _logger.logInfo(
+      'Session created: $sessionId (socket connection deferred until Go Live)',
+      context: 'SessionService',
+    );
+
+    // 🎯 KEY CHANGE: No socket connection here!
+    // Socket will be connected when speaker actually goes live
   }
 
   @override
@@ -52,8 +52,13 @@ class SessionServiceImpl implements ISessionService {
       startedAt: DateTime.now(),
     );
     _isSpeaker = false;
-    _logger.logInfo('Joined session: $sessionCode', context: 'SessionService');
-    await _socketService.connect(sessionCode);
+
+    _logger.logInfo(
+      'Joined session: $sessionCode (audience mode)',
+      context: 'SessionService',
+    );
+
+    // Note: Audience will connect socket when joining active session page
   }
 
   @override
@@ -74,17 +79,26 @@ class SessionServiceImpl implements ISessionService {
 
   @override
   Future<void> endSession() async {
-    await _socketService.disconnect();
-    _logger.logInfo('Session ended', context: 'SessionService');
+    if (_session != null) {
+      _logger.logInfo(
+        'Session ${_session!.sessionId} ended',
+        context: 'SessionService',
+      );
+    }
+
     _session = null;
     _isSpeaker = false;
   }
 
   @override
   Future<void> leaveSession() async {
-    // For audience explicitly leaving without "ending" a speaker session
-    await _socketService.disconnect();
-    _logger.logInfo('Left session', context: 'SessionService');
+    if (_session != null) {
+      _logger.logInfo(
+        'Left session ${_session!.sessionId}',
+        context: 'SessionService',
+      );
+    }
+
     _session = null;
     _isSpeaker = false;
   }

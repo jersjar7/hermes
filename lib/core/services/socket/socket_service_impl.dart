@@ -20,15 +20,21 @@ class SocketServiceImpl implements ISocketService {
   bool _intentionalDisconnect = false;
   String? _currentSessionId;
 
-  // Improved reconnection logic
+  // Improved reconnection logic - INFINITE RECONNECTIONS during active sessions
   Timer? _reconnectTimer;
   Timer? _heartbeatTimer;
   int _reconnectAttempts = 0;
-  static const int _maxReconnectAttempts =
-      10; // More attempts for long sessions
-  static const Duration _baseReconnectDelay = Duration(seconds: 3);
-  static const Duration _maxReconnectDelay = Duration(seconds: 30);
+
+  // Reconnection configuration
+  static const Duration _baseReconnectDelay = Duration(seconds: 2);
+  static const Duration _maxReconnectDelay = Duration(
+    seconds: 30,
+  ); // Cap backoff at 30s
   static const Duration _heartbeatInterval = Duration(seconds: 45);
+
+  // Reset attempt counter after successful connection for this duration
+  static const Duration _successfulConnectionWindow = Duration(minutes: 2);
+  Timer? _resetAttemptsTimer;
 
   SocketServiceImpl(this._logger);
 
@@ -42,7 +48,7 @@ class SocketServiceImpl implements ISocketService {
   Future<void> connect(String sessionId) async {
     _currentSessionId = sessionId;
     _intentionalDisconnect = false;
-    _reconnectAttempts = 0;
+    _reconnectAttempts = 0; // Reset attempts for new session
     await _connectInternal();
   }
 
@@ -67,12 +73,14 @@ class SocketServiceImpl implements ISocketService {
       await _channel!.ready;
 
       _connected = true;
-      _reconnectAttempts = 0; // Reset only on successful connection
 
       _logger.logInfo(
-        'Successfully connected to session $_currentSessionId',
+        'Successfully connected to session $_currentSessionId after ${_reconnectAttempts + 1} attempts',
         context: 'SocketService',
       );
+
+      // Connection successful - reset attempts counter after a delay
+      _scheduleAttemptsReset();
 
       // Start heartbeat to keep connection alive
       _startHeartbeat();
@@ -87,11 +95,25 @@ class SocketServiceImpl implements ISocketService {
     } catch (e) {
       _logger.logError('Connection failed: $e', context: 'SocketService');
       _connected = false;
+      _reconnectAttempts++; // Increment attempts only on failure
 
       if (!_intentionalDisconnect) {
         _scheduleReconnect();
       }
     }
+  }
+
+  void _scheduleAttemptsReset() {
+    _resetAttemptsTimer?.cancel();
+    _resetAttemptsTimer = Timer(_successfulConnectionWindow, () {
+      if (_connected) {
+        _logger.logInfo(
+          'Resetting reconnection attempt counter after successful connection',
+          context: 'SocketService',
+        );
+        _reconnectAttempts = 0;
+      }
+    });
   }
 
   void _handleMessage(dynamic raw) {
@@ -115,6 +137,7 @@ class SocketServiceImpl implements ISocketService {
     _stopHeartbeat();
 
     if (!_intentionalDisconnect) {
+      _reconnectAttempts++;
       _scheduleReconnect();
     }
   }
@@ -125,6 +148,7 @@ class SocketServiceImpl implements ISocketService {
     _stopHeartbeat();
 
     if (!_intentionalDisconnect) {
+      _reconnectAttempts++;
       _scheduleReconnect();
     }
   }
@@ -141,6 +165,7 @@ class SocketServiceImpl implements ISocketService {
         } catch (e) {
           _logger.logError('Heartbeat failed: $e', context: 'SocketService');
           _connected = false;
+          _reconnectAttempts++;
           _scheduleReconnect();
         }
       } else {
@@ -158,14 +183,21 @@ class SocketServiceImpl implements ISocketService {
   Future<void> send(SocketEvent event) async {
     if (!_connected || _channel == null) {
       _logger.logError(
-        'Cannot send - socket not connected',
+        'Cannot send - socket not connected (will retry when connection restored)',
         context: 'SocketService',
       );
 
-      // Try to reconnect if we have a session
+      // Try to reconnect if we have a session and aren't intentionally disconnected
       if (_currentSessionId != null && !_intentionalDisconnect) {
         _scheduleReconnect();
       }
+
+      // For now, we'll just log that the message was lost
+      // In the future, we could implement local buffering here
+      _logger.logInfo(
+        'Message lost due to disconnection: ${event.type}',
+        context: 'SocketService',
+      );
       return;
     }
 
@@ -176,6 +208,7 @@ class SocketServiceImpl implements ISocketService {
     } catch (e) {
       _logger.logError('Failed to send message: $e', context: 'SocketService');
       _connected = false;
+      _reconnectAttempts++;
 
       if (!_intentionalDisconnect) {
         _scheduleReconnect();
@@ -197,6 +230,8 @@ class SocketServiceImpl implements ISocketService {
     // Cancel timers
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _resetAttemptsTimer?.cancel();
+    _resetAttemptsTimer = null;
     _stopHeartbeat();
 
     // Reset reconnection attempts
@@ -213,54 +248,52 @@ class SocketServiceImpl implements ISocketService {
     // Don't reconnect if disconnecting intentionally or no session
     if (_intentionalDisconnect || _currentSessionId == null) return;
 
-    // Don't exceed max attempts
-    if (_reconnectAttempts >= _maxReconnectAttempts) {
-      _logger.logError(
-        'Max reconnection attempts reached for $_currentSessionId',
-        context: 'SocketService',
-      );
-      _controller.addError(
-        'Connection failed after $_maxReconnectAttempts attempts',
-      );
-      return;
-    }
-
     _reconnectTimer?.cancel();
 
-    // Progressive backoff with jitter: 3s, 6s, 12s, 24s, 30s (max)
+    // Intelligent backoff with jitter
+    // Starts at 2s, grows exponentially but caps at 30s
     final backoffSeconds = (_baseReconnectDelay.inSeconds *
-            (1 << _reconnectAttempts))
+            (1 <<
+                _reconnectAttempts.clamp(
+                  0,
+                  4,
+                ))) // Cap exponential growth at 2^4 = 16
         .clamp(_baseReconnectDelay.inSeconds, _maxReconnectDelay.inSeconds);
 
-    // Add jitter to prevent thundering herd
-    final jitter =
-        (backoffSeconds *
-            0.1 *
-            (DateTime.now().millisecondsSinceEpoch % 100) /
-            100);
-    final delay = Duration(seconds: (backoffSeconds + jitter).round());
-
-    _reconnectAttempts++;
+    // Add jitter to prevent thundering herd (±20% randomization)
+    final jitterFactor =
+        0.8 + (DateTime.now().millisecondsSinceEpoch % 100) / 250;
+    final delaySeconds = (backoffSeconds * jitterFactor).round();
+    final delay = Duration(seconds: delaySeconds);
 
     _logger.logInfo(
-      'Scheduling reconnect attempt $_reconnectAttempts in ${delay.inSeconds}s',
+      'Scheduling reconnect attempt ${_reconnectAttempts + 1} in ${delay.inSeconds}s (infinite retries enabled)',
       context: 'SocketService',
     );
 
     _reconnectTimer = Timer(delay, () {
       if (_currentSessionId != null && !_intentionalDisconnect) {
         _logger.logInfo(
-          'Reconnecting to $_currentSessionId (attempt $_reconnectAttempts)',
+          'Reconnecting to $_currentSessionId (attempt ${_reconnectAttempts + 1})',
           context: 'SocketService',
         );
         _connectInternal();
       }
     });
+
+    // Log status every 10 attempts to show we're still trying
+    if (_reconnectAttempts > 0 && _reconnectAttempts % 10 == 0) {
+      _logger.logInfo(
+        'Still attempting to reconnect to $_currentSessionId ($_reconnectAttempts attempts so far)',
+        context: 'SocketService',
+      );
+    }
   }
 
   void dispose() {
     _intentionalDisconnect = true;
     _reconnectTimer?.cancel();
+    _resetAttemptsTimer?.cancel();
     _stopHeartbeat();
     _controller.close();
     _channel?.sink.close();

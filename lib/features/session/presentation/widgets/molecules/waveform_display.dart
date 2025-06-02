@@ -6,6 +6,7 @@ import '../atoms/waveform_bar.dart';
 
 /// Audio waveform visualization using multiple animated bars.
 /// Shows speaking activity during speech-to-text input.
+/// 🎯 FIXED: Container height is now fixed to prevent layout shifts.
 class WaveformDisplay extends StatelessWidget {
   final bool isActive;
   final int barCount;
@@ -25,20 +26,26 @@ class WaveformDisplay extends StatelessWidget {
     final theme = Theme.of(context);
     final waveColor = color ?? theme.colorScheme.primary;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        for (int i = 0; i < barCount; i++) ...[
-          WaveformBar(
-            maxHeight: _getBarHeight(i),
-            color: isActive ? waveColor : waveColor.withValues(alpha: 0.3),
-            isAnimating: isActive,
-            animationDelay: Duration(milliseconds: i * 100),
-          ),
-          if (i < barCount - 1) const SizedBox(width: HermesSpacing.xs),
-        ],
-      ],
+    return SizedBox(
+      // 🎯 KEY FIX: Fixed height container prevents layout shifts
+      height: maxHeight + 20, // Extra padding for visual balance
+      child: Center(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            for (int i = 0; i < barCount; i++) ...[
+              WaveformBar(
+                maxHeight: _getBarHeight(i),
+                color: isActive ? waveColor : waveColor.withValues(alpha: 0.3),
+                isAnimating: isActive,
+                animationDelay: Duration(milliseconds: i * 100),
+              ),
+              if (i < barCount - 1) const SizedBox(width: HermesSpacing.xs),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -48,5 +55,23 @@ class WaveformDisplay extends StatelessWidget {
     final distance = (index - middle).abs();
     final factor = 1.0 - (distance * 0.15);
     return maxHeight * factor.clamp(0.3, 1.0);
+  }
+}
+
+/// 🎯 NEW: Compact version for smaller spaces with guaranteed fixed height
+class CompactWaveformDisplay extends StatelessWidget {
+  final bool isActive;
+  final Color? color;
+
+  const CompactWaveformDisplay({super.key, required this.isActive, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return WaveformDisplay(
+      isActive: isActive,
+      barCount: 5,
+      maxHeight: 24.0,
+      color: color,
+    );
   }
 }

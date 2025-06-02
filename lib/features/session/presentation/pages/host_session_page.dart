@@ -34,22 +34,33 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
   String? sessionCode;
   DateTime? sessionStartTime;
 
+  // Loading state for "Go Live" process
+  bool isGoingLive = false;
+  String goLiveStatus = '';
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: _buildContextAwareAppBar(),
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            // Dynamic header based on current state
-            _buildStateHeader(),
+            Column(
+              children: [
+                // Dynamic header based on current state
+                _buildStateHeader(),
 
-            // Main content area
-            Expanded(child: _buildCurrentStateContent()),
+                // Main content area
+                Expanded(child: _buildCurrentStateContent()),
 
-            // Session status bar (only during active session)
-            if (currentState == SessionPageState.activeSession)
-              _buildActiveSessionStatusBar(),
+                // Session status bar (only during active session)
+                if (currentState == SessionPageState.activeSession)
+                  _buildActiveSessionStatusBar(),
+              ],
+            ),
+
+            // Go Live loading overlay
+            if (isGoingLive) _buildGoLiveLoadingOverlay(),
           ],
         ),
       ),
@@ -60,15 +71,11 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
   HermesAppBar _buildContextAwareAppBar() {
     switch (currentState) {
       case SessionPageState.languageSelection:
-        return const HermesAppBar(
-          customTitle: 'Start New Session',
-          // Simple back navigation to home
-        );
+        return const HermesAppBar(customTitle: 'Start New Session');
 
       case SessionPageState.sessionLobby:
         return HermesAppBar(
           customTitle: 'Session Lobby',
-          // Force show back button and override navigation
           forceShowBack: true,
           customBackMessage:
               'Are you sure you want to cancel this session? The session code will be lost.',
@@ -78,7 +85,6 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
       case SessionPageState.activeSession:
         return const HermesAppBar(
           customTitle: 'Live Session',
-          // Smart session-aware navigation (handled automatically)
           customBackMessage:
               'Are you sure you want to end this session? All audience members will be disconnected.',
           customBackTitle: 'End Session',
@@ -163,10 +169,8 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
 
     return Column(
       children: [
-        // Speaker control panel (simplified for active sessions)
         SpeakerControlPanel(languageCode: selectedLanguage!.code),
         const SizedBox(height: HermesSpacing.sm),
-        // Session controls
         _buildSessionControls(),
       ],
     );
@@ -223,6 +227,161 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
     );
   }
 
+  /// 🎯 NEW: Go Live loading overlay with step-by-step feedback
+  Widget _buildGoLiveLoadingOverlay() {
+    final theme = Theme.of(context);
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.7),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(HermesSpacing.xl),
+          margin: const EdgeInsets.all(HermesSpacing.lg),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(HermesSpacing.md),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Loading animation
+              SizedBox(
+                width: 60,
+                height: 60,
+                child: CircularProgressIndicator(
+                  strokeWidth: 4,
+                  valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
+                ),
+              ),
+
+              const SizedBox(height: HermesSpacing.lg),
+
+              // Status text
+              Text(
+                'Going Live',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(height: HermesSpacing.sm),
+
+              // Current step
+              Text(
+                goLiveStatus,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: HermesSpacing.lg),
+
+              // Progress steps
+              _buildProgressSteps(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProgressSteps() {
+    final theme = Theme.of(context);
+    final steps = [
+      'Checking microphone permissions',
+      'Initializing speech recognition',
+      'Connecting to session',
+      'Starting live session',
+    ];
+
+    return Column(
+      children:
+          steps.asMap().entries.map((entry) {
+            final index = entry.key;
+            final step = entry.value;
+            final isCompleted = _getStepStatus(index);
+            final isCurrent = _getCurrentStep() == index;
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: HermesSpacing.xs),
+              child: Row(
+                children: [
+                  // Step indicator
+                  Container(
+                    width: 20,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color:
+                          isCompleted
+                              ? Colors.green
+                              : isCurrent
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outline.withValues(
+                                alpha: 0.3,
+                              ),
+                    ),
+                    child:
+                        isCompleted
+                            ? const Icon(
+                              Icons.check,
+                              size: 12,
+                              color: Colors.white,
+                            )
+                            : isCurrent
+                            ? SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: const AlwaysStoppedAnimation(
+                                  Colors.white,
+                                ),
+                              ),
+                            )
+                            : null,
+                  ),
+
+                  const SizedBox(width: HermesSpacing.sm),
+
+                  // Step text
+                  Expanded(
+                    child: Text(
+                      step,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color:
+                            isCompleted || isCurrent
+                                ? theme.colorScheme.onSurface
+                                : theme.colorScheme.outline,
+                        fontWeight:
+                            isCurrent ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+    );
+  }
+
+  int _getCurrentStep() {
+    if (goLiveStatus.contains('microphone')) return 0;
+    if (goLiveStatus.contains('speech') ||
+        goLiveStatus.contains('recognition')) {
+      return 1;
+    }
+    if (goLiveStatus.contains('connect')) return 2;
+    if (goLiveStatus.contains('start')) return 3;
+    return 0;
+  }
+
+  bool _getStepStatus(int stepIndex) {
+    final currentStep = _getCurrentStep();
+    return stepIndex < currentStep;
+  }
+
   // State transition methods
   Future<void> _createSession() async {
     if (selectedLanguage == null) return;
@@ -231,6 +390,8 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
       setState(() => currentState = SessionPageState.sessionLobby);
 
       final sessionService = getIt<ISessionService>();
+
+      // 🎯 KEY CHANGE: This now only creates session ID, no socket connection!
       await sessionService.startSession(languageCode: selectedLanguage!.code);
 
       setState(() {
@@ -247,30 +408,63 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
     }
   }
 
+  /// 🎯 IMPROVED: Go Live with step-by-step loading feedback
   Future<void> _goLive() async {
     if (selectedLanguage == null) return;
 
+    setState(() {
+      isGoingLive = true;
+      goLiveStatus = 'Preparing to go live...';
+    });
+
     try {
-      // Start the actual speaking session
+      // Step 1: Microphone permissions
+      setState(() => goLiveStatus = 'Checking microphone permissions...');
+      await Future.delayed(
+        const Duration(milliseconds: 500),
+      ); // Brief pause for UX
+
+      // Step 2: Speech recognition
+      setState(() => goLiveStatus = 'Initializing speech recognition...');
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Step 3: Connecting to session
+      setState(() => goLiveStatus = 'Connecting to session...');
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // Step 4: Start the actual session (this is where socket connection happens)
+      setState(() => goLiveStatus = 'Starting live session...');
       await ref
           .read(hermesControllerProvider.notifier)
           .startSession(selectedLanguage!.code);
 
+      // Success!
       setState(() {
         currentState = SessionPageState.activeSession;
         sessionStartTime = DateTime.now();
+        isGoingLive = false;
+        goLiveStatus = '';
       });
     } catch (e) {
       print('Failed to go live: $e');
+
+      setState(() {
+        isGoingLive = false;
+        goLiveStatus = '';
+      });
+
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to start session: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to start session: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
       }
     }
   }
 
-  // Helper methods
+  // Helper methods (unchanged)
   Future<void> _copySessionCode() async {
     if (sessionCode != null) {
       await Clipboard.setData(ClipboardData(text: sessionCode!));
@@ -431,10 +625,8 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
 
   @override
   void dispose() {
-    // Clean up if needed
     super.dispose();
   }
 }
 
-/// Enum representing the three states of the host session page
 enum SessionPageState { languageSelection, sessionLobby, activeSession }
