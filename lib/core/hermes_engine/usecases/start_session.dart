@@ -76,6 +76,19 @@ class StartSessionUseCase {
       print('✅ [StartSession] STT service initialized successfully');
       logger.info('✅ Speech recognition ready', tag: 'StartSession');
 
+      // 🎯 NEW: Step 2.5: Set the STT locale to match selected language
+      logger.info(
+        '🌍 Setting STT locale to: $languageCode',
+        tag: 'StartSession',
+      );
+      print('🌍 [StartSession] Setting STT locale to: $languageCode');
+
+      final sttLocale = _convertLanguageCodeToSTTFormat(languageCode);
+      await sttService.setLocale(sttLocale);
+
+      print('✅ [StartSession] STT locale set to: $sttLocale');
+      logger.info('✅ STT locale configured', tag: 'StartSession');
+
       // Step 3: Start session
       logger.info('📱 Creating session...', tag: 'StartSession');
       print('📱 [StartSession] Starting session with language: $languageCode');
@@ -110,6 +123,13 @@ class StartSessionUseCase {
         throw EngineErrorOccurred('Failed to start session: ${e.toString()}');
       }
     }
+  }
+
+  /// 🎯 FIXED: No conversion needed - iOS STT expects dash format
+  /// Example: 'es-ES' -> 'es-ES', 'en-US' -> 'en-US'
+  String _convertLanguageCodeToSTTFormat(String languageCode) {
+    // iOS expects dash format, so no conversion needed
+    return languageCode;
   }
 
   Future<void> _joinAudienceSession(String sessionCode) async {

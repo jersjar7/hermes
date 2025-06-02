@@ -12,7 +12,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   final ILoggerService _logger;
   bool _isAvailable = false;
   bool _isListening = false;
-  String _locale = 'en_US';
+  String _locale = 'en-US';
 
   // For managing finalization timeouts
   Timer? _finalizationTimer;
@@ -287,17 +287,94 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   Future<bool> get hasPermission async => _isAvailable;
 
   @override
-  Future<List<LocaleName>> getSupportedLocales() async {
-    final locales = await _speech.locales();
-    return locales
-        .map((e) => LocaleName(localeId: e.localeId, name: e.name))
-        .toList();
-  }
-
-  @override
   Future<void> setLocale(String localeId) async {
     print('🌍 [STTService] Setting locale to: $localeId');
+
+    // Validate that the locale is supported
+    final supportedLocales = await getSupportedLocales();
+
+    // Check for exact match first
+    bool isSupported = supportedLocales.any(
+      (locale) => locale.localeId.toLowerCase() == localeId.toLowerCase(),
+    );
+
+    // If no exact match, try with format conversion (dash <-> underscore)
+    if (!isSupported) {
+      final alternateFormat =
+          localeId.contains('-')
+              ? localeId.replaceAll('-', '_')
+              : localeId.replaceAll('_', '-');
+
+      isSupported = supportedLocales.any(
+        (locale) =>
+            locale.localeId.toLowerCase() == alternateFormat.toLowerCase(),
+      );
+
+      if (isSupported) {
+        print('🔄 [STTService] Using alternate format: $alternateFormat');
+        _locale = alternateFormat;
+        print('✅ [STTService] Successfully set locale to: $_locale');
+        return;
+      }
+    }
+
+    // If still no match, try language part only (e.g., 'es' from 'es-ES')
+    if (!isSupported) {
+      final languagePart = localeId.split(RegExp(r'[-_]'))[0];
+      isSupported = supportedLocales.any(
+        (locale) =>
+            locale.localeId.split(RegExp(r'[-_]'))[0].toLowerCase() ==
+            languagePart.toLowerCase(),
+      );
+
+      if (isSupported) {
+        // Find the first matching locale for this language
+        final matchingLocale = supportedLocales.firstWhere(
+          (locale) =>
+              locale.localeId.split(RegExp(r'[-_]'))[0].toLowerCase() ==
+              languagePart.toLowerCase(),
+        );
+        print(
+          '🔄 [STTService] Using available variant: ${matchingLocale.localeId}',
+        );
+        _locale = matchingLocale.localeId;
+        print('✅ [STTService] Successfully set locale to: $_locale');
+        return;
+      }
+    }
+
+    if (!isSupported) {
+      print(
+        '⚠️ [STTService] Locale $localeId not supported, falling back to en-US',
+      );
+      _logger.logError(
+        'Unsupported locale: $localeId, available: ${supportedLocales.map((l) => l.localeId).join(", ")}',
+        context: 'STT',
+      );
+      // Fall back to English but log the issue
+      _locale = 'en-US'; // Use dash format for iOS
+      return;
+    }
+
     _locale = localeId;
+    print('✅ [STTService] Successfully set locale to: $_locale');
+  }
+
+  /// 🎯 NEW: Get available locales for debugging
+  @override
+  Future<List<LocaleName>> getSupportedLocales() async {
+    try {
+      final locales = await _speech.locales();
+      print(
+        '📋 [STTService] Available locales: ${locales.map((l) => l.localeId).take(10).join(", ")}...',
+      );
+      return locales
+          .map((e) => LocaleName(localeId: e.localeId, name: e.name))
+          .toList();
+    } catch (e) {
+      print('❌ [STTService] Failed to get supported locales: $e');
+      return [];
+    }
   }
 
   @override
