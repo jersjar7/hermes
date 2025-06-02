@@ -9,16 +9,18 @@ import 'package:hermes/core/services/navigation/back_navigation_service.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
-import 'package:hermes/core/presentation/constants/hermes_icons.dart';
 import '../widgets/organisms/session_header.dart';
 import '../widgets/organisms/speaker_control_panel.dart';
 import '../widgets/organisms/session_status_bar.dart';
 import '../widgets/organisms/audience_display.dart';
+import '../widgets/organisms/transcript_chat_box.dart';
 
-/// Active session page with improved UX and clear separation of controls:
-/// - Speaking controls are in the main control panel
-/// - Session controls are in a dedicated bottom control bar
-/// - Clean visual hierarchy with no redundant buttons
+/// Active session page with redesigned speaker view:
+/// 1. App bar
+/// 2. Speaker controls (compact)
+/// 3. Fixed-size transcript chat box
+/// 4. Session control buttons row
+/// 5. Session status bar
 class ActiveSessionPage extends ConsumerStatefulWidget {
   const ActiveSessionPage({super.key});
 
@@ -58,17 +60,15 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
                   // Minimal session header
                   const SessionHeader(showMinimal: true),
 
-                  // Main content area
-                  Expanded(
-                    child:
-                        sessionService.isSpeaker
-                            ? _buildSpeakerView(sessionService, state)
-                            : _buildAudienceView(sessionService, state),
-                  ),
-
-                  // Clean bottom control bars (role-specific)
+                  // Main content area - different layout for speaker vs audience
                   if (sessionService.isSpeaker)
-                    _buildSpeakerBottomControls(sessionService, state)
+                    ..._buildSpeakerLayout(sessionService, state)
+                  else
+                    Expanded(child: _buildAudienceView(sessionService, state)),
+
+                  // Bottom controls based on role
+                  if (sessionService.isSpeaker)
+                    _buildSpeakerStatusBar(sessionService, state)
                   else
                     _buildAudienceBottomControls(),
                 ],
@@ -84,13 +84,38 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     );
   }
 
-  Widget _buildSpeakerView(ISessionService sessionService, state) {
-    return Padding(
-      padding: const EdgeInsets.all(HermesSpacing.md),
-      child: SpeakerControlPanel(
-        languageCode: sessionService.currentSession?.languageCode ?? 'en-US',
+  /// NEW: Speaker layout with fixed structure
+  List<Widget> _buildSpeakerLayout(ISessionService sessionService, state) {
+    return [
+      // 1. Compact speaker controls
+      Padding(
+        padding: const EdgeInsets.fromLTRB(
+          HermesSpacing.md,
+          HermesSpacing.sm,
+          HermesSpacing.md,
+          0,
+        ),
+        child: SpeakerControlPanel(
+          languageCode: sessionService.currentSession?.languageCode ?? 'en-US',
+          isCompact: true, // NEW: compact mode
+        ),
       ),
-    );
+
+      const SizedBox(height: HermesSpacing.sm),
+
+      // 2. Fixed-size transcript chat box (takes remaining space)
+      Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: HermesSpacing.md),
+          child: TranscriptChatBox(),
+        ),
+      ),
+
+      const SizedBox(height: HermesSpacing.sm),
+
+      // 3. Session control buttons row
+      _buildSessionControlsRow(),
+    ];
   }
 
   Widget _buildAudienceView(ISessionService sessionService, state) {
@@ -101,133 +126,76 @@ class _ActiveSessionPageState extends ConsumerState<ActiveSessionPage> {
     );
   }
 
-  /// IMPROVED: Clean speaker bottom controls with clear separation
-  Widget _buildSpeakerBottomControls(ISessionService sessionService, state) {
+  /// NEW: Clean session controls row (separate from speaking controls)
+  Widget _buildSessionControlsRow() {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: HermesSpacing.md,
+        vertical: HermesSpacing.sm,
+      ),
+      child: Row(
+        children: [
+          // End Session (primary destructive action)
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _showEndSessionDialog,
+              icon: Icon(
+                Icons.stop_rounded,
+                color: Theme.of(context).colorScheme.error,
+                size: 20,
+              ),
+              label: Text(
+                'End Session',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                  color: Theme.of(context).colorScheme.error,
+                  width: 2,
+                ),
+                padding: const EdgeInsets.symmetric(vertical: HermesSpacing.sm),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: HermesSpacing.md),
+
+          // Session Info (secondary action)
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _showSessionDetails,
+              icon: const Icon(Icons.info_outline, size: 20),
+              label: const Text(
+                'Session Info',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: HermesSpacing.sm),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Speaker status bar (compact version)
+  Widget _buildSpeakerStatusBar(ISessionService sessionService, state) {
     final sessionCode = sessionService.currentSession?.sessionId ?? '';
     final duration =
         sessionStartTime != null
             ? DateTime.now().difference(sessionStartTime!)
             : Duration.zero;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Session status bar (compact info)
-        SessionStatusBar(
-          sessionCode: sessionCode,
-          sessionDuration: duration,
-          audienceCount: state.audienceCount,
-          languageDistribution: state.languageDistribution,
-          onSessionCodeTap: () => _copySessionCode(sessionCode),
-        ),
-
-        // Session control bar (clearly separated from speaking controls)
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(HermesSpacing.md),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            border: Border(
-              top: BorderSide(
-                color: Theme.of(
-                  context,
-                ).colorScheme.outline.withValues(alpha: 0.2),
-                width: 1,
-              ),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Section label for clarity
-              Row(
-                children: [
-                  Icon(
-                    Icons.settings_outlined,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-                  const SizedBox(width: HermesSpacing.xs),
-                  Text(
-                    'Session Controls',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: HermesSpacing.sm),
-
-              // Session control buttons
-              Row(
-                children: [
-                  // End Session (primary destructive action)
-                  Expanded(
-                    flex: 2,
-                    child: OutlinedButton.icon(
-                      onPressed: _showEndSessionDialog,
-                      icon: Icon(
-                        Icons.stop_rounded,
-                        color: Theme.of(context).colorScheme.error,
-                        size: 18,
-                      ),
-                      label: Text(
-                        'End Session',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(width: HermesSpacing.sm),
-
-                  // Session Info (secondary action)
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _showSessionDetails,
-                      icon: const Icon(Icons.info_outline, size: 18),
-                      label: const Text('Info'),
-                    ),
-                  ),
-
-                  const SizedBox(width: HermesSpacing.sm),
-
-                  // Share Session Code (tertiary action)
-                  OutlinedButton(
-                    onPressed: () => _copySessionCode(sessionCode),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(HermesIcons.share, size: 16),
-                        const SizedBox(width: HermesSpacing.xs),
-                        Text('Share'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-
-              // Help text
-              const SizedBox(height: HermesSpacing.xs),
-              Text(
-                'End Session stops speaking and disconnects all audience members',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ],
+    return SessionStatusBar(
+      sessionCode: sessionCode,
+      sessionDuration: duration,
+      audienceCount: state.audienceCount,
+      languageDistribution: state.languageDistribution,
+      onSessionCodeTap: () => _copySessionCode(sessionCode),
     );
   }
 
