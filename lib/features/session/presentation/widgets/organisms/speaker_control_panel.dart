@@ -6,7 +6,6 @@ import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 import 'package:hermes/core/hermes_engine/state/hermes_status.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
 import 'package:hermes/core/presentation/constants/hermes_icons.dart';
-import 'package:hermes/core/presentation/widgets/buttons/primary_button.dart';
 import 'package:hermes/core/presentation/widgets/cards/elevated_card.dart';
 import '../molecules/waveform_display.dart';
 import '../molecules/countdown_widget.dart';
@@ -242,22 +241,11 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
 
     return Column(
       children: [
-        // Single pause/resume toggle button
+        // Smart color-coded pause/resume toggle button
         if (isSpeaking)
-          PrimaryButton(
-            label: 'Pause Speaking',
-            icon: HermesIcons.pause,
-            isFullWidth: true,
-            isLoading: isProcessing,
-            onPressed: isProcessing ? null : () => _handlePauseSpeaking(ref),
-          )
+          _buildPauseButton(context, ref, isProcessing)
         else if (isPaused)
-          PrimaryButton(
-            label: 'Resume Speaking',
-            icon: HermesIcons.microphone,
-            isFullWidth: true,
-            onPressed: () => _handleResumeSpeaking(ref),
-          )
+          _buildResumeButton(context, ref)
         else
           // Initial state - session starting
           Container(
@@ -339,11 +327,70 @@ class _SpeakerControlPanelState extends ConsumerState<SpeakerControlPanel> {
     return Icons.info_outline;
   }
 
+  /// Builds a caution-colored pause button (amber/outlined)
+  Widget _buildPauseButton(
+    BuildContext context,
+    WidgetRef ref,
+    bool isProcessing,
+  ) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton.icon(
+        onPressed: isProcessing ? null : () => _handlePauseSpeaking(ref),
+        icon:
+            isProcessing
+                ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation(Colors.amber),
+                  ),
+                )
+                : Icon(HermesIcons.pause, size: 20),
+        label: Text(
+          isProcessing ? 'Processing...' : 'Pause Speaking',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.amber.shade700,
+          side: BorderSide(color: Colors.amber.shade400, width: 2),
+          backgroundColor: Colors.amber.withValues(alpha: 0.1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+    );
+  }
+
+  /// Builds a prominent resume button (green/primary)
+  Widget _buildResumeButton(BuildContext context, WidgetRef ref) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: ElevatedButton.icon(
+        onPressed: () => _handleResumeSpeaking(ref),
+        icon: Icon(HermesIcons.microphone, size: 20),
+        label: Text(
+          'Resume Speaking',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green,
+          foregroundColor: Colors.white,
+          elevation: 2,
+          shadowColor: Colors.green.withValues(alpha: 0.3),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+    );
+  }
+
   String _getHelpText(bool isSpeaking, bool isPaused) {
     if (isSpeaking) {
-      return 'Your microphone is active. Speak clearly for best translation quality.';
+      return 'Your microphone is active. Tap the amber pause button if you need a break.';
     } else if (isPaused) {
-      return 'Your microphone is paused. Tap "Resume" to continue speaking.';
+      return 'Your microphone is paused. Tap the green resume button to continue speaking.';
     } else {
       return 'Use "End Session" below to stop the entire session for everyone.';
     }
