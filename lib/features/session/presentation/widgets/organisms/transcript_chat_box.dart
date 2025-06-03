@@ -10,8 +10,8 @@ import 'package:hermes/core/presentation/constants/durations.dart';
 import 'package:hermes/core/presentation/widgets/animations/fade_in_widget.dart';
 import 'package:hermes/core/presentation/widgets/animations/pulse_animation.dart';
 
-/// Enhanced chat-like transcript box that displays speaker's speech in real-time.
-/// Features elegant empty states and smooth animations with responsive sizing.
+/// Simplified transcript chat box that adapts to available space automatically.
+/// Removed complex responsive calculations in favor of Flutter's natural layout.
 class TranscriptChatBox extends ConsumerStatefulWidget {
   const TranscriptChatBox({super.key});
 
@@ -59,129 +59,56 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     final sessionState = ref.watch(hermesControllerProvider);
     final theme = Theme.of(context);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Calculate responsive sizes based on available space
-        final sizes = _calculateResponsiveSizes(constraints, context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(HermesSpacing.md),
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: 0.2),
+          width: 1,
+        ),
+      ),
+      child: sessionState.when(
+        data: (state) {
+          // 🎯 FIX: Use addPostFrameCallback to update state after build
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _updateTranscripts(state);
+          });
 
-        return Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(HermesSpacing.md),
-            border: Border.all(
-              color: theme.colorScheme.outline.withValues(alpha: 0.2),
-              width: 1,
-            ),
-          ),
-          child: sessionState.when(
-            data: (state) {
-              _updateTranscripts(state);
+          return Column(
+            children: [
+              // Header with dynamic status
+              _buildHeader(context, theme, state),
 
-              return Column(
-                children: [
-                  // Header with dynamic status
-                  _buildHeader(context, theme, state, sizes),
+              // Messages area - takes available space automatically
+              Expanded(
+                child: Stack(
+                  children: [
+                    _buildMessagesArea(context, theme, state),
+                    if (_showScrollToBottomButton)
+                      _buildScrollToBottomButton(context, theme),
+                  ],
+                ),
+              ),
 
-                  // Messages area - always visible
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        _buildMessagesArea(context, theme, state, sizes),
-                        if (_showScrollToBottomButton)
-                          _buildScrollToBottomButton(context, theme, sizes),
-                      ],
-                    ),
-                  ),
-
-                  // Current speaking indicator
-                  _buildCurrentSpeechIndicator(context, theme, state, sizes),
-                ],
-              );
-            },
-            loading: () => _buildLoadingState(context, theme, sizes),
-            error: (error, _) => _buildErrorState(context, theme, error, sizes),
-          ),
-        );
-      },
+              // Current speaking indicator
+              _buildCurrentSpeechIndicator(context, theme, state),
+            ],
+          );
+        },
+        loading: () => _buildLoadingState(context, theme),
+        error: (error, _) => _buildErrorState(context, theme, error),
+      ),
     );
   }
 
-  /// Calculate responsive sizes based on screen dimensions and available space
-  _ResponsiveSizes _calculateResponsiveSizes(
-    BoxConstraints constraints,
-    BuildContext context,
-  ) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final availableWidth = constraints.maxWidth;
-    final availableHeight = constraints.maxHeight;
-
-    // Base sizes for different screen categories
-    final isSmallScreen = screenWidth < 360 || screenHeight < 600;
-    final isMediumScreen = screenWidth >= 360 && screenWidth < 768;
-    final isLargeScreen = screenWidth >= 768;
-
-    // Calculate scale factor based on available space
-    final widthScale = (availableWidth / 320).clamp(0.8, 1.5);
-    final heightScale = (availableHeight / 400).clamp(0.8, 1.5);
-    final scale = (widthScale + heightScale) / 2;
-
-    return _ResponsiveSizes(
-      // Header sizes
-      headerIconSize: isSmallScreen ? 18 * scale : 20 * scale,
-
-      // Status indicator sizes
-      statusDotSize: isSmallScreen ? 5 * scale : 6 * scale,
-      statusFontSize: isSmallScreen ? 9 * scale : 10 * scale,
-
-      // Empty state sizes
-      emptyStateIconContainerSize:
-          isSmallScreen
-              ? 48 * scale
-              : (isMediumScreen ? 56 * scale : 64 * scale),
-      emptyStateIconSize:
-          isSmallScreen
-              ? 22 * scale
-              : (isMediumScreen ? 26 * scale : 28 * scale),
-
-      // Message bubble sizes
-      avatarSize:
-          isSmallScreen
-              ? 28 * scale
-              : (isMediumScreen ? 30 * scale : 32 * scale),
-      avatarIconSize:
-          isSmallScreen
-              ? 14 * scale
-              : (isMediumScreen ? 15 * scale : 16 * scale),
-
-      // Current speech indicator
-      speechDotSize: isSmallScreen ? 6 * scale : 8 * scale,
-
-      // Floating action button
-      fabSize: isSmallScreen ? 40 * scale : 48 * scale,
-
-      // Scale factor for general use
-      scale: scale,
-
-      // Screen category flags
-      isSmallScreen: isSmallScreen,
-      isMediumScreen: isMediumScreen,
-      isLargeScreen: isLargeScreen,
-    );
-  }
-
-  Widget _buildHeader(
-    BuildContext context,
-    ThemeData theme,
-    state,
-    _ResponsiveSizes sizes,
-  ) {
+  Widget _buildHeader(BuildContext context, ThemeData theme, state) {
     final isListening = state.status == HermesStatus.listening;
     final isTranslating = state.status == HermesStatus.translating;
     final hasActivity = isListening || isTranslating || _messages.isNotEmpty;
 
     return Container(
-      padding: EdgeInsets.all(HermesSpacing.md * sizes.scale),
+      padding: const EdgeInsets.all(HermesSpacing.md),
       decoration: BoxDecoration(
         color:
             hasActivity
@@ -206,14 +133,14 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
             maxScale: 1.05,
             child: Icon(
               _getHeaderIcon(state.status),
-              size: sizes.headerIconSize,
+              size: 20,
               color:
                   hasActivity
                       ? theme.colorScheme.primary
                       : theme.colorScheme.outline,
             ),
           ),
-          SizedBox(width: HermesSpacing.sm * sizes.scale),
+          const SizedBox(width: HermesSpacing.sm),
 
           Expanded(
             child: Column(
@@ -227,18 +154,12 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                             ? theme.colorScheme.primary
                             : theme.colorScheme.onSurface,
                     fontWeight: FontWeight.w600,
-                    fontSize:
-                        (theme.textTheme.titleSmall?.fontSize ?? 14) *
-                        sizes.scale,
                   ),
                 ),
                 Text(
                   _getHeaderSubtitle(state.status, _hasEverSpoken),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.outline,
-                    fontSize:
-                        (theme.textTheme.bodySmall?.fontSize ?? 12) *
-                        sizes.scale,
                   ),
                 ),
               ],
@@ -246,51 +167,44 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
           ),
 
           // Status indicator
-          _buildStatusIndicator(context, theme, state, sizes),
+          _buildStatusIndicator(context, theme, state),
         ],
       ),
     );
   }
 
-  Widget _buildStatusIndicator(
-    BuildContext context,
-    ThemeData theme,
-    state,
-    _ResponsiveSizes sizes,
-  ) {
+  Widget _buildStatusIndicator(BuildContext context, ThemeData theme, state) {
     final isListening = state.status == HermesStatus.listening;
 
     if (_messages.isNotEmpty) {
       // Show message count
       return Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: HermesSpacing.sm * sizes.scale,
-          vertical: HermesSpacing.xs * sizes.scale,
+        padding: const EdgeInsets.symmetric(
+          horizontal: HermesSpacing.sm,
+          vertical: HermesSpacing.xs,
         ),
         decoration: BoxDecoration(
           color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(12 * sizes.scale),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
           '${_messages.length}',
           style: theme.textTheme.labelSmall?.copyWith(
             color: theme.colorScheme.primary,
             fontWeight: FontWeight.w600,
-            fontSize:
-                (theme.textTheme.labelSmall?.fontSize ?? 11) * sizes.scale,
           ),
         ),
       );
     } else if (isListening) {
       // Show live indicator
       return Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: HermesSpacing.sm * sizes.scale,
-          vertical: HermesSpacing.xs * sizes.scale,
+        padding: const EdgeInsets.symmetric(
+          horizontal: HermesSpacing.sm,
+          vertical: HermesSpacing.xs,
         ),
         decoration: BoxDecoration(
           color: Colors.red.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12 * sizes.scale),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: Colors.red.withValues(alpha: 0.3),
             width: 1,
@@ -302,21 +216,21 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
             PulseAnimation(
               animate: true,
               child: Container(
-                width: sizes.statusDotSize,
-                height: sizes.statusDotSize,
+                width: 6,
+                height: 6,
                 decoration: const BoxDecoration(
                   color: Colors.green,
                   shape: BoxShape.circle,
                 ),
               ),
             ),
-            SizedBox(width: 4 * sizes.scale),
+            const SizedBox(width: 4),
             Text(
               'LIVE',
               style: theme.textTheme.labelSmall?.copyWith(
                 color: Colors.greenAccent.shade700,
                 fontWeight: FontWeight.w800,
-                fontSize: sizes.statusFontSize,
+                fontSize: 10,
               ),
             ),
           ],
@@ -327,19 +241,14 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     return const SizedBox.shrink();
   }
 
-  Widget _buildMessagesArea(
-    BuildContext context,
-    ThemeData theme,
-    state,
-    _ResponsiveSizes sizes,
-  ) {
+  Widget _buildMessagesArea(BuildContext context, ThemeData theme, state) {
     if (_messages.isEmpty) {
-      return _buildEmptyState(context, theme, state, sizes);
+      return _buildEmptyState(context, theme, state);
     }
 
     return ListView.builder(
       controller: _scrollController,
-      padding: EdgeInsets.all(HermesSpacing.sm * sizes.scale),
+      padding: const EdgeInsets.all(HermesSpacing.sm),
       itemCount: _messages.length,
       itemBuilder: (context, index) {
         final message = _messages[index];
@@ -348,94 +257,106 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
         return FadeInWidget(
           duration: HermesDurations.fast,
           slideFrom: const Offset(0, 0.2),
-          child: _buildMessageBubble(context, theme, message, isLatest, sizes),
+          child: _buildMessageBubble(context, theme, message, isLatest),
         );
       },
     );
   }
 
-  Widget _buildEmptyState(
-    BuildContext context,
-    ThemeData theme,
-    state,
-    _ResponsiveSizes sizes,
-  ) {
+  Widget _buildEmptyState(BuildContext context, ThemeData theme, state) {
     final isReady =
         state.status == HermesStatus.listening ||
         state.status == HermesStatus.buffering;
     final isListening = state.status == HermesStatus.listening;
 
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.all(HermesSpacing.xl * sizes.scale),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Elegant microphone icon
-            Container(
-              width: sizes.emptyStateIconContainerSize,
-              height: sizes.emptyStateIconContainerSize,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(
-                  alpha: 0.2,
-                ),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                  width: 1,
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Adapt content based on available height
+        final availableHeight = constraints.maxHeight;
+        final isCompact = availableHeight < 300;
+
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: availableHeight),
+            child: Padding(
+              padding: EdgeInsets.all(
+                isCompact ? HermesSpacing.md : HermesSpacing.xl,
               ),
-              child: Icon(
-                isListening ? HermesIcons.listening : HermesIcons.microphone,
-                size: sizes.emptyStateIconSize,
-                color: theme.colorScheme.primary.withValues(alpha: 0.7),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Elegant microphone icon - smaller when compact
+                  Container(
+                    width: isCompact ? 48 : 64,
+                    height: isCompact ? 48 : 64,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer.withValues(
+                        alpha: 0.2,
+                      ),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Icon(
+                      isListening
+                          ? HermesIcons.listening
+                          : HermesIcons.microphone,
+                      size: isCompact ? 20 : 28,
+                      color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                    ),
+                  ),
+
+                  SizedBox(
+                    height: isCompact ? HermesSpacing.md : HermesSpacing.lg,
+                  ),
+
+                  Text(
+                    _getEmptyStateTitle(state.status, _hasEverSpoken),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                      fontSize: isCompact ? 14 : null,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  SizedBox(
+                    height: isCompact ? HermesSpacing.xs : HermesSpacing.sm,
+                  ),
+
+                  Text(
+                    _getEmptyStateSubtitle(state.status, _hasEverSpoken),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.outline,
+                      height: 1.4,
+                      fontSize: isCompact ? 12 : null,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  // Subtle speaking tips for new sessions - only show if enough space
+                  if (!_hasEverSpoken && isReady && !isCompact) ...[
+                    const SizedBox(height: HermesSpacing.xl),
+                    _buildSpeakingTips(theme),
+                  ],
+                ],
               ),
             ),
-
-            SizedBox(height: HermesSpacing.lg * sizes.scale),
-
-            Text(
-              _getEmptyStateTitle(state.status, _hasEverSpoken),
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: theme.colorScheme.onSurface,
-                fontSize:
-                    (theme.textTheme.titleMedium?.fontSize ?? 16) * sizes.scale,
-              ),
-              textAlign: TextAlign.center,
-            ),
-
-            SizedBox(height: HermesSpacing.sm * sizes.scale),
-
-            Text(
-              _getEmptyStateSubtitle(state.status, _hasEverSpoken),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.outline,
-                height: 1.4,
-                fontSize:
-                    (theme.textTheme.bodyMedium?.fontSize ?? 14) * sizes.scale,
-              ),
-              textAlign: TextAlign.center,
-            ),
-
-            // Subtle speaking tips for new sessions
-            if (!_hasEverSpoken && isReady) ...[
-              SizedBox(height: HermesSpacing.xl * sizes.scale),
-              _buildSpeakingTips(theme, sizes),
-            ],
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildSpeakingTips(ThemeData theme, _ResponsiveSizes sizes) {
+  Widget _buildSpeakingTips(ThemeData theme) {
     return Container(
-      padding: EdgeInsets.all(HermesSpacing.md * sizes.scale),
+      padding: const EdgeInsets.all(HermesSpacing.md),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(HermesSpacing.sm * sizes.scale),
+        borderRadius: BorderRadius.circular(HermesSpacing.sm),
         border: Border.all(
           color: theme.colorScheme.outline.withValues(alpha: 0.1),
           width: 1,
@@ -447,56 +368,51 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
             children: [
               Icon(
                 Icons.lightbulb_outline_rounded,
-                size: 16 * sizes.scale,
+                size: 16,
                 color: theme.colorScheme.outline,
               ),
-              SizedBox(width: HermesSpacing.xs * sizes.scale),
+              const SizedBox(width: HermesSpacing.xs),
               Text(
                 'Speaking Tips',
                 style: theme.textTheme.labelMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                   color: theme.colorScheme.outline,
-                  fontSize:
-                      (theme.textTheme.labelMedium?.fontSize ?? 12) *
-                      sizes.scale,
                 ),
               ),
             ],
           ),
-          SizedBox(height: HermesSpacing.sm * sizes.scale),
+          const SizedBox(height: HermesSpacing.sm),
           ...[
             'Speak clearly at a normal pace',
             'Pause briefly between sentences',
             'Keep device 6-12 inches away',
-          ].map((tip) => _buildTip(tip, theme, sizes)),
+          ].map((tip) => _buildTip(tip, theme)),
         ],
       ),
     );
   }
 
-  Widget _buildTip(String text, ThemeData theme, _ResponsiveSizes sizes) {
+  Widget _buildTip(String text, ThemeData theme) {
     return Padding(
-      padding: EdgeInsets.only(top: HermesSpacing.xs * sizes.scale),
+      padding: const EdgeInsets.only(top: HermesSpacing.xs),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 3 * sizes.scale,
-            height: 3 * sizes.scale,
-            margin: EdgeInsets.only(top: 8 * sizes.scale),
+            width: 3,
+            height: 3,
+            margin: const EdgeInsets.only(top: 8),
             decoration: BoxDecoration(
               color: theme.colorScheme.outline.withValues(alpha: 0.6),
               shape: BoxShape.circle,
             ),
           ),
-          SizedBox(width: HermesSpacing.sm * sizes.scale),
+          const SizedBox(width: HermesSpacing.sm),
           Expanded(
             child: Text(
               text,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.outline,
-                fontSize:
-                    (theme.textTheme.bodySmall?.fontSize ?? 12) * sizes.scale,
               ),
             ),
           ),
@@ -510,29 +426,28 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     ThemeData theme,
     TranscriptMessage message,
     bool isLatest,
-    _ResponsiveSizes sizes,
   ) {
     return Container(
-      margin: EdgeInsets.only(bottom: HermesSpacing.sm * sizes.scale),
+      margin: const EdgeInsets.only(bottom: HermesSpacing.sm),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Avatar
           Container(
-            width: sizes.avatarSize,
-            height: sizes.avatarSize,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
               color: theme.colorScheme.primaryContainer,
               shape: BoxShape.circle,
             ),
             child: Icon(
               HermesIcons.microphone,
-              size: sizes.avatarIconSize,
+              size: 16,
               color: theme.colorScheme.primary,
             ),
           ),
 
-          SizedBox(width: HermesSpacing.sm * sizes.scale),
+          const SizedBox(width: HermesSpacing.sm),
 
           // Message content
           Expanded(
@@ -541,7 +456,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
               children: [
                 // Message bubble
                 Container(
-                  padding: EdgeInsets.all(HermesSpacing.md * sizes.scale),
+                  padding: const EdgeInsets.all(HermesSpacing.md),
                   decoration: BoxDecoration(
                     color:
                         isLatest
@@ -549,15 +464,11 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                               alpha: 0.2,
                             )
                             : theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(4 * sizes.scale),
-                      topRight: Radius.circular(HermesSpacing.md * sizes.scale),
-                      bottomLeft: Radius.circular(
-                        HermesSpacing.md * sizes.scale,
-                      ),
-                      bottomRight: Radius.circular(
-                        HermesSpacing.md * sizes.scale,
-                      ),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(4),
+                      topRight: Radius.circular(HermesSpacing.md),
+                      bottomLeft: Radius.circular(HermesSpacing.md),
+                      bottomRight: Radius.circular(HermesSpacing.md),
                     ),
                     border:
                         isLatest
@@ -579,23 +490,17 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                       fontWeight:
                           isLatest ? FontWeight.w500 : FontWeight.normal,
                       height: 1.4,
-                      fontSize:
-                          (theme.textTheme.bodyMedium?.fontSize ?? 14) *
-                          sizes.scale,
                     ),
                   ),
                 ),
 
-                SizedBox(height: HermesSpacing.xs * sizes.scale),
+                const SizedBox(height: HermesSpacing.xs),
 
                 // Timestamp
                 Text(
                   _formatTimestamp(message.timestamp),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.outline,
-                    fontSize:
-                        (theme.textTheme.bodySmall?.fontSize ?? 12) *
-                        sizes.scale,
                   ),
                 ),
               ],
@@ -610,7 +515,6 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     BuildContext context,
     ThemeData theme,
     state,
-    _ResponsiveSizes sizes,
   ) {
     final isListening = state.status == HermesStatus.listening;
     final isTranslating = state.status == HermesStatus.translating;
@@ -624,7 +528,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
 
     return AnimatedContainer(
       duration: HermesDurations.fast,
-      padding: EdgeInsets.all(HermesSpacing.md * sizes.scale),
+      padding: const EdgeInsets.all(HermesSpacing.md),
       decoration: BoxDecoration(
         color: theme.colorScheme.primaryContainer.withValues(alpha: 0.1),
         borderRadius: const BorderRadius.vertical(
@@ -643,42 +547,28 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
           PulseAnimation(
             animate: isListening,
             child: Container(
-              width: sizes.speechDotSize,
-              height: sizes.speechDotSize,
+              width: 8,
+              height: 8,
               decoration: BoxDecoration(
                 color: isListening ? Colors.red : Colors.amber,
                 shape: BoxShape.circle,
               ),
             ),
           ),
-          SizedBox(width: HermesSpacing.sm * sizes.scale),
-
-          // Status text
-          Text(
-            isListening ? 'Listening: ' : 'Processing: ',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w600,
-              fontSize:
-                  (theme.textTheme.bodySmall?.fontSize ?? 12) * sizes.scale,
-            ),
-          ),
+          const SizedBox(width: HermesSpacing.sm),
 
           // Current text or placeholder
           Expanded(
             child:
                 hasCurrentSpeech
                     ? ConstrainedBox(
-                      constraints: BoxConstraints(maxHeight: 60 * sizes.scale),
+                      constraints: const BoxConstraints(maxHeight: 60),
                       child: SingleChildScrollView(
                         child: Text(
                           _currentPartialTranscript!,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.primary,
                             fontStyle: FontStyle.italic,
-                            fontSize:
-                                (theme.textTheme.bodyMedium?.fontSize ?? 14) *
-                                sizes.scale,
                           ),
                         ),
                       ),
@@ -690,9 +580,6 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.outline,
                         fontStyle: FontStyle.italic,
-                        fontSize:
-                            (theme.textTheme.bodyMedium?.fontSize ?? 14) *
-                            sizes.scale,
                       ),
                     ),
           ),
@@ -701,94 +588,64 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     );
   }
 
-  Widget _buildScrollToBottomButton(
-    BuildContext context,
-    ThemeData theme,
-    _ResponsiveSizes sizes,
-  ) {
+  Widget _buildScrollToBottomButton(BuildContext context, ThemeData theme) {
     return Positioned(
-      bottom: HermesSpacing.md * sizes.scale,
-      right: HermesSpacing.md * sizes.scale,
+      bottom: HermesSpacing.md,
+      right: HermesSpacing.md,
       child: SizedBox(
-        width: sizes.fabSize,
-        height: sizes.fabSize,
+        width: 48,
+        height: 48,
         child: FloatingActionButton(
           onPressed: _scrollToBottom,
           backgroundColor: theme.colorScheme.primary,
           foregroundColor: theme.colorScheme.onPrimary,
           elevation: 2,
           mini: true,
-          child: Icon(
-            Icons.keyboard_arrow_down_rounded,
-            size: (sizes.fabSize * 0.6).clamp(16, 24),
-          ),
+          child: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
         ),
       ),
     );
   }
 
-  Widget _buildLoadingState(
-    BuildContext context,
-    ThemeData theme,
-    _ResponsiveSizes sizes,
-  ) {
-    return Center(
+  Widget _buildLoadingState(BuildContext context, ThemeData theme) {
+    return const Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           SizedBox(
-            width: 24 * sizes.scale,
-            height: 24 * sizes.scale,
+            width: 24,
+            height: 24,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          SizedBox(height: HermesSpacing.md * sizes.scale),
-          Text(
-            'Initializing transcript...',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.outline,
-              fontSize:
-                  (theme.textTheme.bodyMedium?.fontSize ?? 14) * sizes.scale,
-            ),
-          ),
+          SizedBox(height: HermesSpacing.md),
+          Text('Initializing transcript...'),
         ],
       ),
     );
   }
 
-  Widget _buildErrorState(
-    BuildContext context,
-    ThemeData theme,
-    Object error,
-    _ResponsiveSizes sizes,
-  ) {
+  Widget _buildErrorState(BuildContext context, ThemeData theme, Object error) {
     return Center(
       child: Padding(
-        padding: EdgeInsets.all(HermesSpacing.lg * sizes.scale),
+        padding: const EdgeInsets.all(HermesSpacing.lg),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               Icons.error_outline_rounded,
-              size: 48 * sizes.scale,
+              size: 48,
               color: theme.colorScheme.error,
             ),
-            SizedBox(height: HermesSpacing.md * sizes.scale),
+            const SizedBox(height: HermesSpacing.md),
             Text(
               'Transcript Unavailable',
               style: theme.textTheme.titleMedium?.copyWith(
                 color: theme.colorScheme.error,
-                fontSize:
-                    (theme.textTheme.titleMedium?.fontSize ?? 16) * sizes.scale,
               ),
             ),
-            SizedBox(height: HermesSpacing.xs * sizes.scale),
-            Text(
+            const SizedBox(height: HermesSpacing.xs),
+            const Text(
               'Unable to display speech transcript',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.outline,
-                fontSize:
-                    (theme.textTheme.bodyMedium?.fontSize ?? 14) * sizes.scale,
-              ),
               textAlign: TextAlign.center,
             ),
           ],
@@ -797,7 +654,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     );
   }
 
-  // [Rest of the existing methods remain the same...]
+  // 🎯 FIX: This method no longer calls setState during build
   void _updateTranscripts(state) {
     final currentTranscript = state.lastTranscript;
     final isListening = state.status == HermesStatus.listening;
@@ -812,42 +669,51 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     if (isListening &&
         currentTranscript != null &&
         currentTranscript.isNotEmpty) {
-      setState(() {
-        _currentPartialTranscript = currentTranscript;
-      });
+      if (mounted) {
+        setState(() {
+          _currentPartialTranscript = currentTranscript;
+        });
+      }
     }
     // Handle final transcripts - catch both translating and non-listening states
     else if (currentTranscript != null &&
         currentTranscript.isNotEmpty &&
         currentTranscript != _lastProcessedTranscript &&
         (isTranslating || !isListening)) {
-      setState(() {
-        _messages.add(
-          TranscriptMessage(text: currentTranscript, timestamp: DateTime.now()),
-        );
+      if (mounted) {
+        setState(() {
+          _messages.add(
+            TranscriptMessage(
+              text: currentTranscript,
+              timestamp: DateTime.now(),
+            ),
+          );
 
-        _currentPartialTranscript = null;
+          _currentPartialTranscript = null;
 
-        // Keep only last 50 messages
-        if (_messages.length > 50) {
-          _messages.removeAt(0);
-        }
-      });
-
-      _lastProcessedTranscript = currentTranscript;
-
-      // Auto-scroll if user hasn't manually scrolled
-      if (!_userHasScrolledUp) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToBottom();
+          // Keep only last 50 messages
+          if (_messages.length > 50) {
+            _messages.removeAt(0);
+          }
         });
+
+        _lastProcessedTranscript = currentTranscript;
+
+        // Auto-scroll if user hasn't manually scrolled
+        if (!_userHasScrolledUp) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _scrollToBottom();
+          });
+        }
       }
     }
     // Clear partial transcript when not listening or translating
     else if (!isListening && !isTranslating) {
-      setState(() {
-        _currentPartialTranscript = null;
-      });
+      if (mounted) {
+        setState(() {
+          _currentPartialTranscript = null;
+        });
+      }
     }
   }
 
@@ -955,37 +821,4 @@ class TranscriptMessage {
   final DateTime timestamp;
 
   const TranscriptMessage({required this.text, required this.timestamp});
-}
-
-/// Responsive sizing configuration
-class _ResponsiveSizes {
-  final double headerIconSize;
-  final double statusDotSize;
-  final double statusFontSize;
-  final double emptyStateIconContainerSize;
-  final double emptyStateIconSize;
-  final double avatarSize;
-  final double avatarIconSize;
-  final double speechDotSize;
-  final double fabSize;
-  final double scale;
-  final bool isSmallScreen;
-  final bool isMediumScreen;
-  final bool isLargeScreen;
-
-  const _ResponsiveSizes({
-    required this.headerIconSize,
-    required this.statusDotSize,
-    required this.statusFontSize,
-    required this.emptyStateIconContainerSize,
-    required this.emptyStateIconSize,
-    required this.avatarSize,
-    required this.avatarIconSize,
-    required this.speechDotSize,
-    required this.fabSize,
-    required this.scale,
-    required this.isSmallScreen,
-    required this.isMediumScreen,
-    required this.isLargeScreen,
-  });
 }

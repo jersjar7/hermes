@@ -1,12 +1,12 @@
-// hermes-backend/server.js - Production-ready for long sessions
+// hermes-backend/server.js - Fixed for network access
 
 const WebSocket = require('ws');
 
 const wss = new WebSocket.Server({ 
   port: 8080,
-  // Configure for long-running connections
+  host: '0.0.0.0', // 🎯 FIXED: Listen on all interfaces, not just localhost
   perMessageDeflate: false,
-  maxPayload: 16 * 1024, // 16KB max message size
+  maxPayload: 16 * 1024,
   clientTracking: true,
   // Handle server-side ping/pong
   handleProtocols: (protocols, request) => {
@@ -15,22 +15,25 @@ const wss = new WebSocket.Server({
   }
 });
 
-console.log('🚀 WebSocket server running on ws://localhost:8080');
+console.log('🚀 WebSocket server running on ws://0.0.0.0:8080');
+console.log('🌐 Server accessible from network (not just localhost)');
 console.log('📡 Ready for long-running conference sessions');
+console.log('💡 Android devices can connect via your IP address');
 
 // Session management
-const sessions = new Map(); // sessionId -> Set of clients
-const clientInfo = new Map(); // client -> { sessionId, lastSeen, userId }
+const sessions = new Map();
+const clientInfo = new Map();
 
 // Heartbeat configuration
-const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const CLIENT_TIMEOUT = 90000; // 90 seconds (3 missed heartbeats)
+const HEARTBEAT_INTERVAL = 30000;
+const CLIENT_TIMEOUT = 90000;
 
 wss.on('connection', (socket, req) => {
   const sessionId = req.url.split('/').pop();
   const clientId = generateClientId();
   
   console.log(`✅ Client ${clientId} connected to session ${sessionId}`);
+  console.log(`🔗 Connection from: ${req.socket.remoteAddress}`);
   
   // Initialize session if doesn't exist
   if (!sessions.has(sessionId)) {
@@ -44,7 +47,8 @@ wss.on('connection', (socket, req) => {
     sessionId,
     clientId,
     lastSeen: Date.now(),
-    connectedAt: new Date().toISOString()
+    connectedAt: new Date().toISOString(),
+    remoteAddress: req.socket.remoteAddress
   });
   
   console.log(`👥 Session ${sessionId} now has ${sessions.get(sessionId).size} clients`);
@@ -136,7 +140,7 @@ const heartbeatInterval = setInterval(() => {
     
     // Check if client is too old without communication
     if (info && (now - info.lastSeen) > CLIENT_TIMEOUT) {
-      console.log(`⏰ Client ${info.clientId} timed out (last seen: ${new Date(info.lastSeen).toISOString()})`);
+      console.log(`⏰ Client ${info.clientId} timed out`);
       socket.terminate();
       return;
     }
@@ -179,6 +183,18 @@ wss.on('error', (error) => {
   console.error('❌ WebSocket Server Error:', error);
 });
 
-console.log('💡 Server configured for long-running sessions (hours/days)');
 console.log('🔄 Heartbeat: 30s interval, 90s timeout');
-console.log('📱 Ready for iPhone + Simulator testing');
+console.log('📱 Ready for Android + iOS testing');
+
+// 🎯 ADDED: Show network info for easier debugging
+const os = require('os');
+const interfaces = os.networkInterfaces();
+console.log('\n📍 Server accessible at:');
+Object.keys(interfaces).forEach(ifname => {
+  interfaces[ifname].forEach(iface => {
+    if (iface.family === 'IPv4' && !iface.internal) {
+      console.log(`   ws://${iface.address}:8080`);
+    }
+  });
+});
+console.log();
