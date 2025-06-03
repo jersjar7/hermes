@@ -62,7 +62,7 @@ class HomePage extends StatelessWidget {
                 title: 'Join as Listener',
                 subtitle: 'Listen to translated speech from a speaker',
                 icon: HermesIcons.people,
-                isPrimary: false,
+                isPrimary: true,
                 onTap: () => context.go('/audience-setup'),
               ),
 
