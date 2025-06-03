@@ -656,11 +656,13 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
         _currentPartialTranscript = currentTranscript;
       });
     }
-    // Handle final transcripts
+    // 🎯 FIXED: Handle final transcripts - catch both translating and non-listening states
     else if (currentTranscript != null &&
         currentTranscript.isNotEmpty &&
         currentTranscript != _lastProcessedTranscript &&
-        !isListening) {
+        (isTranslating || !isListening)) {
+      // Allow both translating and non-listening
+
       setState(() {
         _messages.add(
           TranscriptMessage(text: currentTranscript, timestamp: DateTime.now()),
@@ -683,7 +685,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
         });
       }
     }
-    // Clear partial transcript when not listening
+    // Clear partial transcript when not listening or translating
     else if (!isListening && !isTranslating) {
       setState(() {
         _currentPartialTranscript = null;
