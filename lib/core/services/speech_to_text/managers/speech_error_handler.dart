@@ -16,7 +16,8 @@ class SpeechErrorHandler {
   Future<void> Function()? _onStartListening;
 
   int _consecutiveErrors = 0;
-  static const int _maxConsecutiveErrors = 5;
+  static const int _maxConsecutiveErrors =
+      8; // 🎯 INCREASED: Allow more timeout attempts
 
   SpeechErrorHandler(this._logger, this._restartManager);
 
@@ -60,7 +61,11 @@ class SpeechErrorHandler {
     }
 
     print('🔧 [ErrorHandler] Handling error: ${error.errorMsg}');
-    _consecutiveErrors++;
+
+    // 🎯 IMPROVED: Only count serious errors toward the limit
+    if (_isSeriousError(error.errorMsg)) {
+      _consecutiveErrors++;
+    }
 
     // Check if we should stop the session
     if (_shouldStopSession() || _isPermanentError(error)) {
@@ -70,6 +75,17 @@ class SpeechErrorHandler {
 
     // Handle specific error types
     _handleSpecificError(error);
+  }
+
+  /// Determines if an error should count toward consecutive error limit
+  bool _isSeriousError(String errorType) {
+    // These errors are expected/normal and shouldn't count heavily
+    const minorErrors = {
+      'error_speech_timeout', // Very common, especially on Android
+      'error_no_match', // Normal when no speech detected
+    };
+
+    return !minorErrors.contains(errorType);
   }
 
   void _handleSpecificError(stt.SpeechRecognitionError error) {
@@ -115,9 +131,16 @@ class SpeechErrorHandler {
   }
 
   void _handleTimeoutError() {
-    print('⏰ [ErrorHandler] Speech timeout - restarting');
-    final delay = _restartManager.getErrorTypeDelay('error_speech_timeout');
-    _scheduleRestart(customDelay: delay);
+    print('⏰ [ErrorHandler] Speech timeout - restarting (common on Android)');
+    // 🎯 IMPROVED: Don't count timeout as serious error, use shorter delay
+    if (_consecutiveErrors <= 2) {
+      // For first few timeouts, restart quickly
+      _scheduleRestart(customDelay: Duration(seconds: 1));
+    } else {
+      // After multiple timeouts, use longer delay
+      final delay = _restartManager.getErrorTypeDelay('error_speech_timeout');
+      _scheduleRestart(customDelay: delay);
+    }
   }
 
   void _handleAudioError() {
@@ -169,14 +192,30 @@ class SpeechErrorHandler {
   }
 
   bool _isPermanentError(stt.SpeechRecognitionError error) {
-    // Some errors are always permanent regardless of the flag
+    // 🎯 FIXED: Don't treat common timeout/network errors as permanent
+    // even if the platform reports them as "permanent"
+    const retryableErrors = {
+      'error_speech_timeout',
+      'error_no_match',
+      'error_busy',
+      'error_audio',
+      'error_network',
+      'error_server',
+    };
+
+    // If it's a retryable error, never treat as permanent
+    if (retryableErrors.contains(error.errorMsg)) {
+      return false;
+    }
+
+    // These errors are truly permanent
     const permanentErrors = {
       'error_insufficient_permissions',
       'error_recognizer_busy', // Different from error_busy
       'error_client',
     };
 
-    return error.permanent || permanentErrors.contains(error.errorMsg);
+    return error.permanent && permanentErrors.contains(error.errorMsg);
   }
 
   void _stopSessionDueToErrors() {
