@@ -4,11 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:hermes/features/app/presentation/pages/generic_error_page.dart';
 import 'package:hermes/features/app/presentation/pages/home_page.dart';
 import 'package:hermes/features/app/presentation/pages/splash_screen_page.dart';
-import 'package:hermes/features/session/presentation/pages/host_session_page.dart';
-import 'package:hermes/features/session/presentation/pages/join_session_page.dart';
-import 'package:hermes/features/session/presentation/pages/active_session_page.dart';
+import 'package:hermes/features/session/presentation/pages/speaker_setup_page.dart';
+import 'package:hermes/features/session/presentation/pages/audience_setup_page.dart';
+import 'package:hermes/features/session/presentation/pages/speaker_active_page.dart';
+import 'package:hermes/features/session/presentation/pages/audience_active_page.dart';
 
-/// Centralized router for Hermes App with complete navigation flow
+/// Centralized router for Hermes App with clean role-based navigation flow
 final GoRouter appRouter = GoRouter(
   initialLocation: '/splash',
   routes: [
@@ -24,21 +25,46 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => const HomePage(),
     ),
 
-    // Session routes
+    // Speaker flow: Setup → Active
     GoRoute(
-      path: '/host',
-      name: 'host',
-      builder: (context, state) => const HostSessionPage(),
+      path: '/speaker-setup',
+      name: 'speaker-setup',
+      builder: (context, state) => const SpeakerSetupPage(),
     ),
     GoRoute(
-      path: '/join',
-      name: 'join',
-      builder: (context, state) => const JoinSessionPage(),
+      path: '/speaker-active',
+      name: 'speaker-active',
+      builder: (context, state) => const SpeakerActivePage(),
     ),
+
+    // Audience flow: Setup → Active
+    GoRoute(
+      path: '/audience-setup',
+      name: 'audience-setup',
+      builder: (context, state) => const AudienceSetupPage(),
+    ),
+    GoRoute(
+      path: '/audience-active',
+      name: 'audience-active',
+      builder: (context, state) {
+        // Extract language preferences from navigation extra data
+        final extra = state.extra as Map<String, dynamic>?;
+
+        return AudienceActivePage(
+          targetLanguageCode: extra?['targetLanguageCode'] as String?,
+          targetLanguageName: extra?['targetLanguageName'] as String?,
+          languageFlag: extra?['languageFlag'] as String?,
+        );
+      },
+    ),
+
+    // Legacy routes (for backwards compatibility during transition)
+    // TODO: Remove these after migration is complete
+    GoRoute(path: '/host', redirect: (context, state) => '/speaker-setup'),
+    GoRoute(path: '/join', redirect: (context, state) => '/audience-setup'),
     GoRoute(
       path: '/active-session',
-      name: 'active-session',
-      builder: (context, state) => const ActiveSessionPage(),
+      redirect: (context, state) => '/speaker-active', // Default to speaker
     ),
   ],
 
