@@ -1,11 +1,13 @@
 // lib/core/services/speech_to_text/speech_to_text_service_impl.dart
 
 import 'dart:async';
+import 'dart:io'; // Add this import
 import 'package:speech_to_text/speech_recognition_error.dart' as stt;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../logger/logger_service.dart';
 import 'speech_to_text_service.dart';
 import 'speech_result.dart';
+import 'continuous_speech_channel.dart'; // Add this import
 
 class SpeechToTextServiceImpl implements ISpeechToTextService {
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -14,7 +16,13 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   bool _isListening = false;
   String _locale = 'en-US';
 
-  // For managing finalization timeouts
+  // 🎯 NEW: Continuous speech recognition support
+  final ContinuousSpeechChannel _continuousChannel =
+      ContinuousSpeechChannel.instance;
+  bool _useContinuousRecognition = false;
+  bool _continuousAvailable = false;
+
+  // For managing finalization timeouts (existing plugin logic)
   Timer? _finalizationTimer;
   Timer? _restartTimer;
   String? _lastPartialResult;
@@ -32,34 +40,71 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     print('🎙️ [STTService] Initializing speech-to-text service...');
 
     try {
+      // 🎯 NEW: Check if continuous recognition is available (iOS only for now)
+      if (Platform.isIOS) {
+        _continuousAvailable = await _continuousChannel.isAvailable;
+        if (_continuousAvailable) {
+          print(
+            '✨ [STTService] Continuous recognition available! Initializing...',
+          );
+          final continuousReady = await _continuousChannel.initialize();
+          if (continuousReady) {
+            _useContinuousRecognition = true;
+            print(
+              '🚀 [STTService] Continuous recognition enabled - no more gaps!',
+            );
+          } else {
+            print(
+              '⚠️ [STTService] Continuous recognition init failed, using fallback',
+            );
+          }
+        } else {
+          print(
+            '📱 [STTService] Continuous recognition not available, using standard plugin',
+          );
+        }
+      }
+
+      // Initialize standard plugin as fallback or main method
       _isAvailable = await _speech.initialize(
         onStatus: (status) {
-          print('🎙️ [STTService] Status changed: $status');
-          _logger.logInfo('STT status: $status', context: 'STT');
+          // Only handle status for standard plugin when not using continuous
+          if (!_useContinuousRecognition) {
+            print('🎙️ [STTService] Status changed: $status');
+            _logger.logInfo('STT status: $status', context: 'STT');
 
-          final wasListening = _isListening;
-          _isListening = status == 'listening';
+            final wasListening = _isListening;
+            _isListening = status == 'listening';
 
-          // Handle status changes
-          if (status == 'notListening' || status == 'done') {
-            _handlePotentialFinalization();
+            // Handle status changes
+            if (status == 'notListening' || status == 'done') {
+              _handlePotentialFinalization();
 
-            // Auto-restart listening if we were in a listening session
-            if (wasListening && _currentOnResult != null) {
-              _scheduleRestart();
+              // Auto-restart listening if we were in a listening session
+              if (wasListening && _currentOnResult != null) {
+                _scheduleRestart();
+              }
             }
           }
         },
         onError: (err) {
+          // Handle errors for both modes
           print('❌ [STTService] Error: $err');
           _logger.logError('STT error: $err', context: 'STT');
-          _handleSpeechError(err);
+          if (!_useContinuousRecognition) {
+            _handleSpeechError(err);
+          }
         },
       );
 
-      print('📱 [STTService] Initialization result: $_isAvailable');
+      print(
+        '📱 [STTService] Standard plugin initialization result: $_isAvailable',
+      );
+      print(
+        '🎯 [STTService] Using continuous recognition: $_useContinuousRecognition',
+      );
 
-      if (_isAvailable) {
+      if (_isAvailable || _useContinuousRecognition) {
         final locales = await _speech.locales();
         print('🌍 [STTService] Available locales: ${locales.length}');
       } else {
@@ -68,7 +113,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
         );
       }
 
-      return _isAvailable;
+      return _isAvailable || _useContinuousRecognition;
     } catch (e, stackTrace) {
       print('💥 [STTService] Initialization failed: $e');
       _logger.logError(
@@ -86,14 +131,53 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     required void Function(SpeechResult) onResult,
     required void Function(Exception) onError,
   }) async {
-    if (!_isAvailable) {
+    if (!_isAvailable && !_useContinuousRecognition) {
       final msg = 'Speech recognition not available';
       print('❌ [STTService] $msg');
       onError(Exception(msg));
       return;
     }
 
-    print('🎤 [STTService] Starting to listen with locale: $_locale');
+    // 🎯 NEW: Use continuous recognition if available
+    if (_useContinuousRecognition) {
+      print(
+        '🚀 [STTService] Starting CONTINUOUS listening (no gaps!) with locale: $_locale',
+      );
+
+      // Store callbacks for stop/cancel operations
+      _currentOnResult = onResult;
+      _currentOnError = onError;
+
+      try {
+        await _continuousChannel.startContinuousListening(
+          locale: _locale,
+          onResult: (result) {
+            // 🎯 CRITICAL: Check if callback still exists before calling
+            if (_currentOnResult != null) {
+              _currentOnResult!(result);
+            }
+          },
+          onError: (errorMessage) {
+            // 🎯 CRITICAL: Check if callback still exists before calling
+            if (_currentOnError != null) {
+              _currentOnError!(Exception(errorMessage));
+            }
+          },
+        );
+
+        _isListening = true;
+        print('✅ [STTService] Continuous listening started successfully');
+      } catch (e) {
+        print('❌ [STTService] Continuous listening failed: $e');
+        _currentOnResult = null;
+        _currentOnError = null;
+        onError(Exception('Continuous listening failed: $e'));
+      }
+      return;
+    }
+
+    // 🎯 FALLBACK: Use standard plugin logic
+    print('🎤 [STTService] Starting standard listening with locale: $_locale');
 
     // Store callbacks
     _currentOnResult = onResult;
@@ -166,6 +250,94 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     }
   }
 
+  // [Rest of the existing methods remain the same, but modified for continuous support]
+
+  @override
+  Future<void> stopListening() async {
+    print('🛑 [STTService] Stopping listening...');
+
+    // 🎯 NEW: Handle continuous recognition
+    if (_useContinuousRecognition && _isListening) {
+      try {
+        await _continuousChannel.stopContinuousListening();
+        print('✅ [STTService] Continuous recognition stopped');
+      } catch (e) {
+        print('⚠️ [STTService] Error stopping continuous recognition: $e');
+      }
+    }
+
+    // 🎯 CRITICAL: Clear callbacks FIRST to stop processing new results
+    final oldOnResult = _currentOnResult;
+
+    _currentOnResult = null;
+    _currentOnError = null;
+
+    // Cancel timers
+    _finalizationTimer?.cancel();
+    _finalizationTimer = null;
+    _restartTimer?.cancel();
+    _restartTimer = null;
+
+    // Finalize any pending result ONLY if we had active callbacks
+    if (oldOnResult != null && !_useContinuousRecognition) {
+      _handlePotentialFinalization();
+    }
+
+    // Stop the standard speech service (if using it)
+    if (!_useContinuousRecognition) {
+      try {
+        await _speech.stop();
+        print('✅ [STTService] Standard speech service stopped');
+      } catch (e) {
+        print('⚠️ [STTService] Error stopping standard speech service: $e');
+      }
+    }
+
+    _isListening = false;
+    _lastPartialResult = null;
+
+    print('✅ [STTService] Listening stopped completely');
+  }
+
+  @override
+  Future<void> cancel() async {
+    print('❌ [STTService] Cancelling listening...');
+
+    // 🎯 NEW: Handle continuous recognition
+    if (_useContinuousRecognition && _isListening) {
+      try {
+        await _continuousChannel.stopContinuousListening();
+        print('✅ [STTService] Continuous recognition cancelled');
+      } catch (e) {
+        print('⚠️ [STTService] Error cancelling continuous recognition: $e');
+      }
+    }
+
+    // 🎯 CRITICAL: Clear everything immediately
+    _currentOnResult = null;
+    _currentOnError = null;
+    _finalizationTimer?.cancel();
+    _finalizationTimer = null;
+    _restartTimer?.cancel();
+    _restartTimer = null;
+
+    if (!_useContinuousRecognition) {
+      try {
+        await _speech.cancel();
+        print('✅ [STTService] Standard speech service cancelled');
+      } catch (e) {
+        print('⚠️ [STTService] Error cancelling standard speech service: $e');
+      }
+    }
+
+    _isListening = false;
+    _lastPartialResult = null;
+
+    print('✅ [STTService] Listening cancelled completely');
+  }
+
+  // [All other existing methods remain unchanged...]
+
   void _handleSpeechError(stt.SpeechRecognitionError error) {
     print('🔧 [STTService] Handling speech error: ${error.errorMsg}');
 
@@ -214,11 +386,14 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   }
 
   void _scheduleRestart() {
-    if (_currentOnResult == null) return; // Not in a listening session
+    if (_currentOnResult == null || _useContinuousRecognition)
+      return; // Not in a listening session or using continuous
 
     _restartTimer?.cancel();
     _restartTimer = Timer(_restartDelay, () {
-      if (_currentOnResult != null && _isAvailable) {
+      if (_currentOnResult != null &&
+          _isAvailable &&
+          !_useContinuousRecognition) {
         print('🔄 [STTService] Auto-restarting listening...');
         _startListeningInternal();
       }
@@ -232,13 +407,12 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     });
   }
 
-  // IMPROVED: Enhanced finalization with safety checks
   void _handlePotentialFinalization() {
-    // 🎯 CRITICAL: Only finalize if we still have active callbacks
+    // 🎯 CRITICAL: Only finalize if we still have active callbacks and not using continuous
     if (_lastPartialResult != null &&
         _lastPartialResult!.isNotEmpty &&
-        _currentOnResult != null) {
-      // Check if callback still exists
+        _currentOnResult != null &&
+        !_useContinuousRecognition) {
       print('⏰ [STTService] Finalizing partial result: "$_lastPartialResult"');
 
       final finalResult = SpeechResult(
@@ -259,80 +433,28 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     _finalizationTimer = null;
   }
 
-  // IMPROVED: Enhanced stop method with proper cleanup order
   @override
-  Future<void> stopListening() async {
-    print('🛑 [STTService] Stopping listening...');
-
-    // 🎯 CRITICAL: Clear callbacks FIRST to stop processing new results
-    final oldOnResult = _currentOnResult;
-
-    _currentOnResult = null;
-    _currentOnError = null;
-
-    // Cancel timers
-    _finalizationTimer?.cancel();
-    _finalizationTimer = null;
-    _restartTimer?.cancel();
-    _restartTimer = null;
-
-    // Finalize any pending result ONLY if we had active callbacks
-    if (oldOnResult != null) {
-      _handlePotentialFinalization();
-    }
-
-    // Stop the speech service
-    try {
-      await _speech.stop();
-      print('✅ [STTService] Speech service stopped');
-    } catch (e) {
-      print('⚠️ [STTService] Error stopping speech service: $e');
-    }
-
-    _isListening = false;
-    _lastPartialResult = null;
-
-    print('✅ [STTService] Listening stopped completely');
-  }
-
-  // IMPROVED: Enhanced cancel method with immediate cleanup
-  @override
-  Future<void> cancel() async {
-    print('❌ [STTService] Cancelling listening...');
-
-    // 🎯 CRITICAL: Clear everything immediately
-    _currentOnResult = null;
-    _currentOnError = null;
-    _finalizationTimer?.cancel();
-    _finalizationTimer = null;
-    _restartTimer?.cancel();
-    _restartTimer = null;
-
-    try {
-      await _speech.cancel();
-      print('✅ [STTService] Speech service cancelled');
-    } catch (e) {
-      print('⚠️ [STTService] Error cancelling speech service: $e');
-    }
-
-    _isListening = false;
-    _lastPartialResult = null;
-
-    print('✅ [STTService] Listening cancelled completely');
-  }
-
-  @override
-  bool get isAvailable => _isAvailable;
+  bool get isAvailable => _isAvailable || _useContinuousRecognition;
 
   @override
   bool get isListening => _isListening;
 
   @override
-  Future<bool> get hasPermission async => _isAvailable;
+  Future<bool> get hasPermission async =>
+      _isAvailable || _useContinuousRecognition;
 
   @override
   Future<void> setLocale(String localeId) async {
     print('🌍 [STTService] Setting locale to: $localeId');
+
+    // 🎯 NEW: Just store the locale - continuous recognition will use it directly
+    if (_useContinuousRecognition) {
+      _locale = localeId;
+      print('✅ [STTService] Locale set for continuous recognition: $_locale');
+      return;
+    }
+
+    // [Rest of existing setLocale logic for standard plugin...]
 
     // Validate that the locale is supported
     final supportedLocales = await getSupportedLocales();
@@ -423,6 +545,9 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   @override
   void dispose() {
     print('🗑️ [STTService] Disposing STT service...');
+
+    // 🎯 NEW: Dispose continuous channel
+    _continuousChannel.dispose();
 
     _finalizationTimer?.cancel();
     _finalizationTimer = null;
