@@ -12,7 +12,6 @@ import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
 import '../widgets/atoms/detail_row.dart';
 import '../widgets/molecules/confirmation_dialog.dart';
-import '../widgets/organisms/session_header.dart';
 import '../widgets/organisms/speaker_control_panel.dart';
 import '../widgets/organisms/session_status_bar.dart';
 import '../widgets/organisms/transcript_chat_box.dart';
@@ -94,13 +93,7 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
 
         return Column(
           children: [
-            // 1. Minimal session header
-            SizedBox(
-              height: headerHeight,
-              child: const SessionHeader(showMinimal: true),
-            ),
-
-            // 2. Compact speaker controls
+            // 1. Compact speaker controls
             Padding(
               padding: const EdgeInsets.fromLTRB(
                 HermesSpacing.md,
@@ -117,7 +110,7 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
 
             const SizedBox(height: HermesSpacing.sm),
 
-            // 3. Transcript chat box with guaranteed space
+            // 2. Transcript chat box with guaranteed space
             Container(
               height: transcriptHeight,
               margin: const EdgeInsets.symmetric(horizontal: HermesSpacing.md),
@@ -126,10 +119,10 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
 
             const SizedBox(height: HermesSpacing.sm),
 
-            // 4. Session control buttons
+            // 3. Session control buttons
             _buildSessionControlsRow(),
 
-            // 5. Status bar
+            // 4. Status bar
             _buildSpeakerStatusBar(sessionService, state),
           ],
         );

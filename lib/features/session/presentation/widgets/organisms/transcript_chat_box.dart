@@ -216,7 +216,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                 width: 6,
                 height: 6,
                 decoration: const BoxDecoration(
-                  color: Colors.red,
+                  color: Colors.green,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -225,7 +225,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
             Text(
               'LIVE',
               style: theme.textTheme.labelSmall?.copyWith(
-                color: Colors.red.shade700,
+                color: Colors.greenAccent.shade700,
                 fontWeight: FontWeight.w800,
                 fontSize: 10,
               ),
@@ -715,7 +715,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
   String _getHeaderTitle(HermesStatus status, bool hasEverSpoken) {
     switch (status) {
       case HermesStatus.listening:
-        return 'Listening Live';
+        return 'Listening';
       case HermesStatus.translating:
         return 'Processing Speech';
       case HermesStatus.buffering:
