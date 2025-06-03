@@ -222,7 +222,7 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
     }
   }
 
-  /// Show end session confirmation dialog using atomic design
+  /// Show end session confirmation dialog using improved atomic design
   Future<void> _showEndSessionDialog() async {
     final sessionState = ref.read(hermesControllerProvider);
     final audienceCount = sessionState.when(
@@ -231,14 +231,16 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
       error: (_, __) => 0,
     );
 
-    // ✨ Using the new EndSessionDialog component
+    // ✨ Using the improved EndSessionDialog component
     final confirmed = await EndSessionDialog.show(
       context: context,
       audienceCount: audienceCount,
-      onConfirm: () => _endSession(),
     );
 
-    // Dialog handles the confirmation and calls _endSession() automatically
+    // Check the result and call _endSession if confirmed
+    if (confirmed == true && mounted) {
+      await _endSession();
+    }
   }
 
   /// Show session details dialog using atomic design

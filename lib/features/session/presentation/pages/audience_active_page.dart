@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 import 'package:hermes/core/presentation/widgets/buttons/ghost_button.dart';
+import 'package:hermes/core/presentation/widgets/cards/elevated_card.dart';
 import 'package:hermes/core/service_locator.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
+import '../widgets/atoms/detail_row.dart';
+import '../widgets/molecules/confirmation_dialog.dart';
 import '../widgets/organisms/session_header.dart';
 import '../widgets/organisms/audience_display.dart';
 
@@ -141,92 +144,18 @@ class _AudienceActivePageState extends ConsumerState<AudienceActivePage> {
     );
   }
 
-  /// Show leave session confirmation dialog
+  /// Show leave session confirmation dialog using atomic design
   Future<void> _showLeaveSessionDialog() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(HermesSpacing.md),
-            ),
-            title: Row(
-              children: [
-                Icon(
-                  Icons.exit_to_app_rounded,
-                  color: Theme.of(context).colorScheme.error,
-                  size: 24,
-                ),
-                const SizedBox(width: HermesSpacing.sm),
-                const Text('Leave Session'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Are you sure you want to leave this session?',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: HermesSpacing.md),
-                const Text('You will:'),
-                const SizedBox(height: HermesSpacing.xs),
-                const Text('• Stop receiving live translations'),
-                const Text('• Be disconnected from the speaker'),
-                const Text('• Need a new session code to rejoin'),
-                const SizedBox(height: HermesSpacing.md),
-                Container(
-                  padding: const EdgeInsets.all(HermesSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primaryContainer.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(HermesSpacing.sm),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline_rounded,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: HermesSpacing.xs),
-                      Expanded(
-                        child: Text(
-                          'The session will continue for other listeners.',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              GhostButton(
-                label: 'Cancel',
-                onPressed: () => Navigator.of(context).pop(false),
-              ),
-              GhostButton(
-                label: 'Leave Session',
-                isDestructive: true,
-                onPressed: () => Navigator.of(context).pop(true),
-              ),
-            ],
-          ),
-    );
+    // ✨ Using the improved LeaveSessionDialog component
+    final confirmed = await LeaveSessionDialog.show(context: context);
 
+    // Check the result and call _leaveSession if confirmed
     if (confirmed == true && mounted) {
       await _leaveSession();
     }
   }
 
-  /// Show connection info dialog
+  /// Show connection info dialog using atomic design components
   void _showConnectionInfo() {
     final sessionState = ref.read(hermesControllerProvider);
     final sessionService = getIt<ISessionService>();
@@ -240,43 +169,56 @@ class _AudienceActivePageState extends ConsumerState<AudienceActivePage> {
                 borderRadius: BorderRadius.circular(HermesSpacing.md),
               ),
               title: const Text('Connection Information'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildInfoSection('Session Details', [
-                    _buildDetailRow(
-                      'Session Code',
-                      sessionService.currentSession?.sessionId ?? 'Unknown',
-                    ),
-                    _buildDetailRow(
-                      'Translation Language',
-                      _targetLanguageName,
-                    ),
-                    _buildDetailRow('Status', _getStatusText(state.status)),
-                  ]),
+              content: ElevatedCard(
+                elevation: 0,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ✨ Using new InfoSection pattern with DetailRow atoms
+                      _buildInfoSection('Session Details', [
+                        DetailRow(
+                          label: 'Session Code',
+                          value:
+                              sessionService.currentSession?.sessionId ??
+                              'Unknown',
+                        ),
+                        DetailRow(
+                          label: 'Translation Language',
+                          value: _targetLanguageName,
+                        ),
+                        DetailRow(
+                          label: 'Status',
+                          value: _getStatusText(state.status),
+                        ),
+                      ]),
 
-                  const SizedBox(height: HermesSpacing.lg),
+                      const SizedBox(height: HermesSpacing.lg),
 
-                  _buildInfoSection('Translation Info', [
-                    _buildDetailRow(
-                      'Total Listeners',
-                      '${state.audienceCount}',
-                    ),
-                    if (state.languageDistribution.isNotEmpty)
-                      _buildDetailRow(
-                        'Active Languages',
-                        state.languageDistribution.keys.join(', '),
-                      ),
-                    if (state.lastTranslation != null)
-                      _buildDetailRow(
-                        'Last Translation',
-                        '"${_truncateText(state.lastTranslation!, 50)}"',
-                      ),
-                  ]),
-                ],
+                      _buildInfoSection('Translation Info', [
+                        DetailRow(
+                          label: 'Total Listeners',
+                          value: '${state.audienceCount}',
+                        ),
+                        if (state.languageDistribution.isNotEmpty)
+                          DetailRow(
+                            label: 'Active Languages',
+                            value: state.languageDistribution.keys.join(', '),
+                          ),
+                        if (state.lastTranslation != null)
+                          DetailRow(
+                            label: 'Last Translation',
+                            value:
+                                '"${_truncateText(state.lastTranslation!, 50)}"',
+                          ),
+                      ]),
+                    ],
+                  ),
+                ),
               ),
               actions: [
+                // ✨ Using GhostButton instead of TextButton
                 GhostButton(
                   label: 'Close',
                   onPressed: () => Navigator.of(context).pop(),
@@ -287,6 +229,7 @@ class _AudienceActivePageState extends ConsumerState<AudienceActivePage> {
     });
   }
 
+  /// ✨ Simplified info section builder (structural component)
   Widget _buildInfoSection(String title, List<Widget> children) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -298,34 +241,6 @@ class _AudienceActivePageState extends ConsumerState<AudienceActivePage> {
         const SizedBox(height: HermesSpacing.sm),
         ...children,
       ],
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: HermesSpacing.xs),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 90,
-            child: Text(
-              '$label:',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.outline,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

@@ -12,6 +12,8 @@ import '../controllers/session_code_input_controller.dart';
 import '../widgets/organisms/session_header.dart';
 import '../widgets/organisms/session_join_form.dart';
 import '../widgets/organisms/language_selector.dart';
+import '../widgets/molecules/loading_overlay.dart';
+import '../widgets/atoms/language_flag.dart';
 
 /// Audience setup page for joining existing sessions.
 /// Handles session code input and target language selection, then navigates to audience active page.
@@ -62,7 +64,7 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
               ],
             ),
 
-            // Joining loading overlay
+            // ✨ Using LoadingOverlay molecule instead of custom overlay
             if (isJoining) _buildJoiningLoadingOverlay(),
           ],
         ),
@@ -129,6 +131,7 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
     );
   }
 
+  /// ✨ Using LanguageFlag atom and ElevatedCard molecule
   Widget _buildSelectedLanguagePreview() {
     final theme = Theme.of(context);
 
@@ -139,7 +142,8 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
       elevation: 1,
       child: Row(
         children: [
-          Text(selectedLanguage!.flag, style: const TextStyle(fontSize: 24)),
+          // ✨ Using LanguageFlag atom instead of Text
+          LanguageFlag(flag: selectedLanguage!.flag, size: 28),
           const SizedBox(width: HermesSpacing.sm),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -170,6 +174,7 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
     );
   }
 
+  /// ✨ Using ElevatedCard molecule consistently
   Widget _buildHelpfulTip() {
     final theme = Theme.of(context);
 
@@ -213,87 +218,44 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
     );
   }
 
-  /// Joining session loading overlay
+  /// ✨ Using LoadingOverlay molecule with custom content
   Widget _buildJoiningLoadingOverlay() {
+    return LoadingOverlay(
+      title: 'Joining Session',
+      message: 'Connecting to the speaker and preparing translations...',
+      customContent: _buildJoiningCustomContent(),
+    );
+  }
+
+  /// Custom content for joining overlay showing selected language
+  Widget _buildJoiningCustomContent() {
     final theme = Theme.of(context);
 
     return Container(
-      color: Colors.black.withValues(alpha: 0.7),
-      child: Center(
-        child: ElevatedCard(
-          elevation: 8,
-          margin: const EdgeInsets.all(HermesSpacing.lg),
-          padding: const EdgeInsets.all(HermesSpacing.xl),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Loading animation
-              SizedBox(
-                width: 60,
-                height: 60,
-                child: CircularProgressIndicator(
-                  strokeWidth: 4,
-                  valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
-                ),
-              ),
-
-              const SizedBox(height: HermesSpacing.lg),
-
-              // Status text
-              Text(
-                'Joining Session',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(height: HermesSpacing.sm),
-
-              Text(
-                'Connecting to the speaker and preparing translations...',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-                textAlign: TextAlign.center,
-              ),
-
-              const SizedBox(height: HermesSpacing.lg),
-
-              // Simple progress indicator
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: HermesSpacing.md,
-                  vertical: HermesSpacing.sm,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer.withValues(
-                    alpha: 0.3,
-                  ),
-                  borderRadius: BorderRadius.circular(HermesSpacing.sm),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (selectedLanguage != null) ...[
-                      Text(
-                        selectedLanguage!.flag,
-                        style: const TextStyle(fontSize: 20),
-                      ),
-                      const SizedBox(width: HermesSpacing.sm),
-                    ],
-                    Text(
-                      'Translation: ${selectedLanguage?.name ?? 'Selected Language'}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+      padding: const EdgeInsets.symmetric(
+        horizontal: HermesSpacing.md,
+        vertical: HermesSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(HermesSpacing.sm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (selectedLanguage != null) ...[
+            // ✨ Using LanguageFlag atom
+            LanguageFlag(flag: selectedLanguage!.flag, size: 20),
+            const SizedBox(width: HermesSpacing.sm),
+          ],
+          Text(
+            'Translation: ${selectedLanguage?.name ?? 'Selected Language'}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -342,7 +304,7 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
         content: const Row(
           children: [
             Icon(Icons.warning_amber_rounded, color: Colors.white),
-            SizedBox(width: HermesSpacing.sm), // Use spacing constant
+            SizedBox(width: HermesSpacing.sm),
             Text('Please select a language first'),
           ],
         ),
@@ -361,7 +323,7 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
         content: Row(
           children: [
             const Icon(Icons.error_outline, color: Colors.white),
-            const SizedBox(width: HermesSpacing.sm), // Use spacing constant
+            const SizedBox(width: HermesSpacing.sm),
             Expanded(child: Text('Failed to join session: $error')),
           ],
         ),

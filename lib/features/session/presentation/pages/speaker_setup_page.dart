@@ -1,11 +1,9 @@
 // lib/features/session/presentation/pages/speaker_setup_page.dart
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
-import 'package:hermes/core/presentation/widgets/cards/elevated_card.dart';
 import 'package:hermes/core/service_locator.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
@@ -13,6 +11,7 @@ import 'package:hermes/features/session/presentation/utils/language_helpers.dart
 import 'package:hermes/features/session/presentation/widgets/organisms/session_header.dart';
 import 'package:hermes/features/session/presentation/widgets/organisms/language_selector.dart';
 import 'package:hermes/features/session/presentation/widgets/organisms/session_lobby.dart';
+import 'package:hermes/features/session/presentation/widgets/molecules/loading_overlay.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
 
 /// Speaker setup page handling language selection and session creation.
@@ -51,7 +50,7 @@ class _SpeakerSetupPageState extends ConsumerState<SpeakerSetupPage> {
               ],
             ),
 
-            // Go Live loading overlay
+            // ✨ Using LoadingOverlay molecule instead of custom overlay
             if (isGoingLive) _buildGoLiveLoadingOverlay(),
           ],
         ),
@@ -142,143 +141,43 @@ class _SpeakerSetupPageState extends ConsumerState<SpeakerSetupPage> {
     );
   }
 
-  /// Go Live loading overlay with step-by-step feedback
+  /// ✨ Using LoadingOverlay molecule with ProgressStep atoms
   Widget _buildGoLiveLoadingOverlay() {
-    final theme = Theme.of(context);
+    final steps = _buildGoLiveSteps();
 
-    return Container(
-      color: Colors.black.withValues(alpha: 0.7),
-      child: Center(
-        child: ElevatedCard(
-          elevation: 8,
-          margin: const EdgeInsets.all(HermesSpacing.lg),
-          padding: const EdgeInsets.all(HermesSpacing.xl),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Loading animation
-              SizedBox(
-                width: 60,
-                height: 60,
-                child: CircularProgressIndicator(
-                  strokeWidth: 4,
-                  valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
-                ),
-              ),
-
-              const SizedBox(height: HermesSpacing.lg),
-
-              // Status text
-              Text(
-                'Going Live',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(height: HermesSpacing.sm),
-
-              // Current step
-              Text(
-                goLiveStatus,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-                textAlign: TextAlign.center,
-              ),
-
-              const SizedBox(height: HermesSpacing.lg),
-
-              // Progress steps
-              _buildProgressSteps(),
-            ],
-          ),
-        ),
-      ),
+    return LoadingOverlay(
+      title: 'Going Live',
+      message: goLiveStatus,
+      steps: steps,
     );
   }
 
-  Widget _buildProgressSteps() {
-    final theme = Theme.of(context);
-    final steps = [
+  /// ✨ Using LoadingStep and ProgressStep atoms instead of custom implementation
+  List<LoadingStep> _buildGoLiveSteps() {
+    final allSteps = [
       'Checking microphone permissions',
       'Initializing speech recognition',
       'Connecting to session',
       'Starting live session',
     ];
 
-    return Column(
-      children:
-          steps.asMap().entries.map((entry) {
-            final index = entry.key;
-            final step = entry.value;
-            final isCompleted = _getStepStatus(index);
-            final isCurrent = _getCurrentStep() == index;
+    final currentStepIndex = _getCurrentStepIndex();
 
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: HermesSpacing.xs),
-              child: Row(
-                children: [
-                  // Step indicator
-                  Container(
-                    width: 20,
-                    height: 20,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color:
-                          isCompleted
-                              ? Colors.green
-                              : isCurrent
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outline.withValues(
-                                alpha: 0.3,
-                              ),
-                    ),
-                    child:
-                        isCompleted
-                            ? const Icon(
-                              Icons.check,
-                              size: 12,
-                              color: Colors.white,
-                            )
-                            : isCurrent
-                            ? SizedBox(
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: const AlwaysStoppedAnimation(
-                                  Colors.white,
-                                ),
-                              ),
-                            )
-                            : null,
-                  ),
+    return allSteps.asMap().entries.map((entry) {
+      final index = entry.key;
+      final stepText = entry.value;
 
-                  const SizedBox(width: HermesSpacing.sm),
-
-                  // Step text
-                  Expanded(
-                    child: Text(
-                      step,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color:
-                            isCompleted || isCurrent
-                                ? theme.colorScheme.onSurface
-                                : theme.colorScheme.outline,
-                        fontWeight:
-                            isCurrent ? FontWeight.w600 : FontWeight.normal,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
-    );
+      if (index < currentStepIndex) {
+        return LoadingStep.completed(stepText);
+      } else if (index == currentStepIndex) {
+        return LoadingStep.current(stepText);
+      } else {
+        return LoadingStep.pending(stepText);
+      }
+    }).toList();
   }
 
-  int _getCurrentStep() {
+  int _getCurrentStepIndex() {
     if (goLiveStatus.contains('microphone')) return 0;
     if (goLiveStatus.contains('speech') ||
         goLiveStatus.contains('recognition')) {
@@ -287,11 +186,6 @@ class _SpeakerSetupPageState extends ConsumerState<SpeakerSetupPage> {
     if (goLiveStatus.contains('connect')) return 2;
     if (goLiveStatus.contains('start')) return 3;
     return 0;
-  }
-
-  bool _getStepStatus(int stepIndex) {
-    final currentStep = _getCurrentStep();
-    return stepIndex < currentStep;
   }
 
   // State transition methods
@@ -351,10 +245,11 @@ class _SpeakerSetupPageState extends ConsumerState<SpeakerSetupPage> {
 
       // Step 3: Connecting to session
       setState(() => goLiveStatus = 'Connecting to session...');
-      await Future.delayed(const Duration(milliseconds: 300));
+      await Future.delayed(const Duration(milliseconds: 500));
 
       // Step 4: Start the actual session
       setState(() => goLiveStatus = 'Starting live session...');
+      await Future.delayed(const Duration(milliseconds: 300));
       await ref
           .read(hermesControllerProvider.notifier)
           .startSession(selectedLanguage!.code);

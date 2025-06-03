@@ -5,14 +5,12 @@ import 'package:hermes/core/presentation/constants/spacing.dart';
 import 'package:hermes/core/presentation/widgets/buttons/ghost_button.dart';
 
 /// A standardized confirmation dialog for destructive or important actions.
-/// Used for ending sessions, leaving sessions, and other confirmations.
+/// Returns true if confirmed, false if canceled, null if dismissed.
 class ConfirmationDialog extends StatelessWidget {
   final String title;
   final String message;
   final String confirmText;
   final String cancelText;
-  final VoidCallback onConfirm;
-  final VoidCallback? onCancel;
   final IconData? icon;
   final bool isDestructive;
   final List<String>? bulletPoints;
@@ -23,9 +21,7 @@ class ConfirmationDialog extends StatelessWidget {
     required this.title,
     required this.message,
     required this.confirmText,
-    required this.onConfirm,
     this.cancelText = 'Cancel',
-    this.onCancel,
     this.icon,
     this.isDestructive = false,
     this.bulletPoints,
@@ -102,15 +98,12 @@ class ConfirmationDialog extends StatelessWidget {
     return [
       GhostButton(
         label: cancelText,
-        onPressed: onCancel ?? () => Navigator.of(context).pop(false),
+        onPressed: () => Navigator.of(context).pop(false),
       ),
       GhostButton(
         label: confirmText,
         isDestructive: isDestructive,
-        onPressed: () {
-          Navigator.of(context).pop(true);
-          onConfirm();
-        },
+        onPressed: () => Navigator.of(context).pop(true),
       ),
     ];
   }
@@ -121,9 +114,7 @@ class ConfirmationDialog extends StatelessWidget {
     required String title,
     required String message,
     required String confirmText,
-    required VoidCallback onConfirm,
     String cancelText = 'Cancel',
-    VoidCallback? onCancel,
     IconData? icon,
     bool isDestructive = false,
     List<String>? bulletPoints,
@@ -137,9 +128,7 @@ class ConfirmationDialog extends StatelessWidget {
             title: title,
             message: message,
             confirmText: confirmText,
-            onConfirm: onConfirm,
             cancelText: cancelText,
-            onCancel: onCancel,
             icon: icon,
             isDestructive: isDestructive,
             bulletPoints: bulletPoints,
@@ -152,13 +141,8 @@ class ConfirmationDialog extends StatelessWidget {
 /// Specialized confirmation dialog for ending sessions
 class EndSessionDialog extends StatelessWidget {
   final int audienceCount;
-  final VoidCallback onConfirm;
 
-  const EndSessionDialog({
-    super.key,
-    required this.audienceCount,
-    required this.onConfirm,
-  });
+  const EndSessionDialog({super.key, required this.audienceCount});
 
   @override
   Widget build(BuildContext context) {
@@ -206,32 +190,25 @@ class EndSessionDialog extends StatelessWidget {
       isDestructive: true,
       bulletPoints: bulletPoints,
       additionalInfo: additionalInfo,
-      onConfirm: onConfirm,
     );
   }
 
+  /// Shows the end session dialog and returns the result
   static Future<bool?> show({
     required BuildContext context,
     required int audienceCount,
-    required VoidCallback onConfirm,
   }) {
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder:
-          (context) => EndSessionDialog(
-            audienceCount: audienceCount,
-            onConfirm: onConfirm,
-          ),
+      builder: (context) => EndSessionDialog(audienceCount: audienceCount),
     );
   }
 }
 
 /// Specialized confirmation dialog for leaving sessions
 class LeaveSessionDialog extends StatelessWidget {
-  final VoidCallback onConfirm;
-
-  const LeaveSessionDialog({super.key, required this.onConfirm});
+  const LeaveSessionDialog({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -279,18 +256,15 @@ class LeaveSessionDialog extends StatelessWidget {
       isDestructive: true,
       bulletPoints: bulletPoints,
       additionalInfo: additionalInfo,
-      onConfirm: onConfirm,
     );
   }
 
-  static Future<bool?> show({
-    required BuildContext context,
-    required VoidCallback onConfirm,
-  }) {
+  /// Shows the leave session dialog and returns the result
+  static Future<bool?> show({required BuildContext context}) {
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => LeaveSessionDialog(onConfirm: onConfirm),
+      builder: (context) => const LeaveSessionDialog(),
     );
   }
 }
