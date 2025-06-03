@@ -5,13 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
 import 'package:hermes/core/hermes_engine/state/hermes_status.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
-import 'package:hermes/core/presentation/constants/hermes_icons.dart';
 import 'package:hermes/core/presentation/constants/durations.dart';
-import 'package:hermes/core/presentation/widgets/animations/fade_in_widget.dart';
-import 'package:hermes/core/presentation/widgets/animations/pulse_animation.dart';
+import '../molecules/transcript_header.dart';
+import '../molecules/transcript_messages_list.dart';
+import '../molecules/transcript_empty_state.dart';
+import '../molecules/current_speech_indicator.dart';
+import '../atoms/scroll_to_bottom_button.dart';
+import '../../utils/transcript_message.dart';
 
-/// Simplified transcript chat box that adapts to available space automatically.
-/// Removed complex responsive calculations in favor of Flutter's natural layout.
+/// Simplified transcript chat box that orchestrates all sub-components
 class TranscriptChatBox extends ConsumerStatefulWidget {
   const TranscriptChatBox({super.key});
 
@@ -21,9 +23,8 @@ class TranscriptChatBox extends ConsumerStatefulWidget {
 
 class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
   final ScrollController _scrollController = ScrollController();
-  final ScrollController _partialScrollController =
-      ScrollController(); // 🎯 NEW: For partial text auto-scroll
   final List<TranscriptMessage> _messages = [];
+
   String? _lastProcessedTranscript;
   String? _currentPartialTranscript;
   bool _userHasScrolledUp = false;
@@ -31,31 +32,9 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
   bool _hasEverSpoken = false;
 
   @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_onScroll);
-  }
-
-  @override
   void dispose() {
-    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
-    _partialScrollController
-        .dispose(); // 🎯 NEW: Dispose partial scroll controller
     super.dispose();
-  }
-
-  void _onScroll() {
-    if (!_scrollController.hasClients) return;
-
-    final isAtBottom =
-        _scrollController.offset >=
-        _scrollController.position.maxScrollExtent - 50;
-
-    setState(() {
-      _userHasScrolledUp = !isAtBottom;
-      _showScrollToBottomButton = !isAtBottom && _messages.isNotEmpty;
-    });
   }
 
   @override
@@ -74,7 +53,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
       ),
       child: sessionState.when(
         data: (state) {
-          // 🎯 FIX: Use addPostFrameCallback to update state after build
+          // Update transcripts after build using addPostFrameCallback
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _updateTranscripts(state);
           });
@@ -82,21 +61,30 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
           return Column(
             children: [
               // Header with dynamic status
-              _buildHeader(context, theme, state),
+              TranscriptHeader(
+                status: state.status,
+                hasEverSpoken: _hasEverSpoken,
+                messageCount: _messages.length,
+              ),
 
               // Messages area - takes available space automatically
               Expanded(
                 child: Stack(
                   children: [
-                    _buildMessagesArea(context, theme, state),
-                    if (_showScrollToBottomButton)
-                      _buildScrollToBottomButton(context, theme),
+                    _buildMessagesArea(context, state),
+                    ScrollToBottomButton(
+                      onPressed: _scrollToBottom,
+                      isVisible: _showScrollToBottomButton,
+                    ),
                   ],
                 ),
               ),
 
               // Current speaking indicator
-              _buildCurrentSpeechIndicator(context, theme, state),
+              CurrentSpeechIndicator(
+                status: state.status,
+                currentText: _currentPartialTranscript,
+              ),
             ],
           );
         },
@@ -106,523 +94,23 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, ThemeData theme, state) {
-    final isListening = state.status == HermesStatus.listening;
-    final isTranslating = state.status == HermesStatus.translating;
-    final hasActivity = isListening || isTranslating || _messages.isNotEmpty;
-
-    return Container(
-      padding: const EdgeInsets.all(HermesSpacing.md),
-      decoration: BoxDecoration(
-        color:
-            hasActivity
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.1)
-                : null,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(HermesSpacing.md),
-        ),
-        border: Border(
-          bottom: BorderSide(
-            color: theme.colorScheme.outline.withValues(alpha: 0.2),
-            width: 1,
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          // Dynamic icon with subtle animation
-          PulseAnimation(
-            animate: isListening,
-            minScale: 0.95,
-            maxScale: 1.05,
-            child: Icon(
-              _getHeaderIcon(state.status),
-              size: 20,
-              color:
-                  hasActivity
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.outline,
-            ),
-          ),
-          const SizedBox(width: HermesSpacing.sm),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _getHeaderTitle(state.status, _hasEverSpoken),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color:
-                        hasActivity
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  _getHeaderSubtitle(state.status, _hasEverSpoken),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Status indicator
-          _buildStatusIndicator(context, theme, state),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusIndicator(BuildContext context, ThemeData theme, state) {
-    final isListening = state.status == HermesStatus.listening;
-
-    if (_messages.isNotEmpty) {
-      // Show message count
-      return Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: HermesSpacing.sm,
-          vertical: HermesSpacing.xs,
-        ),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          '${_messages.length}',
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.primary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      );
-    } else if (isListening) {
-      // Show live indicator
-      return Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: HermesSpacing.sm,
-          vertical: HermesSpacing.xs,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.red.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: Colors.red.withValues(alpha: 0.3),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            PulseAnimation(
-              animate: true,
-              child: Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(
-                  color: Colors.green,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              'LIVE',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: Colors.greenAccent.shade700,
-                fontWeight: FontWeight.w800,
-                fontSize: 10,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return const SizedBox.shrink();
-  }
-
-  Widget _buildMessagesArea(BuildContext context, ThemeData theme, state) {
+  Widget _buildMessagesArea(BuildContext context, state) {
     if (_messages.isEmpty) {
-      return _buildEmptyState(context, theme, state);
+      return TranscriptEmptyState(
+        status: state.status,
+        hasEverSpoken: _hasEverSpoken,
+      );
     }
 
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.all(HermesSpacing.sm),
-      itemCount: _messages.length,
-      itemBuilder: (context, index) {
-        final message = _messages[index];
-        final isLatest = index == _messages.length - 1;
-
-        return FadeInWidget(
-          duration: HermesDurations.fast,
-          slideFrom: const Offset(0, 0.2),
-          child: _buildMessageBubble(context, theme, message, isLatest),
-        );
+    return TranscriptMessagesList(
+      messages: _messages,
+      scrollController: _scrollController,
+      onScrollStateChanged: (userHasScrolledUp) {
+        setState(() {
+          _userHasScrolledUp = userHasScrolledUp;
+          _showScrollToBottomButton = userHasScrolledUp && _messages.isNotEmpty;
+        });
       },
-    );
-  }
-
-  Widget _buildEmptyState(BuildContext context, ThemeData theme, state) {
-    final isReady =
-        state.status == HermesStatus.listening ||
-        state.status == HermesStatus.buffering;
-    final isListening = state.status == HermesStatus.listening;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Adapt content based on available height
-        final availableHeight = constraints.maxHeight;
-        final isCompact = availableHeight < 300;
-
-        return SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: availableHeight),
-            child: Padding(
-              padding: EdgeInsets.all(
-                isCompact ? HermesSpacing.md : HermesSpacing.xl,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Elegant microphone icon - smaller when compact
-                  Container(
-                    width: isCompact ? 48 : 64,
-                    height: isCompact ? 48 : 64,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primaryContainer.withValues(
-                        alpha: 0.2,
-                      ),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: Icon(
-                      isListening
-                          ? HermesIcons.listening
-                          : HermesIcons.microphone,
-                      size: isCompact ? 20 : 28,
-                      color: theme.colorScheme.primary.withValues(alpha: 0.7),
-                    ),
-                  ),
-
-                  SizedBox(
-                    height: isCompact ? HermesSpacing.md : HermesSpacing.lg,
-                  ),
-
-                  Text(
-                    _getEmptyStateTitle(state.status, _hasEverSpoken),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.onSurface,
-                      fontSize: isCompact ? 14 : null,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-
-                  SizedBox(
-                    height: isCompact ? HermesSpacing.xs : HermesSpacing.sm,
-                  ),
-
-                  Text(
-                    _getEmptyStateSubtitle(state.status, _hasEverSpoken),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.outline,
-                      height: 1.4,
-                      fontSize: isCompact ? 12 : null,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-
-                  // Subtle speaking tips for new sessions - only show if enough space
-                  if (!_hasEverSpoken && isReady && !isCompact) ...[
-                    const SizedBox(height: HermesSpacing.xl),
-                    _buildSpeakingTips(theme),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSpeakingTips(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.all(HermesSpacing.md),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(HermesSpacing.sm),
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.1),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.lightbulb_outline_rounded,
-                size: 16,
-                color: theme.colorScheme.outline,
-              ),
-              const SizedBox(width: HermesSpacing.xs),
-              Text(
-                'Speaking Tips',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: HermesSpacing.sm),
-          ...[
-            'Speak clearly at a normal pace',
-            'Pause briefly between sentences',
-            'Keep device 6-12 inches away',
-          ].map((tip) => _buildTip(tip, theme)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTip(String text, ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.only(top: HermesSpacing.xs),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 3,
-            height: 3,
-            margin: const EdgeInsets.only(top: 8),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.outline.withValues(alpha: 0.6),
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: HermesSpacing.sm),
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageBubble(
-    BuildContext context,
-    ThemeData theme,
-    TranscriptMessage message,
-    bool isLatest,
-  ) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: HermesSpacing.sm),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Avatar
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              HermesIcons.microphone,
-              size: 16,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-
-          const SizedBox(width: HermesSpacing.sm),
-
-          // Message content
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Message bubble
-                Container(
-                  padding: const EdgeInsets.all(HermesSpacing.md),
-                  decoration: BoxDecoration(
-                    color:
-                        isLatest
-                            ? theme.colorScheme.primaryContainer.withValues(
-                              alpha: 0.2,
-                            )
-                            : theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(4),
-                      topRight: Radius.circular(HermesSpacing.md),
-                      bottomLeft: Radius.circular(HermesSpacing.md),
-                      bottomRight: Radius.circular(HermesSpacing.md),
-                    ),
-                    border:
-                        isLatest
-                            ? Border.all(
-                              color: theme.colorScheme.primary.withValues(
-                                alpha: 0.2,
-                              ),
-                              width: 1,
-                            )
-                            : null,
-                  ),
-                  child: Text(
-                    message.text,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color:
-                          isLatest
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.onSurface,
-                      fontWeight:
-                          isLatest ? FontWeight.w500 : FontWeight.normal,
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: HermesSpacing.xs),
-
-                // Timestamp
-                Text(
-                  _formatTimestamp(message.timestamp),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 🎯 FIXED: Current speech indicator with auto-scrolling partial text
-  Widget _buildCurrentSpeechIndicator(
-    BuildContext context,
-    ThemeData theme,
-    state,
-  ) {
-    final isListening = state.status == HermesStatus.listening;
-    final isTranslating = state.status == HermesStatus.translating;
-    final hasCurrentSpeech =
-        _currentPartialTranscript != null &&
-        _currentPartialTranscript!.isNotEmpty;
-
-    if (!isListening && !isTranslating && !hasCurrentSpeech) {
-      return const SizedBox.shrink();
-    }
-
-    return AnimatedContainer(
-      duration: HermesDurations.fast,
-      padding: const EdgeInsets.all(HermesSpacing.md),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.1),
-        borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(HermesSpacing.md),
-        ),
-        border: Border(
-          top: BorderSide(
-            color: theme.colorScheme.outline.withValues(alpha: 0.2),
-            width: 1,
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          // 🎯 FIXED: Simple status indicator (no pulsing animation)
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: isListening ? Colors.green : Colors.amber,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: HermesSpacing.sm),
-
-          // 🎯 FIXED: Current text with auto-scrolling for long messages
-          Expanded(
-            child:
-                hasCurrentSpeech
-                    ? Container(
-                      height: 60, // Fixed height prevents UI jumping
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(HermesSpacing.xs),
-                        border: Border.all(
-                          color: theme.colorScheme.primary.withValues(
-                            alpha: 0.2,
-                          ),
-                          width: 1,
-                        ),
-                      ),
-                      child: Scrollbar(
-                        controller: _partialScrollController,
-                        thumbVisibility: true,
-                        child: SingleChildScrollView(
-                          controller: _partialScrollController,
-                          padding: const EdgeInsets.all(HermesSpacing.sm),
-                          child: Text(
-                            _currentPartialTranscript!,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontStyle: FontStyle.italic,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ),
-                    )
-                    : Text(
-                      isListening
-                          ? 'Start speaking...'
-                          : 'Converting to text...',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.outline,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildScrollToBottomButton(BuildContext context, ThemeData theme) {
-    return Positioned(
-      bottom: HermesSpacing.md,
-      right: HermesSpacing.md,
-      child: SizedBox(
-        width: 48,
-        height: 48,
-        child: FloatingActionButton(
-          onPressed: _scrollToBottom,
-          backgroundColor: theme.colorScheme.primary,
-          foregroundColor: theme.colorScheme.onPrimary,
-          elevation: 2,
-          mini: true,
-          child: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
-        ),
-      ),
     );
   }
 
@@ -673,15 +161,11 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     );
   }
 
-  // 🎯 FIXED: Improved transcript processing logic
+  /// Updates transcript state based on Hermes controller data
   void _updateTranscripts(state) {
     final currentTranscript = state.lastTranscript;
     final isListening = state.status == HermesStatus.listening;
     final isTranslating = state.status == HermesStatus.translating;
-
-    print(
-      '🔍 [TranscriptChatBox] Status: ${state.status}, Transcript: "$currentTranscript", LastProcessed: "$_lastProcessedTranscript"',
-    );
 
     // Track if user has ever spoken
     if (currentTranscript != null && currentTranscript.isNotEmpty) {
@@ -692,27 +176,13 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     if (isListening &&
         currentTranscript != null &&
         currentTranscript.isNotEmpty) {
-      print(
-        '📝 [TranscriptChatBox] Updating partial transcript: "$currentTranscript"',
-      );
       if (mounted) {
         setState(() {
           _currentPartialTranscript = currentTranscript;
         });
-
-        // 🎯 NEW: Auto-scroll partial text to bottom to show most recent words
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_partialScrollController.hasClients) {
-            _partialScrollController.animateTo(
-              _partialScrollController.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 100),
-              curve: Curves.easeOut,
-            );
-          }
-        });
       }
     }
-    // 🎯 IMPROVED: Better final transcript detection
+    // Handle final transcripts
     else if (currentTranscript != null &&
         currentTranscript.isNotEmpty &&
         currentTranscript != _lastProcessedTranscript) {
@@ -724,9 +194,6 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
               _currentPartialTranscript == currentTranscript);
 
       if (shouldProcessAsFinal) {
-        print(
-          '✅ [TranscriptChatBox] Adding final transcript: "$currentTranscript"',
-        );
         if (mounted) {
           setState(() {
             _messages.add(
@@ -758,7 +225,6 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     else if (!isListening &&
         !isTranslating &&
         currentTranscript != _currentPartialTranscript) {
-      print('🧹 [TranscriptChatBox] Clearing partial transcript');
       if (mounted) {
         setState(() {
           _currentPartialTranscript = null;
@@ -776,99 +242,4 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
       );
     }
   }
-
-  IconData _getHeaderIcon(HermesStatus status) {
-    switch (status) {
-      case HermesStatus.listening:
-        return HermesIcons.listening;
-      case HermesStatus.translating:
-        return HermesIcons.translating;
-      default:
-        return HermesIcons.microphone;
-    }
-  }
-
-  String _getHeaderTitle(HermesStatus status, bool hasEverSpoken) {
-    switch (status) {
-      case HermesStatus.listening:
-        return 'Listening';
-      case HermesStatus.translating:
-        return 'Processing Speech';
-      case HermesStatus.buffering:
-        return hasEverSpoken ? 'Speech History' : 'Speech Transcript';
-      default:
-        return hasEverSpoken ? 'Speech History' : 'Ready to Listen';
-    }
-  }
-
-  String _getHeaderSubtitle(HermesStatus status, bool hasEverSpoken) {
-    switch (status) {
-      case HermesStatus.listening:
-        return 'Your speech appears here in real-time';
-      case HermesStatus.translating:
-        return 'Converting speech to text...';
-      case HermesStatus.buffering:
-        return hasEverSpoken
-            ? 'Your recent speech messages'
-            : 'Start speaking to see your words here';
-      default:
-        return hasEverSpoken
-            ? 'Your speech messages from this session'
-            : 'Start speaking when you\'re ready';
-    }
-  }
-
-  String _getEmptyStateTitle(HermesStatus status, bool hasEverSpoken) {
-    if (hasEverSpoken) {
-      return 'No recent messages';
-    }
-
-    switch (status) {
-      case HermesStatus.listening:
-        return 'Start speaking';
-      case HermesStatus.buffering:
-        return 'Ready to listen';
-      default:
-        return 'Welcome to your session';
-    }
-  }
-
-  String _getEmptyStateSubtitle(HermesStatus status, bool hasEverSpoken) {
-    if (hasEverSpoken) {
-      return 'Your speech messages will appear here when you start talking';
-    }
-
-    switch (status) {
-      case HermesStatus.listening:
-        return 'Your words will appear here as you speak';
-      case HermesStatus.buffering:
-        return 'Getting ready to capture your speech';
-      default:
-        return 'Your speech will be displayed here as you talk, creating a real-time transcript for this session';
-    }
-  }
-
-  String _formatTimestamp(DateTime time) {
-    final now = DateTime.now();
-    final difference = now.difference(time);
-
-    if (difference.inSeconds < 10) {
-      return 'Just now';
-    } else if (difference.inMinutes < 1) {
-      return '${difference.inSeconds}s ago';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes}m ago';
-    } else {
-      return '${time.hour.toString().padLeft(2, '0')}:'
-          '${time.minute.toString().padLeft(2, '0')}';
-    }
-  }
-}
-
-/// Data model for transcript messages
-class TranscriptMessage {
-  final String text;
-  final DateTime timestamp;
-
-  const TranscriptMessage({required this.text, required this.timestamp});
 }
