@@ -16,6 +16,7 @@ import 'package:hermes/features/session/presentation/widgets/organisms/session_l
 import 'package:hermes/features/session/presentation/widgets/organisms/speaker_control_panel.dart';
 import 'package:hermes/features/session/presentation/widgets/organisms/session_status_bar.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
+import 'package:hermes/features/session/presentation/widgets/organisms/transcript_chat_box.dart';
 
 /// Complete host session page implementing the three-state structure:
 /// 1. Language Selection - Choose speaking language
@@ -162,17 +163,66 @@ class _HostSessionPageState extends ConsumerState<HostSessionPage> {
     );
   }
 
+  // In host_session_page.dart - replace the _buildActiveSession method
+
   Widget _buildActiveSession() {
     if (selectedLanguage == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return Column(
-      children: [
-        SpeakerControlPanel(languageCode: selectedLanguage!.code),
-        const SizedBox(height: HermesSpacing.sm),
-        _buildSessionControls(),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate space allocation
+        const headerHeight = 0.0; // Header is already shown above
+        const statusBarHeight = 60.0;
+        const sessionControlsHeight = 80.0;
+        const speakerControlHeight = 100.0;
+        const spacing = HermesSpacing.sm * 4;
+
+        final fixedHeight =
+            headerHeight +
+            statusBarHeight +
+            sessionControlsHeight +
+            speakerControlHeight +
+            spacing;
+        final availableHeight = constraints.maxHeight;
+        final transcriptHeight = (availableHeight - fixedHeight).clamp(
+          250.0,
+          double.infinity,
+        );
+
+        return Column(
+          children: [
+            // 1. Compact speaker controls
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                HermesSpacing.md,
+                HermesSpacing.sm,
+                HermesSpacing.md,
+                0,
+              ),
+              child: SpeakerControlPanel(
+                languageCode: selectedLanguage!.code,
+                isCompact: true,
+              ),
+            ),
+
+            const SizedBox(height: HermesSpacing.sm),
+
+            // 2. Transcript chat box with guaranteed space
+            Container(
+              height: transcriptHeight,
+              margin: const EdgeInsets.symmetric(horizontal: HermesSpacing.md),
+              child: const TranscriptChatBox(),
+            ),
+
+            const SizedBox(height: HermesSpacing.sm),
+
+            // 3. Session control buttons
+            _buildSessionControls(),
+          ],
+        );
+      },
     );
   }
 
