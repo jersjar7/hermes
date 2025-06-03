@@ -21,6 +21,8 @@ class TranscriptChatBox extends ConsumerStatefulWidget {
 
 class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _partialScrollController =
+      ScrollController(); // 🎯 NEW: For partial text auto-scroll
   final List<TranscriptMessage> _messages = [];
   String? _lastProcessedTranscript;
   String? _currentPartialTranscript;
@@ -38,6 +40,8 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _partialScrollController
+        .dispose(); // 🎯 NEW: Dispose partial scroll controller
     super.dispose();
   }
 
@@ -511,6 +515,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     );
   }
 
+  // 🎯 FIXED: Current speech indicator with auto-scrolling partial text
   Widget _buildCurrentSpeechIndicator(
     BuildContext context,
     ThemeData theme,
@@ -543,32 +548,46 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
       ),
       child: Row(
         children: [
-          // Live indicator
-          PulseAnimation(
-            animate: isListening,
-            child: Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: isListening ? Colors.red : Colors.amber,
-                shape: BoxShape.circle,
-              ),
+          // 🎯 FIXED: Simple status indicator (no pulsing animation)
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: isListening ? Colors.green : Colors.amber,
+              shape: BoxShape.circle,
             ),
           ),
           const SizedBox(width: HermesSpacing.sm),
 
-          // Current text or placeholder
+          // 🎯 FIXED: Current text with auto-scrolling for long messages
           Expanded(
             child:
                 hasCurrentSpeech
-                    ? ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 60),
-                      child: SingleChildScrollView(
-                        child: Text(
-                          _currentPartialTranscript!,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.primary,
-                            fontStyle: FontStyle.italic,
+                    ? Container(
+                      height: 60, // Fixed height prevents UI jumping
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(HermesSpacing.xs),
+                        border: Border.all(
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.2,
+                          ),
+                          width: 1,
+                        ),
+                      ),
+                      child: Scrollbar(
+                        controller: _partialScrollController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _partialScrollController,
+                          padding: const EdgeInsets.all(HermesSpacing.sm),
+                          child: Text(
+                            _currentPartialTranscript!,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontStyle: FontStyle.italic,
+                              height: 1.4,
+                            ),
                           ),
                         ),
                       ),
@@ -654,11 +673,15 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     );
   }
 
-  // 🎯 FIX: This method no longer calls setState during build
+  // 🎯 FIXED: Improved transcript processing logic
   void _updateTranscripts(state) {
     final currentTranscript = state.lastTranscript;
     final isListening = state.status == HermesStatus.listening;
     final isTranslating = state.status == HermesStatus.translating;
+
+    print(
+      '🔍 [TranscriptChatBox] Status: ${state.status}, Transcript: "$currentTranscript", LastProcessed: "$_lastProcessedTranscript"',
+    );
 
     // Track if user has ever spoken
     if (currentTranscript != null && currentTranscript.isNotEmpty) {
@@ -669,46 +692,73 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     if (isListening &&
         currentTranscript != null &&
         currentTranscript.isNotEmpty) {
+      print(
+        '📝 [TranscriptChatBox] Updating partial transcript: "$currentTranscript"',
+      );
       if (mounted) {
         setState(() {
           _currentPartialTranscript = currentTranscript;
         });
-      }
-    }
-    // Handle final transcripts - catch both translating and non-listening states
-    else if (currentTranscript != null &&
-        currentTranscript.isNotEmpty &&
-        currentTranscript != _lastProcessedTranscript &&
-        (isTranslating || !isListening)) {
-      if (mounted) {
-        setState(() {
-          _messages.add(
-            TranscriptMessage(
-              text: currentTranscript,
-              timestamp: DateTime.now(),
-            ),
-          );
 
-          _currentPartialTranscript = null;
-
-          // Keep only last 50 messages
-          if (_messages.length > 50) {
-            _messages.removeAt(0);
+        // 🎯 NEW: Auto-scroll partial text to bottom to show most recent words
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_partialScrollController.hasClients) {
+            _partialScrollController.animateTo(
+              _partialScrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 100),
+              curve: Curves.easeOut,
+            );
           }
         });
+      }
+    }
+    // 🎯 IMPROVED: Better final transcript detection
+    else if (currentTranscript != null &&
+        currentTranscript.isNotEmpty &&
+        currentTranscript != _lastProcessedTranscript) {
+      // Check if this should be considered a final transcript
+      final shouldProcessAsFinal =
+          !isListening ||
+          isTranslating ||
+          (_currentPartialTranscript != null &&
+              _currentPartialTranscript == currentTranscript);
 
-        _lastProcessedTranscript = currentTranscript;
+      if (shouldProcessAsFinal) {
+        print(
+          '✅ [TranscriptChatBox] Adding final transcript: "$currentTranscript"',
+        );
+        if (mounted) {
+          setState(() {
+            _messages.add(
+              TranscriptMessage(
+                text: currentTranscript,
+                timestamp: DateTime.now(),
+              ),
+            );
 
-        // Auto-scroll if user hasn't manually scrolled
-        if (!_userHasScrolledUp) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _scrollToBottom();
+            _currentPartialTranscript = null;
+            _lastProcessedTranscript = currentTranscript;
+
+            // Keep only last 50 messages
+            if (_messages.length > 50) {
+              _messages.removeAt(0);
+            }
           });
+
+          // Auto-scroll if user hasn't manually scrolled
+          if (!_userHasScrolledUp) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _scrollToBottom();
+            });
+          }
         }
       }
     }
-    // Clear partial transcript when not listening or translating
-    else if (!isListening && !isTranslating) {
+    // Clear partial transcript when not listening and no current speech
+    else if (!isListening &&
+        !isTranslating &&
+        currentTranscript != _currentPartialTranscript) {
+      print('🧹 [TranscriptChatBox] Clearing partial transcript');
       if (mounted) {
         setState(() {
           _currentPartialTranscript = null;
