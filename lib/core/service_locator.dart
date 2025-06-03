@@ -54,7 +54,7 @@ Future<void> setupServiceLocator() async {
 
   // 🔉 Speech-to-Text (needs logger)
   getIt.registerLazySingleton<ISpeechToTextService>(
-    () => SpeechToTextServiceImpl(getIt<ILoggerService>()),
+    () => SpeechToTextServiceImpl(),
   );
 
   // 🌐 Translation (API key from .env)

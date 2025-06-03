@@ -1,4 +1,4 @@
-// android/app/src/main/kotlin/com/yourapp/hermes/ContinuousSpeechManager.kt
+// android/app/src/main/kotlin/com/jersondevs/hermes/ContinuousSpeechManager.kt
 
 package com.jersondevs.hermes
 
@@ -32,24 +32,28 @@ class ContinuousSpeechManager(
     private val handler = Handler(Looper.getMainLooper())
     private var restartRunnable: Runnable? = null
     private var lastResultTime = 0L
-    private var currentSessionResults = mutableListOf<String>()
+    private var consecutiveErrors = 0
+    private var sessionStartTime = 0L
     
     // Audio management
     private var audioManager: AudioManager? = null
-    private var originalAudioMode: Int = AudioManager.MODE_NORMAL
     
-    // Timing constants for optimized experience
+    // Timing constants optimized for stability
     private companion object {
         const val TAG = "ContinuousSpeech-Android"
-        const val RESTART_DELAY_MS = 50L  // Much faster restart than plugin's 500ms
-        const val SILENCE_TIMEOUT_MS = 2000L  // 2 seconds of silence before restart
-        const val MAX_SESSION_DURATION_MS = 30000L  // 30 seconds max per session
-        const val MIN_RESULT_LENGTH = 2  // Minimum characters to consider valid
+        const val RESTART_DELAY_MS = 300L  // Increased from 50ms for stability
+        const val ERROR_BACKOFF_BASE_MS = 1000L  // Base delay for errors
+        const val MAX_CONSECUTIVE_ERRORS = 5  // Stop after too many errors
+        const val SILENCE_TIMEOUT_MS = 3000L  // 3 seconds of silence
+        const val MAX_SESSION_DURATION_MS = 45000L  // 45 seconds max per session
+        const val MIN_RESULT_LENGTH = 1  // Minimum characters to consider valid
+        const val SUCCESS_RESET_ERRORS_DELAY = 5000L  // Reset error count after 5s success
     }
     
     init {
         audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupEventChannel()
+        android.util.Log.d(TAG, "ContinuousSpeechManager initialized")
     }
     
     private fun setupEventChannel() {
@@ -67,20 +71,22 @@ class ContinuousSpeechManager(
     }
     
     fun isAvailable(): Boolean {
-        return SpeechRecognizer.isRecognitionAvailable(context)
+        val available = SpeechRecognizer.isRecognitionAvailable(context)
+        android.util.Log.d(TAG, "SpeechRecognizer availability: $available")
+        return available
     }
     
     fun initialize(): Boolean {
         return try {
             if (isAvailable()) {
-                android.util.Log.d(TAG, "✅ Android SpeechRecognizer available - using optimized restart logic")
+                android.util.Log.d(TAG, "✅ Android SpeechRecognizer initialized successfully")
                 true
             } else {
-                android.util.Log.w(TAG, "❌ Android SpeechRecognizer not available on this device")
+                android.util.Log.e(TAG, "❌ SpeechRecognizer not available on this device")
                 false
             }
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "Error during initialization", e)
+            android.util.Log.e(TAG, "❌ Error during initialization", e)
             false
         }
     }
@@ -88,24 +94,27 @@ class ContinuousSpeechManager(
     fun startContinuousRecognition(locale: String, partialResults: Boolean): Boolean {
         return try {
             if (isListening) {
-                android.util.Log.w(TAG, "Already listening, ignoring start request")
-                return true
+                android.util.Log.w(TAG, "Already listening, stopping first...")
+                stopContinuousRecognition()
+                // Give it a moment to stop
+                Thread.sleep(200)
             }
             
             currentLocale = locale
             this.partialResults = partialResults
             shouldContinue = true
-            currentSessionResults.clear()
+            consecutiveErrors = 0
+            sessionStartTime = System.currentTimeMillis()
             
-            android.util.Log.d(TAG, "🚀 Starting optimized Android recognition with locale: $locale")
+            android.util.Log.d(TAG, "🚀 Starting continuous Android recognition")
+            android.util.Log.d(TAG, "📍 Locale: $locale, Partial: $partialResults")
             
-            setupAudioFocus()
             startRecognitionSession()
-            
             sendStatusEvent("started")
+            
             true
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "Error starting continuous recognition", e)
+            android.util.Log.e(TAG, "❌ Error starting continuous recognition", e)
             sendErrorEvent("Failed to start recognition: ${e.message}")
             false
         }
@@ -118,83 +127,126 @@ class ContinuousSpeechManager(
         isListening = false
         
         // Cancel pending restarts
-        restartRunnable?.let { handler.removeCallbacks(it) }
+        restartRunnable?.let { 
+            handler.removeCallbacks(it)
+            android.util.Log.d(TAG, "Cancelled pending restart")
+        }
         restartRunnable = null
         
         // Stop current recognition
-        speechRecognizer?.stopListening()
-        speechRecognizer?.destroy()
+        speechRecognizer?.let { recognizer ->
+            try {
+                recognizer.stopListening()
+                recognizer.destroy()
+                android.util.Log.d(TAG, "Speech recognizer stopped and destroyed")
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "Error stopping recognizer: ${e.message}")
+            }
+        }
         speechRecognizer = null
-        
-        // Restore audio focus
-        restoreAudioFocus()
         
         sendStatusEvent("stopped")
         android.util.Log.d(TAG, "✅ Continuous recognition stopped")
     }
     
     private fun startRecognitionSession() {
-        if (!shouldContinue) return
+        if (!shouldContinue) {
+            android.util.Log.d(TAG, "Should not continue, aborting session start")
+            return
+        }
         
         try {
             // Clean up previous recognizer
-            speechRecognizer?.destroy()
+            speechRecognizer?.let { oldRecognizer ->
+                try {
+                    oldRecognizer.destroy()
+                } catch (e: Exception) {
+                    android.util.Log.w(TAG, "Error destroying old recognizer: ${e.message}")
+                }
+            }
             
             // Create new recognizer
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            
+            if (speechRecognizer == null) {
+                android.util.Log.e(TAG, "❌ Failed to create SpeechRecognizer")
+                handleRecognitionError("Failed to create SpeechRecognizer")
+                return
+            }
+            
             speechRecognizer?.setRecognitionListener(this)
             
-            // Prepare intent
+            // Prepare intent with optimized settings
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLocale)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, partialResults)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                 
-                // Android-specific optimizations
+                // Optimized timing for continuous recognition
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, SILENCE_TIMEOUT_MS)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 2000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500L)
+                
+                // Prefer on-device recognition for better performance
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             }
             
             isListening = true
             lastResultTime = System.currentTimeMillis()
             
             speechRecognizer?.startListening(intent)
-            android.util.Log.d(TAG, "📱 Started new recognition session")
+            android.util.Log.d(TAG, "📱 Started new recognition session with locale: $currentLocale")
             
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "Error starting recognition session", e)
-            scheduleRestart("Session start error: ${e.message}")
+            android.util.Log.e(TAG, "❌ Error starting recognition session", e)
+            handleRecognitionError("Session start error: ${e.message}")
         }
     }
     
-    private fun scheduleRestart(reason: String = "Automatic restart") {
-        if (!shouldContinue) return
+    private fun scheduleRestart(reason: String = "Automatic restart", delayMs: Long = RESTART_DELAY_MS) {
+        if (!shouldContinue) {
+            android.util.Log.d(TAG, "Should not continue, skipping restart")
+            return
+        }
         
-        android.util.Log.d(TAG, "🔄 Scheduling restart: $reason")
+        android.util.Log.d(TAG, "🔄 Scheduling restart in ${delayMs}ms: $reason")
         
         restartRunnable?.let { handler.removeCallbacks(it) }
         restartRunnable = Runnable {
-            if (shouldContinue) {
-                android.util.Log.d(TAG, "🔄 Restarting recognition session")
+            if (shouldContinue && !isListening) {
+                android.util.Log.d(TAG, "🔄 Executing restart: $reason")
                 startRecognitionSession()
+            } else {
+                android.util.Log.d(TAG, "Skipping restart - shouldContinue: $shouldContinue, isListening: $isListening")
             }
         }
         
-        handler.postDelayed(restartRunnable!!, RESTART_DELAY_MS)
+        handler.postDelayed(restartRunnable!!, delayMs)
     }
     
-    private fun setupAudioFocus() {
-        audioManager?.let { am ->
-            originalAudioMode = am.mode
-            am.mode = AudioManager.MODE_IN_COMMUNICATION
+    private fun handleRecognitionError(message: String) {
+        consecutiveErrors++
+        android.util.Log.w(TAG, "⚠️ Recognition error #$consecutiveErrors: $message")
+        
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            android.util.Log.e(TAG, "❌ Too many consecutive errors ($consecutiveErrors), stopping")
+            sendErrorEvent("Speech recognition failed after multiple attempts")
+            stopContinuousRecognition()
+            return
         }
+        
+        // Exponential backoff for errors
+        val backoffDelay = ERROR_BACKOFF_BASE_MS * consecutiveErrors
+        scheduleRestart("Error recovery", backoffDelay)
     }
     
-    private fun restoreAudioFocus() {
-        audioManager?.mode = originalAudioMode
+    private fun resetErrorCount() {
+        if (consecutiveErrors > 0) {
+            android.util.Log.d(TAG, "✅ Resetting error count (was $consecutiveErrors)")
+            consecutiveErrors = 0
+        }
     }
     
     // MARK: - RecognitionListener Implementation
@@ -202,19 +254,22 @@ class ContinuousSpeechManager(
     override fun onReadyForSpeech(params: Bundle?) {
         android.util.Log.d(TAG, "🎤 Ready for speech")
         sendStatusEvent("listening")
+        resetErrorCount() // Reset on successful start
     }
     
     override fun onBeginningOfSpeech() {
         android.util.Log.d(TAG, "🗣️ Beginning of speech detected")
         lastResultTime = System.currentTimeMillis()
+        resetErrorCount() // Reset when speech detected
     }
     
     override fun onRmsChanged(rmsdB: Float) {
-        // Audio level changed - could use for voice activity detection
+        // Audio level monitoring - could be used for voice activity detection
+        // android.util.Log.v(TAG, "Audio level: $rmsdB dB")
     }
     
     override fun onBufferReceived(buffer: ByteArray?) {
-        // Audio buffer received
+        // Audio buffer received - not used currently
     }
     
     override fun onEndOfSpeech() {
@@ -234,39 +289,49 @@ class ContinuousSpeechManager(
             SpeechRecognizer.ERROR_NO_MATCH -> "No speech match"
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognition service busy"
             SpeechRecognizer.ERROR_SERVER -> "Server error"
-            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input detected"
             else -> "Unknown error: $error"
         }
         
-        android.util.Log.w(TAG, "⚠️ Recognition error: $errorMessage")
+        android.util.Log.w(TAG, "🔴 Recognition error: $errorMessage (code: $error)")
         
         // Handle different error types
         when (error) {
-            SpeechRecognizer.ERROR_NO_MATCH,
+            SpeechRecognizer.ERROR_NO_MATCH -> {
+                // Very common, don't count as serious error
+                android.util.Log.d(TAG, "No match - continuing with quick restart")
+                scheduleRestart("No match detected", RESTART_DELAY_MS)
+            }
+            
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                // These are normal - just restart
-                scheduleRestart("No speech detected")
+                // Also common, quick restart
+                android.util.Log.d(TAG, "Speech timeout - continuing with quick restart")
+                scheduleRestart("Speech timeout", RESTART_DELAY_MS)
             }
             
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
-                // Service busy - wait a bit longer
-                restartRunnable?.let { handler.removeCallbacks(it) }
-                handler.postDelayed({
-                    if (shouldContinue) startRecognitionSession()
-                }, 200L)
+                // Service busy - wait longer
+                android.util.Log.w(TAG, "Recognizer busy - waiting longer")
+                scheduleRestart("Recognizer busy", ERROR_BACKOFF_BASE_MS)
             }
             
             SpeechRecognizer.ERROR_NETWORK,
             SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> {
                 // Network issues - inform user but continue trying
                 sendErrorEvent("Network connectivity issue, retrying...")
-                scheduleRestart("Network error recovery")
+                handleRecognitionError(errorMessage)
+            }
+            
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
+                // Serious error - stop completely
+                android.util.Log.e(TAG, "❌ Insufficient permissions - stopping")
+                sendErrorEvent("Microphone permission required")
+                stopContinuousRecognition()
             }
             
             else -> {
-                // More serious errors - inform user and restart
-                sendErrorEvent(errorMessage)
-                scheduleRestart("Error recovery")
+                // Other errors - use backoff strategy
+                handleRecognitionError(errorMessage)
             }
         }
     }
@@ -275,20 +340,26 @@ class ContinuousSpeechManager(
         isListening = false
         
         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+        val confidences = results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+        
         if (!matches.isNullOrEmpty()) {
             val transcript = matches[0].trim()
+            val confidence = confidences?.getOrNull(0)?.toDouble() ?: 0.9
             
             if (transcript.length >= MIN_RESULT_LENGTH) {
-                android.util.Log.d(TAG, "📝 Final result: \"$transcript\"")
+                android.util.Log.d(TAG, "📝 Final result: \"$transcript\" (confidence: $confidence)")
                 
-                sendResultEvent(transcript, isFinal = true, confidence = 0.9)
-                currentSessionResults.add(transcript)
+                sendResultEvent(transcript, isFinal = true, confidence = confidence)
                 lastResultTime = System.currentTimeMillis()
+                resetErrorCount() // Reset on successful result
+                
+                // Schedule success-based restart reset
+                handler.postDelayed({ resetErrorCount() }, SUCCESS_RESET_ERRORS_DELAY)
             }
         }
         
         // Always restart for continuous recognition
-        scheduleRestart("Session completed")
+        scheduleRestart("Session completed", RESTART_DELAY_MS)
     }
     
     override fun onPartialResults(partialResults: Bundle?) {
@@ -300,14 +371,14 @@ class ContinuousSpeechManager(
             
             if (transcript.length >= MIN_RESULT_LENGTH) {
                 android.util.Log.d(TAG, "📝 Partial result: \"$transcript\"")
-                sendResultEvent(transcript, isFinal = false, confidence = 0.7)
+                sendResultEvent(transcript, isFinal = false, confidence = 0.8)
                 lastResultTime = System.currentTimeMillis()
             }
         }
     }
     
     override fun onEvent(eventType: Int, params: Bundle?) {
-        // Additional recognition events
+        android.util.Log.d(TAG, "📡 Recognition event: $eventType")
     }
     
     // MARK: - Event Sending
@@ -318,33 +389,48 @@ class ContinuousSpeechManager(
             "transcript" to transcript,
             "isFinal" to isFinal,
             "confidence" to confidence,
-            "locale" to currentLocale
+            "locale" to currentLocale,
+            "timestamp" to System.currentTimeMillis()
         )
         
         activity.runOnUiThread {
-            eventSink?.success(event)
+            try {
+                eventSink?.success(event)
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Error sending result event", e)
+            }
         }
     }
     
     private fun sendErrorEvent(message: String) {
         val event = mapOf(
             "type" to "error",
-            "message" to message
+            "message" to message,
+            "timestamp" to System.currentTimeMillis()
         )
         
         activity.runOnUiThread {
-            eventSink?.success(event)
+            try {
+                eventSink?.success(event)
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Error sending error event", e)
+            }
         }
     }
     
     private fun sendStatusEvent(status: String) {
         val event = mapOf(
             "type" to "status",
-            "status" to status
+            "status" to status,
+            "timestamp" to System.currentTimeMillis()
         )
         
         activity.runOnUiThread {
-            eventSink?.success(event)
+            try {
+                eventSink?.success(event)
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Error sending status event", e)
+            }
         }
     }
     

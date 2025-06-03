@@ -8,6 +8,7 @@ import 'package:hermes/features/session/presentation/pages/speaker_setup_page.da
 import 'package:hermes/features/session/presentation/pages/audience_setup_page.dart';
 import 'package:hermes/features/session/presentation/pages/speaker_active_page.dart';
 import 'package:hermes/features/session/presentation/pages/audience_active_page.dart';
+import 'package:hermes/test_continuous_speech.dart'; // 🚀 DEBUG: Add test page
 
 /// Centralized router for Hermes App with clean role-based navigation flow
 final GoRouter appRouter = GoRouter(
@@ -23,6 +24,13 @@ final GoRouter appRouter = GoRouter(
       path: '/',
       name: 'home',
       builder: (context, state) => const HomePage(),
+    ),
+
+    // 🚀 DEBUG: Test speech route
+    GoRoute(
+      path: '/test-speech',
+      name: 'test-speech',
+      builder: (context, state) => const ContinuousSpeechTestPage(),
     ),
 
     // Speaker flow: Setup → Active
