@@ -6,7 +6,8 @@ import 'package:flutter/services.dart';
 import 'speech_result.dart';
 
 /// Platform channel for truly continuous speech recognition
-/// Bypasses the speech_to_text plugin's restart delays on iOS
+/// iOS: Bypasses the speech_to_text plugin's restart delays completely
+/// Android: Uses optimized restart logic (50ms instead of 500ms gaps)
 class ContinuousSpeechChannel {
   static const _methodChannel = MethodChannel('hermes/continuous_speech');
   static const _eventChannel = EventChannel('hermes/continuous_speech/events');
@@ -30,14 +31,22 @@ class ContinuousSpeechChannel {
 
   /// Check if continuous speech recognition is available on this platform
   Future<bool> get isAvailable async {
-    if (!Platform.isIOS) {
-      print('🚫 [ContinuousSpeech] Only iOS supported in Quick Start');
-      return false;
-    }
-
     try {
       _isAvailable = await _methodChannel.invokeMethod('isAvailable') ?? false;
-      print('📱 [ContinuousSpeech] Availability check: $_isAvailable');
+
+      if (Platform.isIOS) {
+        print('📱 [ContinuousSpeech-iOS] Availability check: $_isAvailable');
+      } else if (Platform.isAndroid) {
+        print(
+          '🤖 [ContinuousSpeech-Android] Availability check: $_isAvailable',
+        );
+      } else {
+        print(
+          '🚫 [ContinuousSpeech] Platform ${Platform.operatingSystem} not supported',
+        );
+        return false;
+      }
+
       return _isAvailable;
     } catch (e) {
       print('❌ [ContinuousSpeech] Availability check failed: $e');
@@ -45,18 +54,19 @@ class ContinuousSpeechChannel {
     }
   }
 
-  /// MARK: Initialize the continuous speech recognition
+  /// Initialize the continuous speech recognition
   Future<bool> initialize() async {
     print('🎙️ [ContinuousSpeech] Initializing...');
 
-    if (!Platform.isIOS) {
-      print('🚫 [ContinuousSpeech] iOS only for Quick Start');
-      return false;
-    }
-
     try {
       final result = await _methodChannel.invokeMethod('initialize') ?? false;
-      print('📱 [ContinuousSpeech] Initialize result: $result');
+
+      if (Platform.isIOS) {
+        print('📱 [ContinuousSpeech-iOS] Initialize result: $result');
+      } else if (Platform.isAndroid) {
+        print('🤖 [ContinuousSpeech-Android] Initialize result: $result');
+      }
+
       return result;
     } catch (e) {
       print('❌ [ContinuousSpeech] Initialize failed: $e');
@@ -64,7 +74,9 @@ class ContinuousSpeechChannel {
     }
   }
 
-  /// Start continuous speech recognition with truly no gaps
+  /// Start continuous speech recognition with platform-specific optimizations
+  /// iOS: True continuous recognition with no gaps
+  /// Android: Optimized restart logic with ~50ms gaps
   Future<void> startContinuousListening({
     required String locale,
     required void Function(SpeechResult) onResult,
@@ -76,7 +88,9 @@ class ContinuousSpeechChannel {
     }
 
     print(
-      '🎤 [ContinuousSpeech] Starting continuous listening with locale: $locale',
+      Platform.isIOS
+          ? '🎤 [ContinuousSpeech-iOS] Starting continuous listening with locale: $locale'
+          : '🎤 [ContinuousSpeech-Android] Starting optimized listening with locale: $locale',
     );
 
     try {
@@ -93,15 +107,25 @@ class ContinuousSpeechChannel {
         },
       );
 
-      // Start recognition on native side
-      await _methodChannel.invokeMethod('startContinuousRecognition', {
+      // Start recognition on native side with platform-specific parameters
+      final params = <String, dynamic>{
         'locale': locale,
-        'onDeviceRecognition': true,
         'partialResults': true,
-      });
+      };
+
+      // iOS-specific parameters
+      if (Platform.isIOS) {
+        params['onDeviceRecognition'] = true;
+      }
+
+      await _methodChannel.invokeMethod('startContinuousRecognition', params);
 
       _isListening = true;
-      print('✅ [ContinuousSpeech] Continuous recognition started');
+      print(
+        Platform.isIOS
+            ? '✅ [ContinuousSpeech-iOS] True continuous recognition started'
+            : '✅ [ContinuousSpeech-Android] Optimized recognition started (50ms gaps)',
+      );
     } catch (e) {
       print('❌ [ContinuousSpeech] Start failed: $e');
       await _cleanup();
@@ -116,11 +140,20 @@ class ContinuousSpeechChannel {
       return;
     }
 
-    print('🛑 [ContinuousSpeech] Stopping continuous listening...');
+    final platformMsg =
+        Platform.isIOS
+            ? '🛑 [ContinuousSpeech-iOS] Stopping continuous listening...'
+            : '🛑 [ContinuousSpeech-Android] Stopping optimized listening...';
+    print(platformMsg);
 
     try {
       await _methodChannel.invokeMethod('stopContinuousRecognition');
-      print('✅ [ContinuousSpeech] Native recognition stopped');
+
+      final successMsg =
+          Platform.isIOS
+              ? '✅ [ContinuousSpeech-iOS] Continuous recognition stopped'
+              : '✅ [ContinuousSpeech-Android] Optimized recognition stopped';
+      print(successMsg);
     } catch (e) {
       print('❌ [ContinuousSpeech] Stop failed: $e');
     } finally {
@@ -166,8 +199,9 @@ class ContinuousSpeechChannel {
     final confidence = event['confidence'] as double? ?? 1.0;
 
     if (transcript.isNotEmpty) {
+      final platformTag = Platform.isIOS ? 'iOS' : 'Android';
       print(
-        '📝 [ContinuousSpeech] Result: "$transcript" (final: $isFinal, confidence: $confidence)',
+        '📝 [ContinuousSpeech-$platformTag] Result: "$transcript" (final: $isFinal, confidence: $confidence)',
       );
 
       final result = SpeechResult(
@@ -186,13 +220,15 @@ class ContinuousSpeechChannel {
     void Function(String) onError,
   ) {
     final errorMessage = event['message'] as String? ?? 'Unknown error';
-    print('❌ [ContinuousSpeech] Error event: $errorMessage');
+    final platformTag = Platform.isIOS ? 'iOS' : 'Android';
+    print('❌ [ContinuousSpeech-$platformTag] Error event: $errorMessage');
     onError(errorMessage);
   }
 
   void _handleStatusEvent(Map<String, dynamic> event) {
     final status = event['status'] as String? ?? 'unknown';
-    print('📊 [ContinuousSpeech] Status: $status');
+    final platformTag = Platform.isIOS ? 'iOS' : 'Android';
+    print('📊 [ContinuousSpeech-$platformTag] Status: $status');
 
     if (status == 'stopped') {
       _isListening = false;
