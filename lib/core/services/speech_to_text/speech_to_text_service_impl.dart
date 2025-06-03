@@ -41,7 +41,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
 
     try {
       // 🎯 NEW: Check if continuous recognition is available (iOS only for now)
-      if (Platform.isIOS) {
+      if (Platform.isIOS || Platform.isAndroid) {
         _continuousAvailable = await _continuousChannel.isAvailable;
         if (_continuousAvailable) {
           print(
@@ -344,31 +344,37 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     // Handle different types of errors
     switch (error.errorMsg) {
       case 'error_no_match':
-        // No speech detected - this is normal, just restart listening
-        print('🔄 [STTService] No speech detected, restarting...');
-        _scheduleRestart();
+        // 🎯 MORE FORGIVING: Don't treat no_match as critical on Android
+        if (Platform.isAndroid) {
+          print('🔄 [STTService] Android no-match (normal), continuing...');
+          _scheduleRestart(
+            delay: const Duration(milliseconds: 100),
+          ); // Faster restart
+        } else {
+          print('🔄 [STTService] No speech detected, restarting...');
+          _scheduleRestart();
+        }
         break;
 
       case 'error_speech_timeout':
         // Speech timeout - restart listening
         print('🔄 [STTService] Speech timeout, restarting...');
-        _scheduleRestart();
+        _scheduleRestart(delay: const Duration(milliseconds: 200));
         break;
 
       case 'error_audio':
         // Audio error - might be temporary, try restarting
         print('🔄 [STTService] Audio error, attempting restart...');
-        _scheduleRestart();
+        _scheduleRestart(delay: const Duration(milliseconds: 500));
         break;
 
       case 'error_network':
         // Network error - inform user but try to restart
         print('🌐 [STTService] Network error, will retry...');
-        // 🎯 CRITICAL: Check if callback still exists before calling
         if (_currentOnError != null) {
           _currentOnError!(Exception('Network error, retrying...'));
         }
-        _scheduleRestart();
+        _scheduleRestart(delay: const Duration(seconds: 1));
         break;
 
       default:
@@ -379,22 +385,32 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
             Exception('Speech recognition error: ${error.errorMsg}'),
           );
         } else {
-          _scheduleRestart();
+          _scheduleRestart(delay: const Duration(milliseconds: 300));
         }
         break;
     }
   }
 
-  void _scheduleRestart() {
-    if (_currentOnResult == null || _useContinuousRecognition)
-      return; // Not in a listening session or using continuous
+  // Update _scheduleRestart to accept custom delay
+  void _scheduleRestart({Duration? delay}) {
+    if (_currentOnResult == null || _useContinuousRecognition) return;
 
     _restartTimer?.cancel();
-    _restartTimer = Timer(_restartDelay, () {
+
+    // 🎯 ANDROID OPTIMIZATION: Faster restarts
+    final restartDelay =
+        delay ??
+        (Platform.isAndroid
+            ? const Duration(milliseconds: 100)
+            : _restartDelay);
+
+    _restartTimer = Timer(restartDelay, () {
       if (_currentOnResult != null &&
           _isAvailable &&
           !_useContinuousRecognition) {
-        print('🔄 [STTService] Auto-restarting listening...');
+        print(
+          '🔄 [STTService] Auto-restarting listening (${restartDelay.inMilliseconds}ms delay)...',
+        );
         _startListeningInternal();
       }
     });
