@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
+import 'package:hermes/core/presentation/widgets/cards/elevated_card.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
 import 'package:hermes/features/session/presentation/utils/language_helpers.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
@@ -131,17 +132,11 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
   Widget _buildSelectedLanguagePreview() {
     final theme = Theme.of(context);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(HermesSpacing.md),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(HermesSpacing.sm),
-        border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.3),
-          width: 1,
-        ),
+    return ElevatedCard(
+      backgroundColor: theme.colorScheme.primaryContainer.withValues(
+        alpha: 0.3,
       ),
+      elevation: 1,
       child: Row(
         children: [
           Text(selectedLanguage!.flag, style: const TextStyle(fontSize: 24)),
@@ -178,12 +173,11 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
   Widget _buildHelpfulTip() {
     final theme = Theme.of(context);
 
-    return Container(
-      padding: const EdgeInsets.all(HermesSpacing.md),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(HermesSpacing.sm),
+    return ElevatedCard(
+      backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
+        alpha: 0.5,
       ),
+      elevation: 1,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -226,13 +220,10 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
     return Container(
       color: Colors.black.withValues(alpha: 0.7),
       child: Center(
-        child: Container(
-          padding: const EdgeInsets.all(HermesSpacing.xl),
+        child: ElevatedCard(
+          elevation: 8,
           margin: const EdgeInsets.all(HermesSpacing.lg),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(HermesSpacing.md),
-          ),
+          padding: const EdgeInsets.all(HermesSpacing.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -351,7 +342,7 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
         content: const Row(
           children: [
             Icon(Icons.warning_amber_rounded, color: Colors.white),
-            SizedBox(width: 8),
+            SizedBox(width: HermesSpacing.sm), // Use spacing constant
             Text('Please select a language first'),
           ],
         ),
@@ -370,7 +361,7 @@ class _AudienceSetupPageState extends ConsumerState<AudienceSetupPage> {
         content: Row(
           children: [
             const Icon(Icons.error_outline, color: Colors.white),
-            const SizedBox(width: 8),
+            const SizedBox(width: HermesSpacing.sm), // Use spacing constant
             Expanded(child: Text('Failed to join session: $error')),
           ],
         ),

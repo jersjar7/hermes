@@ -4,10 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
+import 'package:hermes/core/presentation/widgets/buttons/ghost_button.dart';
+import 'package:hermes/core/presentation/widgets/cards/elevated_card.dart';
 import 'package:hermes/core/service_locator.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
 import 'package:hermes/core/presentation/constants/spacing.dart';
+import '../widgets/atoms/detail_row.dart';
+import '../widgets/molecules/confirmation_dialog.dart';
 import '../widgets/organisms/session_header.dart';
 import '../widgets/organisms/speaker_control_panel.dart';
 import '../widgets/organisms/session_status_bar.dart';
@@ -143,52 +147,24 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
       ),
       child: Row(
         children: [
-          // End Session button
+          // End Session button using GhostButton
           Expanded(
-            child: OutlinedButton.icon(
+            child: GhostButton(
+              label: 'End Session',
+              icon: Icons.stop_rounded,
+              isDestructive: true,
               onPressed: _showEndSessionDialog,
-              icon: Icon(
-                Icons.stop_rounded,
-                color: Theme.of(context).colorScheme.error,
-                size: 20,
-              ),
-              label: Text(
-                'End Session',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(
-                  color: Theme.of(context).colorScheme.error,
-                  width: 2,
-                ),
-                padding: const EdgeInsets.symmetric(vertical: HermesSpacing.sm),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(HermesSpacing.sm),
-                ),
-              ),
             ),
           ),
 
           const SizedBox(width: HermesSpacing.md),
 
-          // Session Info button
+          // Session Info button using GhostButton
           Expanded(
-            child: OutlinedButton.icon(
+            child: GhostButton(
+              label: 'Session Info',
+              icon: Icons.info_outline,
               onPressed: _showSessionDetails,
-              icon: const Icon(Icons.info_outline, size: 20),
-              label: const Text(
-                'Session Info',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: HermesSpacing.sm),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(HermesSpacing.sm),
-                ),
-              ),
             ),
           ),
         ],
@@ -246,7 +222,7 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
     }
   }
 
-  /// Show end session confirmation dialog
+  /// Show end session confirmation dialog using atomic design
   Future<void> _showEndSessionDialog() async {
     final sessionState = ref.read(hermesControllerProvider);
     final audienceCount = sessionState.when(
@@ -255,95 +231,17 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
       error: (_, __) => 0,
     );
 
-    final confirmed = await showDialog<bool>(
+    // ✨ Using the new EndSessionDialog component
+    final confirmed = await EndSessionDialog.show(
       context: context,
-      barrierDismissible: false,
-      builder:
-          (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(HermesSpacing.md),
-            ),
-            title: Row(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: Theme.of(context).colorScheme.error,
-                  size: 24,
-                ),
-                const SizedBox(width: HermesSpacing.sm),
-                const Text('End Session'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Are you sure you want to end this session?',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: HermesSpacing.md),
-                const Text('This will:'),
-                const SizedBox(height: HermesSpacing.xs),
-                const Text('• Stop all translation services'),
-                if (audienceCount > 0) ...[
-                  Text('• Disconnect $audienceCount audience members'),
-                ],
-                const Text('• Delete the session permanently'),
-                const SizedBox(height: HermesSpacing.md),
-                Container(
-                  padding: const EdgeInsets.all(HermesSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.errorContainer.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(HermesSpacing.sm),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline_rounded,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                      const SizedBox(width: HermesSpacing.xs),
-                      Expanded(
-                        child: Text(
-                          'This action cannot be undone.',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                style: TextButton.styleFrom(
-                  foregroundColor: Theme.of(context).colorScheme.error,
-                ),
-                child: const Text('End Session'),
-              ),
-            ],
-          ),
+      audienceCount: audienceCount,
+      onConfirm: () => _endSession(),
     );
 
-    if (confirmed == true && mounted) {
-      await _endSession();
-    }
+    // Dialog handles the confirmation and calls _endSession() automatically
   }
 
-  /// Show session details dialog
+  /// Show session details dialog using atomic design
   void _showSessionDetails() {
     final sessionState = ref.read(hermesControllerProvider);
     final sessionService = getIt<ISessionService>();
@@ -357,76 +255,83 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
                 borderRadius: BorderRadius.circular(HermesSpacing.md),
               ),
               title: const Text('Session Information'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildInfoSection('Session Details', [
-                      _buildDetailRow(
-                        'Session Code',
-                        sessionService.currentSession?.sessionId ?? 'Unknown',
-                      ),
-                      _buildDetailRow(
-                        'Speaking Language',
-                        _getLanguageName(
-                          sessionService.currentSession?.languageCode,
+              content: ElevatedCard(
+                elevation: 0,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ✨ Using new InfoSection pattern
+                      _buildInfoSection('Session Details', [
+                        // ✨ Using DetailRow atoms instead of custom widgets
+                        DetailRow(
+                          label: 'Session Code',
+                          value:
+                              sessionService.currentSession?.sessionId ??
+                              'Unknown',
                         ),
-                      ),
-                      _buildDetailRow('Status', _getStatusText(state.status)),
-                      if (sessionStartTime != null)
-                        _buildDetailRow(
-                          'Duration',
-                          _formatDuration(
-                            DateTime.now().difference(sessionStartTime!),
+                        DetailRow(
+                          label: 'Speaking Language',
+                          value: _getLanguageName(
+                            sessionService.currentSession?.languageCode,
                           ),
                         ),
-                    ]),
-
-                    const SizedBox(height: HermesSpacing.lg),
-
-                    _buildInfoSection('Audience', [
-                      _buildDetailRow(
-                        'Total Listeners',
-                        '${state.audienceCount}',
-                      ),
-                      if (state.languageDistribution.isNotEmpty) ...[
-                        const SizedBox(height: HermesSpacing.sm),
-                        const Text(
-                          'Translation Languages:',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                        DetailRow(
+                          label: 'Status',
+                          value: _getStatusText(state.status),
                         ),
-                        const SizedBox(height: HermesSpacing.xs),
-                        ...state.languageDistribution.entries.map(
-                          (entry) => Padding(
-                            padding: const EdgeInsets.only(
-                              left: HermesSpacing.md,
-                              bottom: 4,
-                            ),
-                            child: Text(
-                              '• ${entry.key}: ${entry.value} listeners',
-                              style: const TextStyle(fontSize: 14),
+                        if (sessionStartTime != null)
+                          DetailRow(
+                            label: 'Duration',
+                            value: _formatDuration(
+                              DateTime.now().difference(sessionStartTime!),
                             ),
                           ),
+                      ]),
+
+                      const SizedBox(height: HermesSpacing.lg),
+
+                      _buildInfoSection('Audience', [
+                        DetailRow(
+                          label: 'Total Listeners',
+                          value: '${state.audienceCount}',
                         ),
-                      ],
-                    ]),
-                  ],
+                        if (state.languageDistribution.isNotEmpty) ...[
+                          const SizedBox(height: HermesSpacing.sm),
+                          const Text(
+                            'Translation Languages:',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: HermesSpacing.xs),
+                          // ✨ Using CompactDetailRow for language breakdown
+                          ...state.languageDistribution.entries.map(
+                            (entry) => CompactDetailRow(
+                              label: entry.key,
+                              value: '${entry.value} listeners',
+                              icon: Icons.people_rounded,
+                            ),
+                          ),
+                        ],
+                      ]),
+                    ],
+                  ),
                 ),
               ),
               actions: [
-                TextButton(
+                // ✨ Using GhostButton instead of TextButton
+                GhostButton(
+                  label: 'Close',
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close'),
                 ),
-                TextButton(
+                GhostButton(
+                  label: 'Copy Code',
                   onPressed: () {
                     Navigator.of(context).pop();
                     _copySessionCode(
                       sessionService.currentSession?.sessionId ?? '',
                     );
                   },
-                  child: const Text('Copy Code'),
                 ),
               ],
             ),
@@ -434,6 +339,7 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
     });
   }
 
+  /// ✨ Simplified info section builder (still needed for structure)
   Widget _buildInfoSection(String title, List<Widget> children) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -445,34 +351,6 @@ class _SpeakerActivePageState extends ConsumerState<SpeakerActivePage> {
         const SizedBox(height: HermesSpacing.sm),
         ...children,
       ],
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: HermesSpacing.xs),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              '$label:',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.outline,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

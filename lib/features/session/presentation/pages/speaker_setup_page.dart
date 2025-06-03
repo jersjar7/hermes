@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
+import 'package:hermes/core/presentation/widgets/cards/elevated_card.dart';
 import 'package:hermes/core/service_locator.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
@@ -148,13 +149,10 @@ class _SpeakerSetupPageState extends ConsumerState<SpeakerSetupPage> {
     return Container(
       color: Colors.black.withValues(alpha: 0.7),
       child: Center(
-        child: Container(
-          padding: const EdgeInsets.all(HermesSpacing.xl),
+        child: ElevatedCard(
+          elevation: 8,
           margin: const EdgeInsets.all(HermesSpacing.lg),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(HermesSpacing.md),
-          ),
+          padding: const EdgeInsets.all(HermesSpacing.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -379,6 +377,9 @@ class _SpeakerSetupPageState extends ConsumerState<SpeakerSetupPage> {
             content: Text('Failed to start session: $e'),
             backgroundColor: Theme.of(context).colorScheme.error,
             behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(HermesSpacing.sm),
+            ),
           ),
         );
       }

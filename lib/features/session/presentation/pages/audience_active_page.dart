@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hermes/core/hermes_engine/hermes_controller.dart';
+import 'package:hermes/core/presentation/widgets/buttons/ghost_button.dart';
 import 'package:hermes/core/service_locator.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/features/app/presentation/widgets/hermes_app_bar.dart';
@@ -118,55 +119,21 @@ class _AudienceActivePageState extends ConsumerState<AudienceActivePage> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Leave Session button
-            OutlinedButton.icon(
+            // Leave Session button using GhostButton
+            GhostButton(
+              label: 'Leave Session',
+              icon: Icons.exit_to_app_rounded,
+              isDestructive: true,
               onPressed: _showLeaveSessionDialog,
-              icon: Icon(
-                Icons.exit_to_app_rounded,
-                color: Theme.of(context).colorScheme.error,
-                size: 20,
-              ),
-              label: Text(
-                'Leave Session',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(
-                  color: Theme.of(context).colorScheme.error,
-                  width: 2,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: HermesSpacing.lg,
-                  vertical: HermesSpacing.md,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(HermesSpacing.sm),
-                ),
-              ),
             ),
 
             const SizedBox(width: HermesSpacing.lg),
 
-            // Connection Info button (subtle secondary action)
-            OutlinedButton.icon(
+            // Connection Info button using GhostButton
+            GhostButton(
+              label: 'Connection Info',
+              icon: Icons.info_outline_rounded,
               onPressed: _showConnectionInfo,
-              icon: const Icon(Icons.info_outline_rounded, size: 20),
-              label: const Text(
-                'Connection Info',
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: HermesSpacing.md,
-                  vertical: HermesSpacing.md,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(HermesSpacing.sm),
-                ),
-              ),
             ),
           ],
         ),
@@ -241,16 +208,14 @@ class _AudienceActivePageState extends ConsumerState<AudienceActivePage> {
               ],
             ),
             actions: [
-              TextButton(
+              GhostButton(
+                label: 'Cancel',
                 onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
               ),
-              TextButton(
+              GhostButton(
+                label: 'Leave Session',
+                isDestructive: true,
                 onPressed: () => Navigator.of(context).pop(true),
-                style: TextButton.styleFrom(
-                  foregroundColor: Theme.of(context).colorScheme.error,
-                ),
-                child: const Text('Leave Session'),
               ),
             ],
           ),
@@ -312,9 +277,9 @@ class _AudienceActivePageState extends ConsumerState<AudienceActivePage> {
                 ],
               ),
               actions: [
-                TextButton(
+                GhostButton(
+                  label: 'Close',
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close'),
                 ),
               ],
             ),
