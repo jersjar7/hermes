@@ -66,18 +66,6 @@ class HomePage extends StatelessWidget {
                 onTap: () => context.go('/audience-setup'),
               ),
 
-              const SizedBox(height: HermesSpacing.lg),
-
-              // 🚀 DEBUG: Test Speech Button
-              _buildRoleCard(
-                context: context,
-                title: '🔧 Test Continuous Speech',
-                subtitle: 'Debug Android/iOS speech recognition',
-                icon: Icons.bug_report,
-                isPrimary: false,
-                onTap: () => context.go('/test-speech'),
-              ),
-
               const SizedBox(height: HermesSpacing.xxl),
 
               // Helpful info
