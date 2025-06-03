@@ -44,8 +44,9 @@ class BackNavigationService {
 
     // Paths that require confirmation when there's an active session
     const sessionPaths = [
-      '/active-session',
-      '/host', // When in active speaking mode
+      '/speaker-active', // Speaker live session
+      '/audience-active', // Audience live session
+      '/speaker-setup', // Speaker setup (when in lobby state)
     ];
 
     return sessionPaths.any((path) => currentPath.startsWith(path));
@@ -165,11 +166,14 @@ class BackNavigationService {
   static String getBackDestination(String? currentPath) {
     if (currentPath == null) return '/';
 
-    // Define navigation hierarchy
+    // Define navigation hierarchy for new routes
     const navigationMap = {
-      '/host': '/',
-      '/join': '/',
-      '/active-session': '/', // Will go through confirmation
+      // Speaker flow
+      '/speaker-setup': '/',
+      '/speaker-active': '/', // Will go through confirmation
+      // Audience flow
+      '/audience-setup': '/',
+      '/audience-active': '/', // Will go through confirmation
     };
 
     return navigationMap[currentPath] ?? '/';
