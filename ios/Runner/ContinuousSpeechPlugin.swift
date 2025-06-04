@@ -1,4 +1,4 @@
-// ios/Runner/ContinuousSpeechPlugin.swift
+// ios/Runner/ContinuousSpeechPlugin.swift - Safe version with simple pause detection
 
 import Flutter
 import Speech
@@ -22,17 +22,20 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     private var isListening = false
     private var currentLocale = "en-US"
     
+    // ✨ SIMPLE: Pause Detection for Final Results (without complex audio monitoring)
+    private var lastTranscript = ""
+    private var finalizationTimer: Timer?
+    private let finalizationDelay: TimeInterval = 2.0 // 2 seconds of no changes = final
+    
     // MARK: - Plugin Registration
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = ContinuousSpeechPlugin()
         
-        // Method channel for commands
         let methodChannel = FlutterMethodChannel(
             name: "hermes/continuous_speech",
             binaryMessenger: registrar.messenger()
         )
         
-        // Event channel for streaming results
         let eventChannel = FlutterEventChannel(
             name: "hermes/continuous_speech/events",
             binaryMessenger: registrar.messenger()
@@ -44,7 +47,7 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         registrar.addMethodCallDelegate(instance, channel: methodChannel)
         eventChannel.setStreamHandler(instance)
         
-        print("🎙️ [ContinuousSpeech-iOS] Plugin registered successfully")
+        print("🎙️ [ContinuousSpeech-iOS] Safe plugin with simple pause detection registered")
     }
     
     // MARK: - Method Channel Handler
@@ -73,7 +76,7 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         }
     }
     
-    // MARK: - Stream Handler (for events)
+    // MARK: - Stream Handler
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         print("🎙️ [ContinuousSpeech-iOS] Event stream started")
         self.eventSink = events
@@ -99,7 +102,6 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     private func handleIsAvailable(result: @escaping FlutterResult) {
         print("🎙️ [ContinuousSpeech-iOS] Checking availability...")
         
-        // Check if speech recognition is available
         guard SFSpeechRecognizer.authorizationStatus() != .denied else {
             print("❌ [ContinuousSpeech-iOS] Speech recognition denied")
             result(false)
@@ -118,20 +120,7 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
             return
         }
         
-        // Store recognizer temporarily for compatibility check
         speechRecognizer = recognizer
-        
-        // Check if on-device recognition is supported (iOS 13+ only)
-        if #available(iOS 13.0, *) {
-            if supportsOnDeviceRecognition {
-                print("✅ [ContinuousSpeech-iOS] On-device recognition supported - continuous recognition available!")
-            } else {
-                print("⚠️ [ContinuousSpeech-iOS] On-device recognition not supported - will use server-based (may have timeouts)")
-            }
-        } else {
-            print("⚠️ [ContinuousSpeech-iOS] iOS 13+ required for on-device recognition - using server-based")
-        }
-        
         print("✅ [ContinuousSpeech-iOS] Speech recognition available")
         result(true)
     }
@@ -139,7 +128,6 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     private func handleInitialize(result: @escaping FlutterResult) {
         print("🎙️ [ContinuousSpeech-iOS] Initializing...")
         
-        // Request speech recognition authorization
         SFSpeechRecognizer.requestAuthorization { authStatus in
             DispatchQueue.main.async {
                 switch authStatus {
@@ -147,19 +135,15 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
                     print("✅ [ContinuousSpeech-iOS] Speech recognition authorized")
                     self.setupAudioSession()
                     result(true)
-                    
                 case .denied:
                     print("❌ [ContinuousSpeech-iOS] Speech recognition denied")
                     result(false)
-                    
                 case .restricted:
                     print("❌ [ContinuousSpeech-iOS] Speech recognition restricted")
                     result(false)
-                    
                 case .notDetermined:
                     print("❌ [ContinuousSpeech-iOS] Speech recognition not determined")
                     result(false)
-                    
                 @unknown default:
                     print("❌ [ContinuousSpeech-iOS] Unknown speech recognition status")
                     result(false)
@@ -171,7 +155,6 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     private func handleStartContinuousRecognition(args: [String: Any], result: @escaping FlutterResult) {
         print("🎙️ [ContinuousSpeech-iOS] Starting continuous recognition...")
         
-        // Extract arguments
         if let locale = args["locale"] as? String {
             currentLocale = locale
         }
@@ -181,10 +164,8 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         
         print("🎙️ [ContinuousSpeech-iOS] Locale: \(currentLocale), OnDevice: \(onDeviceRecognition), Partial: \(partialResults)")
         
-        // Stop any existing recognition
         stopRecognition()
         
-        // Start new recognition
         do {
             try startRecognition(
                 locale: currentLocale,
@@ -226,9 +207,9 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         }
     }
     
-    // MARK: - Core Recognition Logic
+    // MARK: - SAFE: Core Recognition Logic (without complex audio monitoring)
     private func startRecognition(locale: String, onDeviceRecognition: Bool, partialResults: Bool) throws {
-        print("🚀 [ContinuousSpeech-iOS] Starting recognition with locale: \(locale)")
+        print("🚀 [ContinuousSpeech-iOS] Starting SAFE recognition with simple pause detection")
         
         // Ensure we have permission
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
@@ -252,29 +233,19 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
             throw NSError(domain: "SpeechRecognition", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unable to create recognition request"])
         }
         
-        // 🎯 KEY CONFIGURATION: Enable features based on iOS version
+        // Configure for continuous recognition
         if #available(iOS 13.0, *) {
-            // iOS 13+ features - this enables continuous recognition!
             recognitionRequest.requiresOnDeviceRecognition = onDeviceRecognition && supportsOnDeviceRecognition
-            
-            if recognitionRequest.requiresOnDeviceRecognition {
-                print("🚀 [ContinuousSpeech-iOS] Using ON-DEVICE continuous recognition - NO GAPS!")
-            } else {
-                print("🌐 [ContinuousSpeech-iOS] Using server-based recognition - optimized for better continuity")
-            }
-        } else {
-            // iOS 10-12: Server-based only, but still better than plugin's 500ms delays
-            print("🌐 [ContinuousSpeech-iOS] iOS 10-12: Using server-based recognition with optimized restart logic")
+            print("🚀 [ContinuousSpeech-iOS] Using on-device: \(recognitionRequest.requiresOnDeviceRecognition)")
         }
         
-        // Always enable partial results for real-time feedback
         recognitionRequest.shouldReportPartialResults = partialResults
         
-        // Set up audio engine
+        // ✨ SAFE: Set up audio engine WITHOUT complex tap monitoring
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         
-        // Install tap on audio input
+        // SIMPLE: Install basic tap without audio level monitoring
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer, when) in
             self?.recognitionRequest?.append(buffer)
         }
@@ -283,63 +254,23 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         audioEngine.prepare()
         try audioEngine.start()
         
-        print("🎙️ [ContinuousSpeech-iOS] Audio engine started")
+        // Reset state
+        lastTranscript = ""
+        
+        print("🎙️ [ContinuousSpeech-iOS] SAFE audio engine started")
         
         // Start recognition task
         recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            self?.handleRecognitionResult(result: result, error: error)
+            self?.handleSafeRecognitionResult(result: result, error: error)
         }
         
-        print("✅ [ContinuousSpeech-iOS] Recognition task started")
+        print("✅ [ContinuousSpeech-iOS] SAFE recognition with simple pause detection started")
     }
     
-    private func stopRecognition() {
-        print("🛑 [ContinuousSpeech-iOS] Stopping recognition...")
-        
-        // Stop audio engine
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-            print("🛑 [ContinuousSpeech-iOS] Audio engine stopped")
-        }
-        
-        // Clean up recognition
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
-        
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        
-        speechRecognizer = nil
-        
-        print("✅ [ContinuousSpeech-iOS] Recognition stopped completely")
-    }
-    
-    // MARK: - Recognition Result Handling
-    private func handleRecognitionResult(result: SFSpeechRecognitionResult?, error: Error?) {
+    // ✨ SAFE: Recognition Result Handling with Simple Timer-Based Finalization
+    private func handleSafeRecognitionResult(result: SFSpeechRecognitionResult?, error: Error?) {
         if let error = error {
             print("❌ [ContinuousSpeech-iOS] Recognition error: \(error)")
-            
-            // Handle specific error types
-            let nsError = error as NSError
-            switch nsError.code {
-            case 1700: // No speech input
-                print("⚠️ [ContinuousSpeech-iOS] No speech input - continuing to listen...")
-                // Don't send error for no speech input, just continue listening
-                return
-                
-            case 203: // Request timed out
-                print("⚠️ [ContinuousSpeech-iOS] Recognition timed out")
-                if #available(iOS 13.0, *), supportsOnDeviceRecognition {
-                    print("⚠️ [ContinuousSpeech-iOS] Unexpected timeout with on-device recognition")
-                } else {
-                    print("ℹ️ [ContinuousSpeech-iOS] Server-based recognition timeout - this is normal for long pauses")
-                }
-                
-            default:
-                print("❌ [ContinuousSpeech-iOS] Other error: \(error.localizedDescription)")
-            }
-            
             sendErrorEvent(message: error.localizedDescription)
             return
         }
@@ -349,37 +280,105 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
             return
         }
         
-        let transcript = result.bestTranscription.formattedString
-        let isFinal = result.isFinal
+        let transcript = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let originalIsFinal = result.isFinal
         let confidence = result.bestTranscription.segments.last?.confidence ?? 1.0
         
-        // Only send non-empty transcripts
-        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
-        }
+        // Skip empty transcripts
+        guard !transcript.isEmpty else { return }
         
-        print("📝 [ContinuousSpeech-iOS] Result: \"\(transcript)\" (final: \(isFinal), confidence: \(confidence))")
+        print("📝 [ContinuousSpeech-iOS] Result: \"\(transcript)\" (original final: \(originalIsFinal))")
         
-        // Send result to Flutter
-        sendResultEvent(
-            transcript: transcript,
-            isFinal: isFinal,
-            confidence: Double(confidence),
-            locale: currentLocale
-        )
+        // ✨ SIMPLE FINALIZATION LOGIC
+        let hasChanged = transcript != lastTranscript
         
-        // 🎯 CRITICAL: For continuous recognition, we DON'T restart here!
-        // The recognition will continue running until we explicitly stop it
-        if isFinal {
-            if #available(iOS 13.0, *), supportsOnDeviceRecognition {
-                print("✅ [ContinuousSpeech-iOS] Final result received - on-device recognition continues seamlessly...")
-            } else {
-                print("✅ [ContinuousSpeech-iOS] Final result received - server-based recognition may pause briefly...")
+        if hasChanged {
+            // Cancel any pending finalization
+            finalizationTimer?.invalidate()
+            
+            // Send as partial result
+            sendResultEvent(
+                transcript: transcript,
+                isFinal: false,
+                confidence: Double(confidence),
+                locale: currentLocale
+            )
+            
+            // Update last transcript
+            lastTranscript = transcript
+            
+            // ✨ START SIMPLE FINALIZATION TIMER
+            finalizationTimer = Timer.scheduledTimer(withTimeInterval: finalizationDelay, repeats: false) { [weak self] _ in
+                self?.finalizeCurrentTranscript()
             }
+            
+            print("⏱️ [ContinuousSpeech-iOS] Started finalization timer for: \"\(transcript)\"")
+        } else if originalIsFinal && !transcript.isEmpty {
+            // iOS marked it as final, so finalize immediately
+            finalizeTranscript(transcript, confidence: Double(confidence))
         }
     }
     
-    // MARK: - Event Sending
+    // ✨ SIMPLE: Finalize Current Transcript
+    private func finalizeCurrentTranscript() {
+        guard !lastTranscript.isEmpty else { return }
+        
+        print("✅ [ContinuousSpeech-iOS] Auto-finalizing transcript: \"\(lastTranscript)\"")
+        finalizeTranscript(lastTranscript, confidence: 1.0)
+    }
+    
+    // ✨ SIMPLE: Send Final Transcript
+    private func finalizeTranscript(_ transcript: String, confidence: Double) {
+        // Cancel any pending finalization
+        finalizationTimer?.invalidate()
+        
+        // Send as final result (this will have punctuation if iOS adds it)
+        sendResultEvent(
+            transcript: transcript,
+            isFinal: true,
+            confidence: confidence,
+            locale: currentLocale
+        )
+        
+        print("🏁 [ContinuousSpeech-iOS] Sent FINAL result: \"\(transcript)\"")
+        
+        // Reset for next segment
+        lastTranscript = ""
+    }
+    
+    // MARK: - Cleanup
+    private func stopRecognition() {
+        print("🛑 [ContinuousSpeech-iOS] Stopping SAFE recognition...")
+        
+        // Stop timer
+        finalizationTimer?.invalidate()
+        finalizationTimer = nil
+        
+        // Finalize any pending transcript
+        if !lastTranscript.isEmpty {
+            finalizeCurrentTranscript()
+        }
+        
+        // Stop audio engine
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
+        
+        // Clean up recognition
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        speechRecognizer = nil
+        
+        // Reset state
+        lastTranscript = ""
+        
+        print("✅ [ContinuousSpeech-iOS] SAFE recognition stopped")
+    }
+    
+    // MARK: - Event Sending (unchanged)
     private func sendResultEvent(transcript: String, isFinal: Bool, confidence: Double, locale: String) {
         guard let eventSink = eventSink else {
             print("⚠️ [ContinuousSpeech-iOS] No event sink available for result")
@@ -400,10 +399,7 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     }
     
     private func sendErrorEvent(message: String) {
-        guard let eventSink = eventSink else {
-            print("⚠️ [ContinuousSpeech-iOS] No event sink available for error")
-            return
-        }
+        guard let eventSink = eventSink else { return }
         
         let event: [String: Any] = [
             "type": "error",
@@ -416,10 +412,7 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     }
     
     private func sendStatusEvent(status: String) {
-        guard let eventSink = eventSink else {
-            print("⚠️ [ContinuousSpeech-iOS] No event sink available for status")
-            return
-        }
+        guard let eventSink = eventSink else { return }
         
         let event: [String: Any] = [
             "type": "status",
@@ -433,7 +426,7 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     
     // MARK: - Cleanup
     deinit {
-        print("🗑️ [ContinuousSpeech-iOS] Plugin deallocated")
+        print("🗑️ [ContinuousSpeech-iOS] SAFE plugin deallocated")
         stopRecognition()
     }
 }
