@@ -5,6 +5,7 @@ import Speech
 import AVFoundation
 
 /// Delegate protocol for speech recognition events
+@available(iOS 16.0, *)
 protocol SpeechRecognitionManagerDelegate: AnyObject {
     func speechManager(_ manager: SpeechRecognitionManager, didReceivePartialResult text: String, confidence: Double)
     func speechManager(_ manager: SpeechRecognitionManager, didReceiveFinalResult text: String, confidence: Double)
@@ -47,6 +48,11 @@ class SpeechRecognitionManager {
     
     var status: SpeechRecognitionStatus {
         return _status
+    }
+    
+    // Expose current config for external access
+    var currentConfig: SpeechRecognitionConfig {
+        return config
     }
     
     // MARK: - Initialization
@@ -250,6 +256,7 @@ class SpeechRecognitionManager {
 
 // MARK: - Debug Support
 
+@available(iOS 16.0, *)
 extension SpeechRecognitionManager {
     
     /// Get comprehensive debug information

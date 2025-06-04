@@ -102,16 +102,19 @@ class AudioSessionManager {
     /// Check if bluetooth audio is available
     var isBluetoothAvailable: Bool {
         let availableInputs = audioSession.availableInputs ?? []
-        return availableInputs.contains { input in
-            input.portType == .bluetoothHFP || input.portType == .bluetoothA2DP || input.portType == .bluetoothLE
+        return availableInputs.contains { (input: AVAudioSessionPortDescription) -> Bool in
+            input.portType == AVAudioSession.Port.bluetoothHFP ||
+            input.portType == AVAudioSession.Port.bluetoothA2DP ||
+            input.portType == AVAudioSession.Port.bluetoothLE
         }
     }
     
     /// Check if wired headset is connected
     var isWiredHeadsetConnected: Bool {
         let currentRoute = audioSession.currentRoute
-        return currentRoute.inputs.contains { input in
-            input.portType == .headsetMic || input.portType == .wiredMicrophone
+        return currentRoute.inputs.contains { (input: AVAudioSessionPortDescription) -> Bool in
+            input.portType == AVAudioSession.Port.headsetMic ||
+            input.portType == AVAudioSession.Port.lineIn
         }
     }
     
@@ -147,12 +150,23 @@ class AudioSessionManager {
         let availableInputs = audioSession.availableInputs ?? []
         
         // Prefer wired headset microphone (best quality)
-        if let headsetMic = availableInputs.first(where: { $0.portType == .headsetMic }) {
+        if let headsetMic = availableInputs.first(where: { (input: AVAudioSessionPortDescription) -> Bool in
+            input.portType == AVAudioSession.Port.headsetMic
+        }) {
             return headsetMic
         }
         
+        // Then prefer line input (external microphone)
+        if let lineIn = availableInputs.first(where: { (input: AVAudioSessionPortDescription) -> Bool in
+            input.portType == AVAudioSession.Port.lineIn
+        }) {
+            return lineIn
+        }
+        
         // Then prefer built-in microphone
-        if let builtInMic = availableInputs.first(where: { $0.portType == .builtInMic }) {
+        if let builtInMic = availableInputs.first(where: { (input: AVAudioSessionPortDescription) -> Bool in
+            input.portType == AVAudioSession.Port.builtInMic
+        }) {
             return builtInMic
         }
         

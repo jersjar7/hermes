@@ -18,10 +18,14 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         print("🚀 [ContinuousSpeechPlugin] Registering with Flutter...")
         
-        let instance = ContinuousSpeechPlugin()
-        instance.setup(with: registrar.messenger())
-        
-        print("✅ [ContinuousSpeechPlugin] Modular plugin registered successfully")
+        // Check iOS version compatibility
+        if #available(iOS 16.0, *) {
+            let instance = ContinuousSpeechPlugin()
+            instance.setup(with: registrar.messenger())
+            print("✅ [ContinuousSpeechPlugin] Modular plugin registered successfully")
+        } else {
+            print("❌ [ContinuousSpeechPlugin] iOS 16.0+ required for speech recognition")
+        }
     }
     
     // MARK: - Setup

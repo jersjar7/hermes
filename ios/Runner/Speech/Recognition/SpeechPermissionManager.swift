@@ -140,6 +140,7 @@ class SpeechPermissionManager {
 
 // MARK: - Permission Validation Result
 
+@available(iOS 16.0, *)
 extension SpeechPermissionManager {
     
     enum PermissionValidationResult {

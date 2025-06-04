@@ -21,9 +21,13 @@ class SpeechLogger {
     private var logLevel: LogLevel = .info
     private var logToFile = false
     
-    // iOS unified logging
-    @available(iOS 16.0, *)
-    private lazy var osLog = OSLog(subsystem: "com.hermes.speech", category: "recognition")
+    // iOS unified logging - converted to computed property to fix @available issue
+    private var osLog: OSLog? {
+        if #available(iOS 16.0, *) {
+            return OSLog(subsystem: "com.hermes.speech", category: "recognition")
+        }
+        return nil
+    }
     
     // MARK: - Log Levels
     
@@ -99,8 +103,8 @@ class SpeechLogger {
         print(logMessage)
         
         // iOS unified logging (iOS 16.0+)
-        if #available(iOS 16.0, *) {
-            logToUnifiedLogging(level: level, message: logMessage)
+        if #available(iOS 16.0, *), let osLog = osLog {
+            logToUnifiedLogging(level: level, message: logMessage, osLog: osLog)
         }
         
         // File logging (if enabled)
@@ -181,7 +185,7 @@ class SpeechLogger {
     }
     
     @available(iOS 16.0, *)
-    private func logToUnifiedLogging(level: LogLevel, message: String) {
+    private func logToUnifiedLogging(level: LogLevel, message: String, osLog: OSLog) {
         switch level {
         case .verbose, .debug:
             os_log("%{public}@", log: osLog, type: .debug, message)

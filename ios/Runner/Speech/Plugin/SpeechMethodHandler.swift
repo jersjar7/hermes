@@ -209,7 +209,7 @@ class SpeechMethodHandler: NSObject {
     private func parseRecognitionArguments(_ arguments: Any?) -> SpeechRecognitionConfig {
         guard let args = arguments as? [String: Any] else {
             print("🎤 [MethodHandler] No recognition arguments, using current config")
-            return speechManager?.config ?? .hermes
+            return speechManager?.currentConfig ?? .hermes
         }
         
         // Update locale if provided
