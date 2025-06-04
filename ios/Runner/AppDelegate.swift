@@ -9,8 +9,13 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
 
-    // Register the continuous speech plugin
-    ContinuousSpeechPlugin.register(with: registrar(forPlugin: "ContinuousSpeechPlugin")!)
+    // Register the modular continuous speech plugin (iOS 10.0+)
+    if #available(iOS 10.0, *) {
+        ContinuousSpeechPlugin.register(with: registrar(forPlugin: "ContinuousSpeechPlugin")!)
+        print("✅ [AppDelegate] Modular ContinuousSpeechPlugin registered")
+    } else {
+        print("❌ [AppDelegate] iOS 10.0+ required for speech recognition")
+    }
     
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
