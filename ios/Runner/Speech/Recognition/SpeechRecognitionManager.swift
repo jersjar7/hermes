@@ -169,7 +169,7 @@ class SpeechRecognitionManager {
     }
     
     // MARK: - Private Implementation
-    
+
     private func setupRecognitionComponents() async throws {
         // Setup audio session
         try audioSessionManager.setupAudioSession()
@@ -195,6 +195,12 @@ class SpeechRecognitionManager {
         // Configure request
         recognitionRequest.requiresOnDeviceRecognition = config.onDeviceRecognition && recognizer.supportsOnDeviceRecognition
         recognitionRequest.shouldReportPartialResults = config.partialResults
+        
+        // Enable punctuation for better sentence detection (iOS 16.0+)
+        if #available(iOS 16.0, *) {
+            recognitionRequest.addsPunctuation = true
+            print("✅ [SpeechManager] Enabled punctuation for iOS 16+")
+        }
         
         // Setup audio engine
         try setupAudioEngine(with: recognitionRequest)
