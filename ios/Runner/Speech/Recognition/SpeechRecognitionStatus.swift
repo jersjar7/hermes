@@ -127,11 +127,11 @@ extension SpeechRecognitionStatus {
         case .idle:
             return [.starting]
         case .starting:
-            return [.listening, .error, .stopped]
+            return [.listening, .error(""), .stopped]
         case .listening:
-            return [.processing, .stopped, .error]
+            return [.processing, .stopped, .error("")]
         case .processing:
-            return [.listening, .stopped, .error]
+            return [.listening, .stopped, .error("")]
         case .stopped:
             return [.starting, .idle]
         case .error:
@@ -160,7 +160,7 @@ extension SpeechRecognitionStatus {
     }
     
     /// Create error status with message
-    static func error(_ message: String) -> SpeechRecognitionStatus {
+    static func errorStatus(_ message: String) -> SpeechRecognitionStatus {
         return .error(message)
     }
 }

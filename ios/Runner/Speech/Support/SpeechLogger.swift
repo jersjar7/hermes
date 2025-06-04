@@ -22,7 +22,7 @@ class SpeechLogger {
     private var logToFile = false
     
     // iOS unified logging
-    @available(iOS 10.0, *)
+    @available(iOS 16.0, *)
     private lazy var osLog = OSLog(subsystem: "com.hermes.speech", category: "recognition")
     
     // MARK: - Log Levels
@@ -98,8 +98,8 @@ class SpeechLogger {
         // Console logging
         print(logMessage)
         
-        // iOS unified logging (iOS 10+)
-        if #available(iOS 10.0, *) {
+        // iOS unified logging (iOS 16.0+)
+        if #available(iOS 16.0, *) {
             logToUnifiedLogging(level: level, message: logMessage)
         }
         
@@ -180,7 +180,7 @@ class SpeechLogger {
         return "\(timestamp) \(level.emoji) [\(component.rawValue)] \(message) (\(filename):\(line))"
     }
     
-    @available(iOS 10.0, *)
+    @available(iOS 16.0, *)
     private func logToUnifiedLogging(level: LogLevel, message: String) {
         switch level {
         case .verbose, .debug:

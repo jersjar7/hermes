@@ -5,7 +5,7 @@ import Foundation
 
 /// Main Flutter plugin class for continuous speech recognition
 /// Coordinates between method handling and event sending components
-@available(iOS 10.0, *)
+@available(iOS 16.0, *)
 public class ContinuousSpeechPlugin: NSObject, FlutterPlugin {
     
     // MARK: - Properties
@@ -85,17 +85,8 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin {
         ]
         
         // Add iOS version-specific capabilities
-        if #available(iOS 13.0, *) {
-            info["supportsOnDeviceRecognition"] = true
-        } else {
-            info["supportsOnDeviceRecognition"] = false
-        }
-        
-        if #available(iOS 14.0, *) {
-            info["supportsAdvancedRecognition"] = true
-        } else {
-            info["supportsAdvancedRecognition"] = false
-        }
+        info["supportsOnDeviceRecognition"] = true
+        info["supportsAdvancedRecognition"] = true
         
         return info
     }
@@ -115,34 +106,22 @@ public class ContinuousSpeechPlugin: NSObject, FlutterPlugin {
 
 // MARK: - Version Compatibility
 
-@available(iOS 10.0, *)
+@available(iOS 16.0, *)
 extension ContinuousSpeechPlugin {
     
     /// Check if current iOS version supports all features
     var isFullySupported: Bool {
-        if #available(iOS 13.0, *) {
-            return true
-        } else {
-            return false
-        }
+        return true // iOS 16+ supports all features
     }
     
     /// Get list of supported features for current iOS version
     var supportedFeatures: [String] {
-        var features = ["basicRecognition", "partialResults"]
-        
-        if #available(iOS 13.0, *) {
-            features.append("onDeviceRecognition")
-        }
-        
-        if #available(iOS 14.0, *) {
-            features.append("advancedAudioProcessing")
-        }
-        
-        if #available(iOS 15.0, *) {
-            features.append("enhancedAccuracy")
-        }
-        
-        return features
+        return [
+            "basicRecognition",
+            "partialResults",
+            "onDeviceRecognition",
+            "advancedAudioProcessing",
+            "enhancedAccuracy"
+        ]
     }
 }

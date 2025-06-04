@@ -14,7 +14,7 @@ protocol SpeechRecognitionManagerDelegate: AnyObject {
 
 /// Core speech recognition manager that coordinates all recognition components
 /// Delegates specific responsibilities to specialized managers
-@available(iOS 10.0, *)
+@available(iOS 16.0, *)
 class SpeechRecognitionManager {
     
     // MARK: - Properties
@@ -187,9 +187,7 @@ class SpeechRecognitionManager {
         }
         
         // Configure request
-        if #available(iOS 13.0, *) {
-            recognitionRequest.requiresOnDeviceRecognition = config.onDeviceRecognition && recognizer.supportsOnDeviceRecognition
-        }
+        recognitionRequest.requiresOnDeviceRecognition = config.onDeviceRecognition && recognizer.supportsOnDeviceRecognition
         recognitionRequest.shouldReportPartialResults = config.partialResults
         
         // Setup audio engine
@@ -246,31 +244,6 @@ class SpeechRecognitionManager {
             } else {
                 self.delegate?.speechManager(self, didReceivePartialResult: transcript, confidence: Double(confidence))
             }
-        }
-    }
-}
-
-// MARK: - Error Types
-
-enum SpeechRecognitionError: LocalizedError {
-    case permissionDenied(String)
-    case recognizerUnavailable(String)
-    case recognizerNotAvailable
-    case requestCreationFailed
-    case audioSetupFailed(Error)
-    
-    var errorDescription: String? {
-        switch self {
-        case .permissionDenied(let message):
-            return "Permission denied: \(message)"
-        case .recognizerUnavailable(let locale):
-            return "Speech recognizer not available for locale: \(locale)"
-        case .recognizerNotAvailable:
-            return "Speech recognizer not currently available"
-        case .requestCreationFailed:
-            return "Failed to create recognition request"
-        case .audioSetupFailed(let error):
-            return "Audio setup failed: \(error.localizedDescription)"
         }
     }
 }

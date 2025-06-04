@@ -6,7 +6,7 @@ import Speech
 
 /// Handles Flutter method channel calls for speech recognition
 /// Coordinates between Flutter requests and speech recognition components
-@available(iOS 10.0, *)
+@available(iOS 16.0, *)
 class SpeechMethodHandler: NSObject {
     
     // MARK: - Properties
@@ -239,7 +239,7 @@ class SpeechMethodHandler: NSObject {
 
 // MARK: - SpeechRecognitionManagerDelegate
 
-@available(iOS 10.0, *)
+@available(iOS 16.0, *)
 extension SpeechMethodHandler: SpeechRecognitionManagerDelegate {
     
     func speechManager(_ manager: SpeechRecognitionManager, didReceivePartialResult text: String, confidence: Double) {
@@ -263,7 +263,7 @@ extension SpeechMethodHandler: SpeechRecognitionManagerDelegate {
 
 // MARK: - SentenceDetectorDelegate
 
-@available(iOS 10.0, *)
+@available(iOS 16.0, *)
 extension SpeechMethodHandler: SentenceDetectorDelegate {
     
     func sentenceDetector(_ detector: SentenceDetector, didDetectPartial text: String) {

@@ -6,7 +6,7 @@ import AVFoundation
 
 /// Manages speech recognition and microphone permissions
 /// Provides clean async/await interface for permission handling
-@available(iOS 10.0, *)
+@available(iOS 16.0, *)
 class SpeechPermissionManager {
     
     // MARK: - Permission Status
