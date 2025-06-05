@@ -1,5 +1,4 @@
 // ios/Runner/Speech/SentenceDetection/PurePatternSentenceDetector.swift
-// Clean sentence detection based on punctuation - inherits minimally from SentenceDetector
 
 import Foundation
 
@@ -86,8 +85,7 @@ class PurePatternSentenceDetector: SentenceDetector {
                 lastFinalizedTimestamp = now
             }
         }
-        // Clear remainder after processing it
-        remainder = ""
+        // Note: we deliberately do NOT call super.stop() here. That happens in stop().
     }
     
     override func reset() {
@@ -105,37 +103,45 @@ class PurePatternSentenceDetector: SentenceDetector {
     // MARK: - Core "Incremental" Logic
     
     private func _processTranscriptCustom(_ transcript: String) {
-        // Trim whitespace/newlines
+        // 1) Trim whitespace/newlines
         let clean = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         
-        // If nothing new has appeared, do nothing
+        // 2) If nothing new has appeared, do nothing
         if clean == fullTranscriptSoFar {
             return
         }
         
-        // 1) Notify delegate that we have a "partial" transcript (for UI)
+        // 3) Notify delegate that we have a "partial" transcript (for UI)
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.delegate?.sentenceDetector(self, didDetectPartial: clean)
         }
         
-        // 2) Figure out exactly what just got appended
-        let oldLength = fullTranscriptSoFar.count
+        // 4) Figure out exactly what just got appended
+        let oldFull = fullTranscriptSoFar
         fullTranscriptSoFar = clean
-        let newLength = clean.count
         
-        // The "new segment" is whatever Apple sent between oldLength ..< newLength
-        let startIndex = fullTranscriptSoFar.index(fullTranscriptSoFar.startIndex, offsetBy: oldLength)
-        let newSegment = String(fullTranscriptSoFar[startIndex..<fullTranscriptSoFar.endIndex])
+        // Compute newSegment safely:
+        let newSegment: String
+        if clean.count > oldFull.count {
+            // Only slice if clean is strictly longer than oldFull
+            let startIndex = fullTranscriptSoFar.index(
+                fullTranscriptSoFar.startIndex,
+                offsetBy: oldFull.count
+            )
+            newSegment = String(fullTranscriptSoFar[startIndex..<fullTranscriptSoFar.endIndex])
+        } else {
+            // If clean is shorter (or equal), treat entire clean as newSegment
+            newSegment = fullTranscriptSoFar
+        }
         
-        // 3) Combine any leftover "remainder" with the brand-new text
+        // 5) Combine any leftover "remainder" with the brand-new text
         var collector = remainder + newSegment
         
-        // 4) Scan `collector` for punctuation. Every time we see ".", "?", or "!",
-        //     that marks the end of one complete sentence. We then finalize it,
-        //     reset `collector` to the text after that punctuation, and continue scanning.
-        
+        // 6) Scan `collector` for punctuation. Every time we see ".", "?", or "!",
+        //    that marks the end of one complete sentence. We then finalize it,
+        //    reset `temp` to the empty string, and continue scanning.
         var sentencesToEmit: [String] = []
         var temp = ""
         
@@ -144,8 +150,8 @@ class PurePatternSentenceDetector: SentenceDetector {
             if [".", "?", "!"].contains(char) {
                 let trimmed = temp.trimmingCharacters(in: .whitespacesAndNewlines)
                 
-                // 5) Only emit if it's at least `minimumSentenceLength` long
-                //    and does NOT match a known abbreviation / decimal pattern
+                // 7) Only emit if it’s at least `minimumSentenceLength` long
+                //    and does NOT match a known abbreviation/decimal pattern
                 if trimmed.count >= config.minimumSentenceLength &&
                    !_isLikelyAbbreviation(trimmed) {
                     sentencesToEmit.append(trimmed)
@@ -154,10 +160,10 @@ class PurePatternSentenceDetector: SentenceDetector {
             }
         }
         
-        // 6) Whatever is left in `temp` (after the last punctuation) becomes the new "remainder"
+        // 8) Whatever is left in `temp` (after the last punctuation) becomes the new "remainder"
         remainder = temp.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // 7) Finalize each complete sentence in chronological order, applying duplicate suppression
+        // 9) Finalize each complete sentence in chronological order, applying duplicate suppression
         for sentence in sentencesToEmit {
             let now = Date()
             let dt = now.timeIntervalSince(lastFinalizedTimestamp)
