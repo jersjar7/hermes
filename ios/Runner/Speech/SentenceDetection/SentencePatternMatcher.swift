@@ -133,7 +133,7 @@ class SentencePatternMatcher {
         }
         
         // Check if preceded by a lowercase letter (not an abbreviation)
-        let beforePeriod = String(text.dropLast()).suffix(3)
+        let beforePeriod = String(String(text.dropLast()).suffix(3))
         let hasLowercaseBefore = beforePeriod.last?.isLowercase == true
         
         // 🆕 OPTIMIZATION: More sophisticated abbreviation detection
@@ -249,7 +249,7 @@ extension SentencePatternMatcher {
     /// Used to avoid false positives like "Dr. Smith"
     private func isAbbreviationContext(before text: String, position: Int) -> Bool {
         // More sophisticated abbreviation detection for Phase 2
-        let beforeText = String(text.prefix(position)).suffix(15)
+        let beforeText = String(String(text.prefix(position)).suffix(15))
         
         // Check for title patterns
         let titlePatterns = [
