@@ -30,6 +30,17 @@ struct SentenceDetectionConfig {
     /// Enable natural pause detection (future)
     let enablePauseDetection: Bool
     
+    // 🆕 OPTIMIZATION: Enhanced pattern detection settings
+    
+    /// Enable length-based sentence splitting for very long sentences
+    let enableLengthBasedSplitting: Bool
+    
+    /// Enable comma-based splitting when combined with conjunctions
+    let enableCommaBasedSplitting: Bool
+    
+    /// Minimum time between duplicate finalizations (seconds)
+    let duplicateSuppressionWindow: TimeInterval
+    
     // MARK: - Initialization
     
     init(
@@ -38,7 +49,10 @@ struct SentenceDetectionConfig {
         minimumLength: Int = 10,
         maximumLength: Int = 0,
         enablePunctuationDetection: Bool = true,
-        enablePauseDetection: Bool = false
+        enablePauseDetection: Bool = false,
+        enableLengthBasedSplitting: Bool = true,
+        enableCommaBasedSplitting: Bool = true,
+        duplicateSuppressionWindow: TimeInterval = 2.0
     ) {
         self.stabilityTimeout = stabilityTimeout
         self.maxSegmentDuration = maxSegmentDuration
@@ -46,6 +60,9 @@ struct SentenceDetectionConfig {
         self.maximumLength = maximumLength
         self.enablePunctuationDetection = enablePunctuationDetection
         self.enablePauseDetection = enablePauseDetection
+        self.enableLengthBasedSplitting = enableLengthBasedSplitting
+        self.enableCommaBasedSplitting = enableCommaBasedSplitting
+        self.duplicateSuppressionWindow = duplicateSuppressionWindow
     }
 }
 
@@ -56,14 +73,30 @@ extension SentenceDetectionConfig {
     /// Default configuration for general use
     static let `default` = SentenceDetectionConfig()
     
-    /// Configuration optimized for Hermes real-time translation
+    /// 🆕 OPTIMIZATION: Enhanced configuration optimized for Hermes real-time translation
     static let hermes = SentenceDetectionConfig(
-        stabilityTimeout: 1.5,        // Quick response for live translation
-        maxSegmentDuration: 6.0,      // Shorter segments for frequent updates
-        minimumLength: 8,             // Allow shorter segments for better flow
-        maximumLength: 200,           // Prevent extremely long segments
+        stabilityTimeout: 1.2,        // ⚡ Faster response for live translation
+        maxSegmentDuration: 4.0,      // 🔄 Shorter segments for frequent updates
+        minimumLength: 8,             // ✅ Allow shorter segments for better flow
+        maximumLength: 120,           // 📏 Lower limit for better translation chunks
         enablePunctuationDetection: true,
-        enablePauseDetection: false
+        enablePauseDetection: false,
+        enableLengthBasedSplitting: true,    // 🆕 Split very long sentences
+        enableCommaBasedSplitting: true,     // 🆕 Split at natural comma breaks
+        duplicateSuppressionWindow: 1.5      // 🆕 Prevent rapid duplicates
+    )
+    
+    /// 🆕 OPTIMIZATION: Aggressive configuration for rapid-fire speech and conversations
+    static let aggressive = SentenceDetectionConfig(
+        stabilityTimeout: 0.8,        // ⚡ Very fast response
+        maxSegmentDuration: 3.0,      // 🔄 Very short segments
+        minimumLength: 5,             // ✅ Allow very short segments
+        maximumLength: 80,            // 📏 Force frequent breaks
+        enablePunctuationDetection: true,
+        enablePauseDetection: false,
+        enableLengthBasedSplitting: true,
+        enableCommaBasedSplitting: true,
+        duplicateSuppressionWindow: 1.0      // 🆕 Shorter suppression for fast speech
     )
     
     /// Conservative configuration for longer, complete sentences
@@ -73,17 +106,36 @@ extension SentenceDetectionConfig {
         minimumLength: 15,
         maximumLength: 0,             // No maximum limit
         enablePunctuationDetection: true,
-        enablePauseDetection: false
+        enablePauseDetection: false,
+        enableLengthBasedSplitting: false,   // 🆕 Disable for conservative mode
+        enableCommaBasedSplitting: false,    // 🆕 Disable for conservative mode
+        duplicateSuppressionWindow: 3.0      // 🆕 Longer suppression window
     )
     
-    /// Aggressive configuration for rapid-fire speech
-    static let aggressive = SentenceDetectionConfig(
-        stabilityTimeout: 1.0,
-        maxSegmentDuration: 4.0,
-        minimumLength: 5,
-        maximumLength: 150,
+    /// 🆕 OPTIMIZATION: Perfect for presentations and formal speech
+    static let presentation = SentenceDetectionConfig(
+        stabilityTimeout: 2.0,        // Allow for pauses in formal speech
+        maxSegmentDuration: 8.0,      // Reasonable segment length
+        minimumLength: 12,            // Ensure meaningful segments
+        maximumLength: 200,           // Allow longer formal sentences
         enablePunctuationDetection: true,
-        enablePauseDetection: false
+        enablePauseDetection: false,
+        enableLengthBasedSplitting: true,    // Split very long sentences
+        enableCommaBasedSplitting: true,     // Split at natural breaks
+        duplicateSuppressionWindow: 2.5      // Account for presentation pauses
+    )
+    
+    /// 🆕 OPTIMIZATION: Optimized for casual conversation and Q&A
+    static let conversation = SentenceDetectionConfig(
+        stabilityTimeout: 1.0,        // Quick response for back-and-forth
+        maxSegmentDuration: 5.0,      // Short segments for conversation flow
+        minimumLength: 6,             // Allow short responses like "Yes", "No", "Okay"
+        maximumLength: 100,           // Reasonable limit for conversation
+        enablePunctuationDetection: true,
+        enablePauseDetection: false,
+        enableLengthBasedSplitting: true,
+        enableCommaBasedSplitting: true,
+        duplicateSuppressionWindow: 1.2      // Quick suppression for conversation
     )
 }
 
@@ -97,7 +149,8 @@ extension SentenceDetectionConfig {
                maxSegmentDuration > stabilityTimeout &&
                minimumLength >= 0 &&
                maximumLength >= 0 &&
-               (maximumLength == 0 || maximumLength > minimumLength)
+               (maximumLength == 0 || maximumLength > minimumLength) &&
+               duplicateSuppressionWindow >= 0
     }
     
     /// Validated copy with fallback to default values
@@ -122,7 +175,10 @@ extension SentenceDetectionConfig {
             "minimumLength": minimumLength,
             "maximumLength": maximumLength,
             "enablePunctuationDetection": enablePunctuationDetection,
-            "enablePauseDetection": enablePauseDetection
+            "enablePauseDetection": enablePauseDetection,
+            "enableLengthBasedSplitting": enableLengthBasedSplitting,
+            "enableCommaBasedSplitting": enableCommaBasedSplitting,
+            "duplicateSuppressionWindow": duplicateSuppressionWindow
         ]
     }
     
@@ -134,7 +190,10 @@ extension SentenceDetectionConfig {
             minimumLength: dict["minimumLength"] as? Int ?? 10,
             maximumLength: dict["maximumLength"] as? Int ?? 0,
             enablePunctuationDetection: dict["enablePunctuationDetection"] as? Bool ?? true,
-            enablePauseDetection: dict["enablePauseDetection"] as? Bool ?? false
+            enablePauseDetection: dict["enablePauseDetection"] as? Bool ?? false,
+            enableLengthBasedSplitting: dict["enableLengthBasedSplitting"] as? Bool ?? true,
+            enableCommaBasedSplitting: dict["enableCommaBasedSplitting"] as? Bool ?? true,
+            duplicateSuppressionWindow: dict["duplicateSuppressionWindow"] as? TimeInterval ?? 2.0
         ).validated()
     }
 }
@@ -153,13 +212,34 @@ extension SentenceDetectionConfig {
           maximumLength: \(maximumLength == 0 ? "unlimited" : "\(maximumLength)")
           punctuationDetection: \(enablePunctuationDetection)
           pauseDetection: \(enablePauseDetection)
+          lengthBasedSplitting: \(enableLengthBasedSplitting)
+          commaBasedSplitting: \(enableCommaBasedSplitting)
+          duplicateSuppressionWindow: \(duplicateSuppressionWindow)s
         }
         """
     }
-}//
-//  SentenceDetectionConfig.swift
-//  Runner
-//
-//  Created by Jerson on 6/4/25.
-//
-
+    
+    /// 🆕 OPTIMIZATION: Get recommended config based on use case
+    static func recommended(for useCase: UseCase) -> SentenceDetectionConfig {
+        switch useCase {
+        case .translation:
+            return .hermes
+        case .presentation:
+            return .presentation
+        case .conversation:
+            return .conversation
+        case .dictation:
+            return .conservative
+        case .fastSpeech:
+            return .aggressive
+        }
+    }
+    
+    enum UseCase {
+        case translation     // Real-time translation (Hermes)
+        case presentation    // Formal presentations
+        case conversation    // Casual conversation/Q&A
+        case dictation      // Document dictation
+        case fastSpeech     // Rapid-fire speech
+    }
+}

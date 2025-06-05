@@ -22,6 +22,11 @@ class SentenceTimerManager {
     private var maxDurationTimer: Timer?
     private var segmentStartTime: Date?
     
+    // 🆕 OPTIMIZATION: Enhanced timing tracking
+    private var lastResetTime: Date?
+    private var stabilityResetCount: Int = 0
+    private var averageStabilityInterval: TimeInterval = 0
+    
     // Thread safety
     private let queue = DispatchQueue(label: "hermes.timer-manager", qos: .userInitiated)
     
@@ -72,11 +77,34 @@ class SentenceTimerManager {
         return Date().timeIntervalSince(startTime)
     }
     
+    // 🆕 OPTIMIZATION: Advanced timing metrics
+    
+    /// Get average time between stability resets (useful for tuning)
+    var averageStabilityResetInterval: TimeInterval {
+        return averageStabilityInterval
+    }
+    
+    /// Get number of stability resets for current segment
+    var stabilityResetCountForSegment: Int {
+        return stabilityResetCount
+    }
+    
+    /// Check if segment is approaching max duration (80% threshold)
+    var isApproachingMaxDuration: Bool {
+        let duration = currentSegmentDuration
+        return duration > (config.maxSegmentDuration * 0.8)
+    }
+    
     // MARK: - Private Implementation
     
     private func _startSegmentTiming() {
         // Record start time
         segmentStartTime = Date()
+        
+        // Reset counters for new segment
+        stabilityResetCount = 0
+        averageStabilityInterval = 0
+        lastResetTime = nil
         
         // Start max duration timer
         _startMaxDurationTimer()
@@ -85,15 +113,60 @@ class SentenceTimerManager {
     }
     
     private func _resetStabilityTimer() {
+        // 🆕 OPTIMIZATION: Track stability reset metrics
+        let now = Date()
+        if let lastReset = lastResetTime {
+            let interval = now.timeIntervalSince(lastReset)
+            stabilityResetCount += 1
+            
+            // Calculate running average of stability intervals
+            if averageStabilityInterval == 0 {
+                averageStabilityInterval = interval
+            } else {
+                averageStabilityInterval = (averageStabilityInterval + interval) / 2.0
+            }
+            
+            print("📊 [TimerManager] Stability reset #\(stabilityResetCount), interval: \(String(format: "%.2f", interval))s, avg: \(String(format: "%.2f", averageStabilityInterval))s")
+        }
+        lastResetTime = now
+        
         // Cancel existing stability timer
         stabilityTimer?.invalidate()
         
+        // 🆕 OPTIMIZATION: Adaptive stability timeout based on speech pattern
+        let adaptiveTimeout = _calculateAdaptiveStabilityTimeout()
+        
         // Start new stability timer
-        stabilityTimer = Timer.scheduledTimer(withTimeInterval: config.stabilityTimeout, repeats: false) { [weak self] _ in
+        stabilityTimer = Timer.scheduledTimer(withTimeInterval: adaptiveTimeout, repeats: false) { [weak self] _ in
             self?._onStabilityTimeout()
         }
         
-        print("⏱️ [TimerManager] Reset stability timer (\(config.stabilityTimeout)s)")
+        print("⏱️ [TimerManager] Reset stability timer (\(String(format: "%.2f", adaptiveTimeout))s)")
+    }
+    
+    /// 🆕 OPTIMIZATION: Calculate adaptive stability timeout based on speech patterns
+    private func _calculateAdaptiveStabilityTimeout() -> TimeInterval {
+        var timeout = config.stabilityTimeout
+        
+        // If we've had many rapid resets, user might be speaking quickly
+        if stabilityResetCount > 5 && averageStabilityInterval < 0.5 {
+            timeout = max(timeout * 0.7, 0.5) // Reduce timeout for fast speakers
+            print("🏃 [TimerManager] Fast speech detected, reduced timeout to \(String(format: "%.2f", timeout))s")
+        }
+        
+        // If we're approaching max duration, be more aggressive
+        if isApproachingMaxDuration {
+            timeout = max(timeout * 0.6, 0.3) // More aggressive timeout near limit
+            print("⏰ [TimerManager] Approaching max duration, reduced timeout to \(String(format: "%.2f", timeout))s")
+        }
+        
+        // If resets are very infrequent, user might be speaking slowly
+        if stabilityResetCount > 2 && averageStabilityInterval > 2.0 {
+            timeout = min(timeout * 1.3, config.maxSegmentDuration / 3) // Increase timeout for slow speakers
+            print("🐌 [TimerManager] Slow speech detected, increased timeout to \(String(format: "%.2f", timeout))s")
+        }
+        
+        return timeout
     }
     
     private func _startMaxDurationTimer() {
@@ -115,9 +188,10 @@ class SentenceTimerManager {
         maxDurationTimer?.invalidate()
         maxDurationTimer = nil
         
+        // Reset state but preserve metrics for analysis
         segmentStartTime = nil
         
-        print("🛑 [TimerManager] Stopped all timers")
+        print("🛑 [TimerManager] Stopped all timers (had \(stabilityResetCount) stability resets)")
     }
     
     // MARK: - Timer Callbacks
@@ -126,7 +200,10 @@ class SentenceTimerManager {
         queue.async { [weak self] in
             guard let self = self else { return }
             
-            print("⏱️ [TimerManager] Stability timeout triggered")
+            let finalResetCount = self.stabilityResetCount
+            let avgInterval = self.averageStabilityInterval
+            
+            print("⏱️ [TimerManager] Stability timeout triggered (after \(finalResetCount) resets, avg interval: \(String(format: "%.2f", avgInterval))s)")
             
             // Clear the timer reference
             self.stabilityTimer = nil
@@ -142,7 +219,10 @@ class SentenceTimerManager {
         queue.async { [weak self] in
             guard let self = self else { return }
             
-            print("⏰ [TimerManager] Max duration timeout triggered")
+            let finalDuration = self.currentSegmentDuration
+            let finalResetCount = self.stabilityResetCount
+            
+            print("⏰ [TimerManager] Max duration timeout triggered (duration: \(String(format: "%.2f", finalDuration))s, resets: \(finalResetCount))")
             
             // Clear the timer reference
             self.maxDurationTimer = nil
@@ -171,7 +251,7 @@ class SentenceTimerManager {
         guard let timer = stabilityTimer else {
             return nil
         }
-        return timer.fireDate.timeIntervalSinceNow
+        return max(0, timer.fireDate.timeIntervalSinceNow)
     }
     
     /// Get remaining time for max duration timer
@@ -179,7 +259,13 @@ class SentenceTimerManager {
         guard let timer = maxDurationTimer else {
             return nil
         }
-        return timer.fireDate.timeIntervalSinceNow
+        return max(0, timer.fireDate.timeIntervalSinceNow)
+    }
+    
+    /// 🆕 OPTIMIZATION: Get percentage of max duration elapsed
+    var maxDurationProgress: Double {
+        let elapsed = currentSegmentDuration
+        return min(1.0, elapsed / config.maxSegmentDuration)
     }
 }
 
@@ -196,6 +282,10 @@ extension SentenceTimerManager {
             "currentSegmentDuration": currentSegmentDuration,
             "stabilityTimeRemaining": stabilityTimeRemaining ?? 0,
             "maxDurationTimeRemaining": maxDurationTimeRemaining ?? 0,
+            "maxDurationProgress": maxDurationProgress,
+            "stabilityResetCount": stabilityResetCount,
+            "averageStabilityInterval": averageStabilityInterval,
+            "isApproachingMaxDuration": isApproachingMaxDuration,
             "config": [
                 "stabilityTimeout": config.stabilityTimeout,
                 "maxSegmentDuration": config.maxSegmentDuration
@@ -214,19 +304,53 @@ extension SentenceTimerManager {
         
         if isMaxDurationTimerActive {
             let remaining = maxDurationTimeRemaining ?? 0
-            status.append("MaxDuration: \(String(format: "%.1f", remaining))s")
+            let progress = Int(maxDurationProgress * 100)
+            status.append("MaxDuration: \(String(format: "%.1f", remaining))s (\(progress)%)")
         }
         
         if status.isEmpty {
             return "No active timers"
         }
         
-        return status.joined(separator: ", ")
+        let baseStatus = status.joined(separator: ", ")
+        
+        if stabilityResetCount > 0 {
+            return "\(baseStatus) [Resets: \(stabilityResetCount)]"
+        }
+        
+        return baseStatus
     }
-}//
-//  SentenceTimerManager.swift
-//  Runner
-//
-//  Created by Jerson on 6/4/25.
-//
-
+    
+    /// 🆕 OPTIMIZATION: Get performance metrics for tuning
+    var performanceMetrics: [String: Any] {
+        return [
+            "totalResets": stabilityResetCount,
+            "averageResetInterval": averageStabilityInterval,
+            "segmentDuration": currentSegmentDuration,
+            "durationProgress": maxDurationProgress,
+            "resetsPerSecond": stabilityResetCount > 0 ? Double(stabilityResetCount) / max(1.0, currentSegmentDuration) : 0,
+            "speechPattern": _analyzeSpeechPattern()
+        ]
+    }
+    
+    /// Analyze speech pattern based on reset frequency
+    private func _analyzeSpeechPattern() -> String {
+        if stabilityResetCount == 0 {
+            return "silent"
+        }
+        
+        let resetsPerSecond = Double(stabilityResetCount) / max(1.0, currentSegmentDuration)
+        
+        if resetsPerSecond > 3.0 {
+            return "very-fast"
+        } else if resetsPerSecond > 2.0 {
+            return "fast"
+        } else if resetsPerSecond > 1.0 {
+            return "normal"
+        } else if resetsPerSecond > 0.5 {
+            return "slow"
+        } else {
+            return "very-slow"
+        }
+    }
+}
