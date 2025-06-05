@@ -1,11 +1,11 @@
 // ios/Runner/Speech/Plugin/SpeechMethodHandler.swift
-// STEP 5: Updated method handler that properly uses enhanced event sender
 
 import Flutter
 import Foundation
 import Speech
 
-/// Updated method handler that properly separates partial and confirmed results
+/// Handles Flutter method channel calls for speech recognition
+/// Uses simple punctuation-based sentence detection
 @available(iOS 16.0, *)
 class SpeechMethodHandler: NSObject {
     
@@ -17,8 +17,8 @@ class SpeechMethodHandler: NSObject {
     // Speech components
     private var speechManager: SpeechRecognitionManager?
     
-    // 🆕 Sentence detector for pattern detection
-    private var sentenceDetector: SentenceDetector?
+    // 🎯 Simple pattern-based sentence detector
+    private var purePatternDetector: PurePatternSentenceDetector?
     
     // State
     private var isInitialized = false
@@ -37,7 +37,7 @@ class SpeechMethodHandler: NSObject {
         super.init()
         
         methodChannel.setMethodCallHandler(handleMethodCall)
-        print("🎤 [MethodHandler] Enhanced method channel initialized with PURE PATTERN detection")
+        print("🎤 [MethodHandler] Method channel initialized with SIMPLE PUNCTUATION detection")
     }
     
     deinit {
@@ -73,6 +73,7 @@ class SpeechMethodHandler: NSObject {
     private func handleIsAvailable(result: @escaping FlutterResult) {
         print("🎤 [MethodHandler] Checking speech recognition availability...")
         
+        // Check speech recognition authorization
         let speechAuth = SFSpeechRecognizer.authorizationStatus()
         guard speechAuth != .denied && speechAuth != .restricted else {
             print("❌ [MethodHandler] Speech recognition denied or restricted")
@@ -80,6 +81,7 @@ class SpeechMethodHandler: NSObject {
             return
         }
         
+        // Check if recognizer is available for current locale
         guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: currentLocale)),
               recognizer.isAvailable else {
             print("❌ [MethodHandler] Speech recognizer not available for locale: \(currentLocale)")
@@ -92,7 +94,7 @@ class SpeechMethodHandler: NSObject {
     }
     
     private func handleInitialize(arguments: Any?, result: @escaping FlutterResult) {
-        print("🎤 [MethodHandler] Initializing ENHANCED PATTERN-BASED speech recognition...")
+        print("🎤 [MethodHandler] Initializing SIMPLE PUNCTUATION speech recognition...")
         
         guard !isInitialized else {
             print("⚠️ [MethodHandler] Already initialized")
@@ -100,15 +102,19 @@ class SpeechMethodHandler: NSObject {
             return
         }
         
+        // Parse configuration from Flutter
         let config = parseInitializeArguments(arguments)
+        
+        // Create speech recognition manager
         speechManager = SpeechRecognitionManager(config: config, delegate: self)
         
-        // 🆕 Create enhanced sentence detector
-        let detectorConfig = SentenceDetectionConfig.hermes
-        sentenceDetector = SentenceDetector(config: detectorConfig, delegate: self)
+        // 🎯 Create simple punctuation detector
+        let detectorConfig = PurePatternSentenceDetector.Config.hermes
+        purePatternDetector = PurePatternSentenceDetector(config: detectorConfig, delegate: self)
         
-        print("✅ [MethodHandler] Created ENHANCED PATTERN detector")
+        print("✅ [MethodHandler] Created SIMPLE PUNCTUATION detector")
         
+        // Request permissions asynchronously
         Task {
             let granted = await speechManager?.requestPermissions() ?? false
             
@@ -116,7 +122,7 @@ class SpeechMethodHandler: NSObject {
                 if granted {
                     self?.isInitialized = true
                     self?.eventSender.sendStatusUpdate("initialized")
-                    print("✅ [MethodHandler] Enhanced pattern-based speech recognition initialized")
+                    print("✅ [MethodHandler] Simple punctuation speech recognition initialized")
                     result(true)
                 } else {
                     self?.eventSender.sendError(message: "Speech recognition permissions denied", code: "PERMISSION_DENIED")
@@ -128,7 +134,7 @@ class SpeechMethodHandler: NSObject {
     }
     
     private func handleStartRecognition(arguments: Any?, result: @escaping FlutterResult) {
-        print("🎤 [MethodHandler] Starting ENHANCED PATTERN continuous recognition...")
+        print("🎤 [MethodHandler] Starting SIMPLE PUNCTUATION continuous recognition...")
         
         guard isInitialized, let speechManager = speechManager else {
             let error = "Speech recognition not initialized"
@@ -143,9 +149,11 @@ class SpeechMethodHandler: NSObject {
             return
         }
         
+        // Parse recognition configuration
         let config = parseRecognitionArguments(arguments)
         speechManager.updateConfig(config)
         
+        // Start recognition
         Task {
             do {
                 try await speechManager.startRecognition()
@@ -153,7 +161,7 @@ class SpeechMethodHandler: NSObject {
                 DispatchQueue.main.async { [weak self] in
                     self?.isRecognitionActive = true
                     self?.eventSender.sendStatusUpdate("started")
-                    print("✅ [MethodHandler] Enhanced pattern recognition started successfully")
+                    print("✅ [MethodHandler] Simple punctuation recognition started successfully")
                     result(nil)
                 }
             } catch {
@@ -168,7 +176,7 @@ class SpeechMethodHandler: NSObject {
     }
     
     private func handleStopRecognition(result: @escaping FlutterResult) {
-        print("🎤 [MethodHandler] Stopping enhanced pattern recognition...")
+        print("🎤 [MethodHandler] Stopping simple punctuation recognition...")
         
         guard isRecognitionActive else {
             print("⚠️ [MethodHandler] Recognition not active")
@@ -176,15 +184,16 @@ class SpeechMethodHandler: NSObject {
             return
         }
         
+        // Stop speech manager
         speechManager?.stopRecognition()
         
-        // 🆕 Force finalize any pending content (only if substantial)
-        // Note: We'll handle this through the existing sentence detector
+        // 🎯 Force finalize any pending content
+        purePatternDetector?.forceFinalize(reason: "stop-requested")
         
         isRecognitionActive = false
         eventSender.sendStatusUpdate("stopped")
         
-        print("✅ [MethodHandler] Enhanced pattern recognition stopped")
+        print("✅ [MethodHandler] Simple punctuation recognition stopped")
         result(nil)
     }
     
@@ -196,6 +205,7 @@ class SpeechMethodHandler: NSObject {
             return .hermes
         }
         
+        // Extract locale
         if let locale = args["locale"] as? String {
             currentLocale = locale
         }
@@ -209,6 +219,7 @@ class SpeechMethodHandler: NSObject {
             return speechManager?.currentConfig ?? .hermes
         }
         
+        // Update locale if provided
         if let locale = args["locale"] as? String {
             currentLocale = locale
         }
@@ -221,10 +232,11 @@ class SpeechMethodHandler: NSObject {
     private func cleanup() {
         if isRecognitionActive {
             speechManager?.stopRecognition()
+            purePatternDetector?.forceFinalize(reason: "cleanup")
         }
         
         speechManager = nil
-        sentenceDetector = nil
+        purePatternDetector = nil
         isInitialized = false
         isRecognitionActive = false
         
@@ -240,30 +252,20 @@ extension SpeechMethodHandler: SpeechRecognitionManagerDelegate {
     func speechManager(_ manager: SpeechRecognitionManager, didReceivePartialResult text: String, confidence: Double) {
         print("📝 [MethodHandler] Partial from iOS: '\(String(text.prefix(50)))...'")
         
-        // 🆕 Send as partial result to Flutter for UI updates
-        eventSender.sendPartialResult(
-            transcript: text,
-            confidence: confidence,
-            locale: currentLocale
-        )
-        
-        // 🆕 Feed to pattern detector for analysis
-        sentenceDetector?.processPartialTranscript(text, isFinal: false)
+        // 🎯 Feed ALL results to simple pattern detector
+        // Let the detector decide based on PUNCTUATION, not iOS timing
+        purePatternDetector?.processTranscript(text, isFinal: false)
     }
     
     func speechManager(_ manager: SpeechRecognitionManager, didReceiveFinalResult text: String, confidence: Double) {
         print("📝 [MethodHandler] iOS marked as final: '\(String(text.prefix(50)))...'")
         
-        // 🚨 CRITICAL: Don't send as final result to Flutter!
-        // Send as partial result and let pattern detector decide
-        eventSender.sendPartialResult(
-            transcript: text,
-            confidence: confidence,
-            locale: currentLocale
-        )
+        // 🎯 Don't force finalize! Let pattern detector analyze the content first
+        // This prevents the multiple-transmission problem
+        purePatternDetector?.processTranscript(text, isFinal: false)
         
-        // Let pattern detector analyze this "final" result
-        sentenceDetector?.processPartialTranscript(text, isFinal: false)
+        // The pattern detector will decide if this is truly complete
+        // based on punctuation, not iOS's timing
     }
     
     func speechManager(_ manager: SpeechRecognitionManager, didChangeStatus status: SpeechRecognitionStatus) {
@@ -275,30 +277,35 @@ extension SpeechMethodHandler: SpeechRecognitionManagerDelegate {
     }
 }
 
-// MARK: - SentenceDetectorDelegate (for existing SentenceDetector)
+// MARK: - SentenceDetectorDelegate (for PurePatternSentenceDetector)
 
 @available(iOS 16.0, *)
 extension SpeechMethodHandler: SentenceDetectorDelegate {
     
     func sentenceDetector(_ detector: SentenceDetector, didDetectPartial text: String) {
-        // Already sent as partial result above, no need to send again
-        // This just confirms the pattern detector is processing
-        print("🔍 [MethodHandler] Pattern detector processing: '\(String(text.prefix(30)))...'")
+        // Send partial result to Flutter for UI updates
+        print("📱 [MethodHandler] Sending partial to Flutter: '\(String(text.prefix(30)))...'")
+        
+        eventSender.sendRecognitionResult(
+            transcript: text,
+            isFinal: false,
+            confidence: 1.0,
+            locale: currentLocale
+        )
     }
     
     func sentenceDetector(_ detector: SentenceDetector, didFinalizeSentence text: String, reason: String) {
-        // 🎯 CRITICAL: Only send when pattern detector confirms COMPLETE sentence
-        print("🎯 [MethodHandler] ✅ PATTERN CONFIRMED COMPLETE SENTENCE: '\(String(text.prefix(50)))...' (reason: \(reason))")
+        // 🎯 ONLY send when pattern detector confirms COMPLETE sentence
+        print("🎯 [MethodHandler] ✅ PUNCTUATION CONFIRMED: '\(String(text.prefix(50)))...' (reason: \(reason))")
         
-        // 🆕 Use the new pattern-confirmed event sender
-        eventSender.sendPatternConfirmedSentence(
+        eventSender.sendRecognitionResult(
             transcript: text,
+            isFinal: true,
             confidence: 1.0,
             locale: currentLocale,
             reason: reason
         )
         
-        // 🆕 Debug analysis
         print("🔍 [MethodHandler] Sentence finalized with reason: \(reason)")
     }
     
