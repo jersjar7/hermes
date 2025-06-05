@@ -1,5 +1,5 @@
 // ios/Runner/Speech/Plugin/SpeechEventSender.swift
-// STEP 4: Enhanced event sender that sends pattern-confirmed results separately
+// Enhanced event sender that distinguishes between partial and pattern-confirmed results
 
 import Flutter
 import Foundation
@@ -109,10 +109,8 @@ class SpeechEventSender: NSObject, FlutterStreamHandler {
         reason: String? = nil
     ) {
         if isFinal {
-            // 🚨 WARNING: This should not be used for final results anymore
-            // Use sendPatternConfirmedSentence instead
-            print("⚠️ [EventSender] WARNING: Using legacy sendRecognitionResult for final result. Use sendPatternConfirmedSentence instead.")
-            
+            // 🔧 CORRECTED: Removed warning since this is functionally correct
+            // Legacy final results are forwarded to pattern-confirmed method
             if let reason = reason {
                 sendPatternConfirmedSentence(
                     transcript: transcript,

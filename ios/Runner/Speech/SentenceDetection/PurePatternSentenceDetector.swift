@@ -3,17 +3,24 @@
 
 import Foundation
 
-/// Simple sentence detector that finalizes sentences when punctuation is detected
+/// Simple sentence detector that finalizes on punctuation,
+/// processing only the newly appended text plus any leftover remainder.
 class PurePatternSentenceDetector: SentenceDetector {
     
-    // MARK: - Additional Properties
+    // MARK: - State Variables
     
-    // State tracking (in addition to base class)
+    /// The entire transcript Apple has returned so far (with punctuation, when iOS decided to finalize).
     private var fullTranscriptSoFar: String = ""
-    private var lastProcessedIndex: Int = 0
-    private var currentTranscript: String = ""
+    
+    /// Any "remainder" (incomplete fragment) after the last punctuation
+    /// detected in a previous pass. We'll prepend this to new text on each call.
+    private var remainder: String = ""
+    
+    /// The very last sentence we finalized (so we don't emit duplicates).
     private var lastFinalizedText: String = ""
-    private var lastFinalizedTimestamp: Date = Date.distantPast
+    
+    /// Timestamp of when we last finalized a sentence.
+    private var lastFinalizedTimestamp: Date = .distantPast
     
     // MARK: - Configuration
     
@@ -21,10 +28,9 @@ class PurePatternSentenceDetector: SentenceDetector {
         let minimumSentenceLength: Int
         let duplicateSuppressionWindow: TimeInterval
         
-        // Hermes optimized config
         static let hermes = Config(
-            minimumSentenceLength: 1,  // Allow shorter sentences for better flow
-            duplicateSuppressionWindow: 0.5
+            minimumSentenceLength: 1,     // split on any punctuation
+            duplicateSuppressionWindow: 0.5 // skip duplicates < 0.5s apart
         )
     }
     
@@ -35,10 +41,10 @@ class PurePatternSentenceDetector: SentenceDetector {
     init(config: Config = .hermes, delegate: SentenceDetectorDelegate? = nil) {
         self.config = config
         
-        // Call superclass with minimal config to avoid conflicts
+        // We still have to call super.init(...) even though we'll override all splitting logic.
         let baseConfig = SentenceDetectionConfig(
-            stabilityTimeout: 999,  // Unused - we override the logic
-            maxSegmentDuration: 999,  // Unused - we override the logic
+            stabilityTimeout: 999,           // unused
+            maxSegmentDuration: 999,         // unused
             minimumLength: config.minimumSentenceLength,
             maximumLength: 0,
             enablePunctuationDetection: true,
@@ -49,188 +55,123 @@ class PurePatternSentenceDetector: SentenceDetector {
         )
         
         super.init(config: baseConfig, delegate: delegate)
-        
-        print("✅ [PurePatternDetector] Initialized - Simple punctuation detection")
+        print("✅ [PurePatternDetector] Initialized – punctuation-only splitting")
     }
     
-    // MARK: - Public Interface (Override base methods)
+    // MARK: - Public Interface Overrides
     
-    /// Process transcript and finalize complete sentences (main entry point)
+    /// Called by your `SpeechMethodHandler` on every iOS partial or final callback.
+    /// We ignore `isFinal` because punctuation is our sole criterion.
     func processTranscript(_ transcript: String, isFinal: Bool = false) {
-        // Use our custom logic instead of base class
-        _processTranscriptCustom(transcript, isFinal: isFinal)
+        _processTranscriptCustom(transcript)
     }
     
-    /// Override base class method to use our custom logic
     override func processPartialTranscript(_ transcript: String, isFinal: Bool = false) {
-        _processTranscriptCustom(transcript, isFinal: isFinal)
+        _processTranscriptCustom(transcript)
     }
     
-    /// Our custom processing logic
-    private func _processTranscriptCustom(_ transcript: String, isFinal: Bool = false) {
-            let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cleanTranscript.isEmpty else {
-                return
+    /// Force-finalize any leftover remainder (called when you explicitly stop recognition).
+    override func forceFinalize(reason: String = "force") {
+        // If any remainder is non-empty and meets minimum length, finalize it.
+        let text = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty && text.count >= config.minimumSentenceLength {
+            let now = Date()
+            let dt = now.timeIntervalSince(lastFinalizedTimestamp)
+            if text != lastFinalizedText || dt > config.duplicateSuppressionWindow {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.delegate?.sentenceDetector(self, didFinalizeSentence: text, reason: reason)
+                }
+                lastFinalizedText = text
+                lastFinalizedTimestamp = now
             }
-
-            // If the transcript hasn't grown, nothing new to do:
-            if cleanTranscript == fullTranscriptSoFar {
-                return
-            }
-
-            // Send partial update to Flutter/UI:
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.delegate?.sentenceDetector(self, didDetectPartial: cleanTranscript)
-            }
-
-            // Determine the newly appended substring:
-            let previousLength = fullTranscriptSoFar.count
-            fullTranscriptSoFar = cleanTranscript
-            let newRangeStart = fullTranscriptSoFar.index(fullTranscriptSoFar.startIndex, offsetBy: previousLength)
-            let newRange = newRangeStart..<fullTranscriptSoFar.endIndex
-            let newlyAppended = String(fullTranscriptSoFar[newRange])
-
-            // Scan only the newly appended characters (plus possibly a bit of overlap)
-            // to see if any new punctuation ended up past the lastProcessedIndex:
-            extractSentencesFromNewText(fullTranscriptSoFar, fromIndex: lastProcessedIndex)
-
-            // Done.
         }
+    }
     
-    /// New helper: scans from lastProcessedIndex to end of fullTranscriptSoFar
-    private func extractSentencesFromNewText(_ fullText: String, fromIndex startIdx: Int) {
-        // Convert string to char array for indexing:
-        let characters = Array(fullText)
-        let n = characters.count
-
-        // We’ll build one “currentCandidate” from startIdx → each punctuation,
-        // but need to know if we already finalized any chunk beyond that.
-        var i = startIdx
-        var collector = ""
-
-        // If startIdx > 0, we should pick up where the previous round left off:
-        // i.e. collector = any “remainder” from fullText[ lastProcessedIndex ..< end ]
-        // But since we finalize exactly at punctuation, the remainder (un-finalized) is:
-        if startIdx < n {
-            // Grab leftover after the last processed index:
-            let remainderSlice = fullText[ fullText.index(fullText.startIndex, offsetBy: startIdx) ..< fullText.endIndex ]
-            collector = String(remainderSlice)
+    override func reset() {
+        fullTranscriptSoFar = ""
+        remainder = ""
+        lastFinalizedText = ""
+        lastFinalizedTimestamp = .distantPast
+    }
+    
+    override func stop() {
+        forceFinalize(reason: "cleanup")
+        super.stop()
+    }
+    
+    // MARK: - Core "Incremental" Logic
+    
+    private func _processTranscriptCustom(_ transcript: String) {
+        // Trim whitespace/newlines
+        let clean = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        
+        // If nothing new has appeared, do nothing
+        if clean == fullTranscriptSoFar {
+            return
         }
-
-        // Now scan from the last processed position up to the end:
-        while i < n {
-            let char = characters[i]
-            collector.append(char)
-
+        
+        // 1) Notify delegate that we have a "partial" transcript (for UI)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.delegate?.sentenceDetector(self, didDetectPartial: clean)
+        }
+        
+        // 2) Figure out exactly what just got appended
+        let oldLength = fullTranscriptSoFar.count
+        fullTranscriptSoFar = clean
+        let newLength = clean.count
+        
+        // The "new segment" is whatever Apple sent between oldLength ..< newLength
+        let startIndex = fullTranscriptSoFar.index(fullTranscriptSoFar.startIndex, offsetBy: oldLength)
+        let newSegment = String(fullTranscriptSoFar[startIndex..<fullTranscriptSoFar.endIndex])
+        
+        // 3) Combine any leftover "remainder" with the brand-new text
+        var collector = remainder + newSegment
+        
+        // 4) Scan `collector` for punctuation. Every time we see ".", "?", or "!",
+        //     that marks the end of one complete sentence. We then finalize it,
+        //     reset `collector` to the text after that punctuation, and continue scanning.
+        
+        var sentencesToEmit: [String] = []
+        var temp = ""
+        
+        for char in collector {
+            temp.append(char)
             if [".", "?", "!"].contains(char) {
-                // We have a candidate sentence ending: trim whitespace:
-                let trimmed = collector.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                // Is it long enough?
-                if trimmed.count >= config.minimumSentenceLength && !_isLikelyAbbreviation(trimmed) {
-                    // Prevent duplicates:
-                    let now = Date()
-                    let dt = now.timeIntervalSince(lastFinalizedTimestamp)
-                    if trimmed != lastFinalizedText || dt > config.duplicateSuppressionWindow {
-                        // Finalize:
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self = self else { return }
-                            self.delegate?.sentenceDetector(self, didFinalizeSentence: trimmed, reason: "punctuation-detected")
-                        }
-                        lastFinalizedText = trimmed
-                        lastFinalizedTimestamp = now
-                    }
-                }
-                // Reset collector *after* you finalize so we start fresh:
-                collector = ""
-                // Move the “lastProcessedIndex” to the very next character:
-                lastProcessedIndex = i + 1
-            }
-
-            i += 1
-        }
-
-        // After scanning, `collector` is the new “incomplete” chunk; but we don’t need
-        // to explicitly store it here because next time we’ll just start scanning at lastProcessedIndex again.
-    }
-    
-    /// Override forceFinalize to handle “flush remaining”:
-        override func forceFinalize(reason: String = "force") {
-            // If there’s any leftover text after last processed index, finalize that as well:
-            let remainderStart = fullTranscriptSoFar.index(fullTranscriptSoFar.startIndex, offsetBy: lastProcessedIndex)
-            let remainder = String(fullTranscriptSoFar[ remainderStart..<fullTranscriptSoFar.endIndex ]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !remainder.isEmpty && remainder.count >= config.minimumSentenceLength {
-                let now = Date()
-                if remainder != lastFinalizedText || now.timeIntervalSince(lastFinalizedTimestamp) > config.duplicateSuppressionWindow {
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self = self else { return }
-                        self.delegate?.sentenceDetector(self, didFinalizeSentence: remainder, reason: reason)
-                    }
-                    lastFinalizedText = remainder
-                    lastFinalizedTimestamp = now
-                }
-            }
-        }
-
-        /// Override reset to clear state:
-        override func reset() {
-            fullTranscriptSoFar = ""
-            lastProcessedIndex = 0
-            lastFinalizedText = ""
-            lastFinalizedTimestamp = .distantPast
-        }
-
-        /// Override stop to do a final flush:
-        override func stop() {
-            forceFinalize(reason: "cleanup")
-            super.stop()
-        }
-    }
-    
-    // MARK: - Core Logic
-    
-    /// Find complete sentences and finalize them
-    private func _extractAndFinalizeCompleteSentences(from text: String) {
-        let sentenceEnders: Set<Character> = [".", "?", "!"]
-        var currentSentence = ""
-        var completeSentences: [String] = []
-        
-        // Scan character by character
-        for char in text {
-            currentSentence.append(char)
-            
-            // If we hit punctuation, we have a complete sentence
-            if sentenceEnders.contains(char) {
-                let trimmedSentence = currentSentence.trimmingCharacters(in: .whitespaces)
+                let trimmed = temp.trimmingCharacters(in: .whitespacesAndNewlines)
                 
-                // Only finalize if it meets minimum length and isn't an abbreviation
-                if trimmedSentence.count >= config.minimumSentenceLength &&
-                   !_isLikelyAbbreviation(trimmedSentence) {
-                    completeSentences.append(trimmedSentence)
-                    print("🎯 [PurePattern] Found complete sentence: '\(String(trimmedSentence.prefix(50)))...'")
+                // 5) Only emit if it's at least `minimumSentenceLength` long
+                //    and does NOT match a known abbreviation / decimal pattern
+                if trimmed.count >= config.minimumSentenceLength &&
+                   !_isLikelyAbbreviation(trimmed) {
+                    sentencesToEmit.append(trimmed)
                 }
-                
-                currentSentence = "" // Reset for next sentence
+                temp = ""
             }
         }
         
-        // Finalize all complete sentences
-        for sentence in completeSentences {
-            _finalizeComplete(sentence, reason: "punctuation-detected")
-        }
+        // 6) Whatever is left in `temp` (after the last punctuation) becomes the new "remainder"
+        remainder = temp.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Keep any remaining incomplete text
-        let remainingText = currentSentence.trimmingCharacters(in: .whitespaces)
-        currentTranscript = remainingText
-        
-        if !remainingText.isEmpty {
-            print("📝 [PurePattern] Remaining incomplete: '\(String(remainingText.prefix(30)))...'")
+        // 7) Finalize each complete sentence in chronological order, applying duplicate suppression
+        for sentence in sentencesToEmit {
+            let now = Date()
+            let dt = now.timeIntervalSince(lastFinalizedTimestamp)
+            if sentence != lastFinalizedText || dt > config.duplicateSuppressionWindow {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.delegate?.sentenceDetector(self, didFinalizeSentence: sentence, reason: "punctuation-detected")
+                }
+                lastFinalizedText = sentence
+                lastFinalizedTimestamp = now
+            }
         }
     }
     
-    /// Enhanced abbreviation detection to prevent false sentence breaks
-    /// Handles common abbreviations, dates, numbers, and decimal patterns
+    // MARK: - Abbreviation / Decimal Detection
+    
     private func _isLikelyAbbreviation(_ text: String) -> Bool {
         let commonAbbreviations = [
             // Titles and honorifics
@@ -275,91 +216,65 @@ class PurePatternSentenceDetector: SentenceDetector {
             "Ref.", "refs.", "App.", "Sec.", "min.", "max.", "approx.", "est."
         ]
         
-        // Check if the text ends with any common abbreviation
-        for abbrev in commonAbbreviations {
-            if text.hasSuffix(abbrev) {
+        // 1) If it ends with a common "abbrev.", skip
+        for a in commonAbbreviations {
+            if text.hasSuffix(a) {
                 return true
             }
         }
         
-        // Check for percentage patterns like "69.23%." or "4%."
-        let percentagePattern = #"\d+\.?\d*%\.$"#
-        if _matchesPattern(text, pattern: percentagePattern) {
+        // 2) Percentage patterns like "69.23%." or "4%."
+        let percentPattern = #"\d+\.?\d*%\.$"#
+        if _matchesPattern(text, pattern: percentPattern) {
             return true
         }
         
-        // Check for decimal numbers like "3.14." or "2.71828."
-        // This catches mathematical constants, measurements, etc.
-        let decimalNumberPattern = #"\b\d+\.\d+\.?$"#
-        if _matchesPattern(text, pattern: decimalNumberPattern) {
+        // 3) Decimal numbers like "3.14." or "2.71828."
+        let decimalPattern = #"\b\d+\.\d+\.?$"#
+        if _matchesPattern(text, pattern: decimalPattern) {
             return true
         }
         
-        // Check for simple numbers with periods like "1." "2." "3."
-        // (often used in numbered lists)
+        // 4) Numbered lists "1.", "2.", "3.", etc.
         let numberedListPattern = #"\b\d{1,3}\.$"#
         if _matchesPattern(text, pattern: numberedListPattern) {
             return true
         }
         
-        // Check for version numbers like "v1.2.3." or "iOS 16.4."
+        // 5) Versions like "v1.2.3." or "iOS 16.4."
         let versionPattern = #"\b(v|version|iOS|macOS|Android)\s*\d+(\.\d+)*\.$"#
         if _matchesPattern(text, pattern: versionPattern) {
             return true
         }
         
-        // Check for currency amounts like "$123.45." or "€99.99."
+        // 6) Currency amounts like "$123.45." or "€99.99."
         let currencyPattern = #"[\$€£¥]\d+\.\d{2}\.$"#
         if _matchesPattern(text, pattern: currencyPattern) {
             return true
         }
         
-        // Check for time formats like "3:30." or "12:45."
+        // 7) Time formats like "3:30." or "12:45."
         let timePattern = #"\b\d{1,2}:\d{2}\.?$"#
         if _matchesPattern(text, pattern: timePattern) {
             return true
         }
         
-        // Check for IP addresses like "192.168.1.1."
+        // 8) IP addresses like "192.168.1.1."
         let ipPattern = #"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\.?$"#
         if _matchesPattern(text, pattern: ipPattern) {
             return true
         }
         
-        // Check for scientific notation like "6.022e23."
-        let scientificNotationPattern = #"\b\d+\.?\d*[eE][+-]?\d+\.?$"#
-        if _matchesPattern(text, pattern: scientificNotationPattern) {
+        // 9) Scientific notation like "6.022e23."
+        let sciPattern = #"\b\d+\.?\d*[eE][+-]?\d+\.?$"#
+        if _matchesPattern(text, pattern: sciPattern) {
             return true
         }
         
         return false
     }
     
-    /// Finalize a complete sentence
-    private func _finalizeComplete(_ text: String, reason: String) {
-        // Prevent duplicates
-        let now = Date()
-        let timeSinceLastFinalization = now.timeIntervalSince(lastFinalizedTimestamp)
-        
-        if text == lastFinalizedText && timeSinceLastFinalization < config.duplicateSuppressionWindow {
-            print("🔄 [PurePattern] Skipping duplicate: '\(String(text.prefix(30)))...'")
-            return
-        }
-        
-        print("✅ [PurePattern] FINALIZING SENTENCE: '\(String(text.prefix(60)))...' (reason: \(reason))")
-        
-        // Update tracking
-        lastFinalizedText = text
-        lastFinalizedTimestamp = now
-        
-        // Send to delegate on main thread
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.delegate?.sentenceDetector(self, didFinalizeSentence: text, reason: reason)
-        }
-    }
-    
-    /// Helper for regex matching
+    /// Simple helper for regex matching
     private func _matchesPattern(_ text: String, pattern: String) -> Bool {
         do {
             let regex = try NSRegularExpression(pattern: pattern, options: [])
@@ -371,12 +286,14 @@ class PurePatternSentenceDetector: SentenceDetector {
         }
     }
     
-    // MARK: - Debug Support (inside class to avoid extension conflicts)
+    // MARK: - Debug Helpers
     
-    /// Get current state for debugging
+    /// If you want to debug internal state from Flutter,
+    /// you can call this and ship it over your "debug" event.
     func getDebugInfo() -> [String: Any] {
         return [
-            "currentTranscript": currentTranscript,
+            "remainder": remainder,
+            "fullTranscriptSoFar": fullTranscriptSoFar,
             "lastFinalizedText": lastFinalizedText,
             "config": [
                 "minimumSentenceLength": config.minimumSentenceLength,

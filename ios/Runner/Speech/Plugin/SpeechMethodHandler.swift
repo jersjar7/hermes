@@ -286,9 +286,9 @@ extension SpeechMethodHandler: SentenceDetectorDelegate {
         // Send partial result to Flutter for UI updates
         print("📱 [MethodHandler] Sending partial to Flutter: '\(String(text.prefix(30)))...'")
         
-        eventSender.sendRecognitionResult(
+        // 🔧 CORRECTED: Use direct method instead of legacy wrapper
+        eventSender.sendPartialResult(
             transcript: text,
-            isFinal: false,
             confidence: 1.0,
             locale: currentLocale
         )
@@ -298,9 +298,9 @@ extension SpeechMethodHandler: SentenceDetectorDelegate {
         // 🎯 ONLY send when pattern detector confirms COMPLETE sentence
         print("🎯 [MethodHandler] ✅ PUNCTUATION CONFIRMED: '\(String(text.prefix(50)))...' (reason: \(reason))")
         
-        eventSender.sendRecognitionResult(
+        // 🔧 CORRECTED: Use direct method instead of legacy wrapper
+        eventSender.sendPatternConfirmedSentence(
             transcript: text,
-            isFinal: true,
             confidence: 1.0,
             locale: currentLocale,
             reason: reason
