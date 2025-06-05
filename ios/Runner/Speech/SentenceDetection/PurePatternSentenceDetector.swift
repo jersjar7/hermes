@@ -86,6 +86,8 @@ class PurePatternSentenceDetector: SentenceDetector {
                 lastFinalizedTimestamp = now
             }
         }
+        // Clear remainder after processing it
+        remainder = ""
     }
     
     override func reset() {
