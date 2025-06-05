@@ -1,13 +1,13 @@
 // lib/core/services/speech_to_text/continuous_speech_channel.dart
+// STEP 1: Enhanced platform channel for pattern-confirmed results
 
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'speech_result.dart';
 
-/// Platform channel for truly continuous speech recognition
-/// iOS: Bypasses the speech_to_text plugin's restart delays completely
-/// Android: Uses optimized restart logic (50ms instead of 500ms gaps)
+/// Enhanced platform channel for truly continuous speech recognition
+/// Now handles pattern-confirmed complete sentences separately
 class ContinuousSpeechChannel {
   static const _methodChannel = MethodChannel('hermes/continuous_speech');
   static const _eventChannel = EventChannel('hermes/continuous_speech/events');
@@ -17,19 +17,19 @@ class ContinuousSpeechChannel {
   StreamSubscription<dynamic>? _eventSubscription;
   StreamController<SpeechResult>? _resultController;
 
+  // 🆕 NEW: Separate callback for pattern-confirmed complete sentences
+  void Function(SpeechResult)? _onPatternConfirmedSentence;
+
   bool _isListening = false;
   bool _isAvailable = false;
 
-  // Private constructor for singleton
   ContinuousSpeechChannel._();
 
-  /// Get singleton instance
   static ContinuousSpeechChannel get instance {
     _instance ??= ContinuousSpeechChannel._();
     return _instance!;
   }
 
-  /// Check if continuous speech recognition is available on this platform
   Future<bool> get isAvailable async {
     try {
       _isAvailable = await _methodChannel.invokeMethod('isAvailable') ?? false;
@@ -54,7 +54,6 @@ class ContinuousSpeechChannel {
     }
   }
 
-  /// Initialize the continuous speech recognition
   Future<bool> initialize() async {
     print('🎙️ [ContinuousSpeech] Initializing...');
 
@@ -74,13 +73,12 @@ class ContinuousSpeechChannel {
     }
   }
 
-  /// Start continuous speech recognition with platform-specific optimizations
-  /// iOS: True continuous recognition with no gaps
-  /// Android: Optimized restart logic with ~50ms gaps
+  /// 🆕 ENHANCED: Start listening with separate callbacks for partial and confirmed results
   Future<void> startContinuousListening({
     required String locale,
     required void Function(SpeechResult) onResult,
     required void Function(String) onError,
+    void Function(SpeechResult)? onPatternConfirmedSentence, // 🆕 NEW callback
   }) async {
     if (_isListening) {
       print('⚠️ [ContinuousSpeech] Already listening, ignoring start request');
@@ -89,12 +87,14 @@ class ContinuousSpeechChannel {
 
     print(
       Platform.isIOS
-          ? '🎤 [ContinuousSpeech-iOS] Starting continuous listening with locale: $locale'
+          ? '🎤 [ContinuousSpeech-iOS] Starting PATTERN-BASED continuous listening with locale: $locale'
           : '🎤 [ContinuousSpeech-Android] Starting optimized listening with locale: $locale',
     );
 
+    // Store the pattern-confirmed callback
+    _onPatternConfirmedSentence = onPatternConfirmedSentence;
+
     try {
-      // Set up event stream for results
       _resultController = StreamController<SpeechResult>.broadcast();
 
       _eventSubscription = _eventChannel.receiveBroadcastStream().listen(
@@ -107,13 +107,11 @@ class ContinuousSpeechChannel {
         },
       );
 
-      // Start recognition on native side with platform-specific parameters
       final params = <String, dynamic>{
         'locale': locale,
         'partialResults': true,
       };
 
-      // iOS-specific parameters
       if (Platform.isIOS) {
         params['onDeviceRecognition'] = true;
       }
@@ -123,7 +121,7 @@ class ContinuousSpeechChannel {
       _isListening = true;
       print(
         Platform.isIOS
-            ? '✅ [ContinuousSpeech-iOS] True continuous recognition started'
+            ? '✅ [ContinuousSpeech-iOS] Pattern-based continuous recognition started'
             : '✅ [ContinuousSpeech-Android] Optimized recognition started (50ms gaps)',
       );
     } catch (e) {
@@ -133,7 +131,6 @@ class ContinuousSpeechChannel {
     }
   }
 
-  /// Stop continuous speech recognition
   Future<void> stopContinuousListening() async {
     if (!_isListening) {
       print('⚠️ [ContinuousSpeech] Not listening, ignoring stop request');
@@ -142,7 +139,7 @@ class ContinuousSpeechChannel {
 
     final platformMsg =
         Platform.isIOS
-            ? '🛑 [ContinuousSpeech-iOS] Stopping continuous listening...'
+            ? '🛑 [ContinuousSpeech-iOS] Stopping pattern-based listening...'
             : '🛑 [ContinuousSpeech-Android] Stopping optimized listening...';
     print(platformMsg);
 
@@ -151,7 +148,7 @@ class ContinuousSpeechChannel {
 
       final successMsg =
           Platform.isIOS
-              ? '✅ [ContinuousSpeech-iOS] Continuous recognition stopped'
+              ? '✅ [ContinuousSpeech-iOS] Pattern-based recognition stopped'
               : '✅ [ContinuousSpeech-Android] Optimized recognition stopped';
       print(successMsg);
     } catch (e) {
@@ -161,7 +158,7 @@ class ContinuousSpeechChannel {
     }
   }
 
-  /// Handle speech events from native platform
+  /// 🆕 ENHANCED: Handle different types of speech events
   void _handleSpeechEvent(
     dynamic event,
     void Function(SpeechResult) onResult,
@@ -178,6 +175,9 @@ class ContinuousSpeechChannel {
     switch (type) {
       case 'result':
         _handleResultEvent(eventMap, onResult);
+        break;
+      case 'pattern_confirmed': // 🆕 NEW: Handle pattern-confirmed complete sentences
+        _handlePatternConfirmedEvent(eventMap);
         break;
       case 'error':
         _handleErrorEvent(eventMap, onError);
@@ -201,17 +201,39 @@ class ContinuousSpeechChannel {
     if (transcript.isNotEmpty) {
       final platformTag = Platform.isIOS ? 'iOS' : 'Android';
       print(
-        '📝 [ContinuousSpeech-$platformTag] Result: "$transcript" (final: $isFinal, confidence: $confidence)',
+        '📝 [ContinuousSpeech-$platformTag] Partial result: "$transcript" (final: $isFinal, confidence: $confidence)',
       );
 
       final result = SpeechResult(
         transcript: transcript,
-        isFinal: isFinal,
+        isFinal: false, // Always false for partial results now
         timestamp: DateTime.now(),
         locale: event['locale'] as String? ?? 'en-US',
       );
 
       onResult(result);
+    }
+  }
+
+  /// 🆕 NEW: Handle pattern-confirmed complete sentences
+  void _handlePatternConfirmedEvent(Map<String, dynamic> event) {
+    final transcript = event['transcript'] as String? ?? '';
+    final reason = event['reason'] as String? ?? 'pattern';
+
+    if (transcript.isNotEmpty && _onPatternConfirmedSentence != null) {
+      final platformTag = Platform.isIOS ? 'iOS' : 'Android';
+      print(
+        '🎯 [ContinuousSpeech-$platformTag] ✅ PATTERN CONFIRMED: "$transcript" (reason: $reason)',
+      );
+
+      final result = SpeechResult(
+        transcript: transcript,
+        isFinal: true, // This is truly final - confirmed by pattern detector
+        timestamp: DateTime.now(),
+        locale: event['locale'] as String? ?? 'en-US',
+      );
+
+      _onPatternConfirmedSentence!(result);
     }
   }
 
@@ -235,9 +257,9 @@ class ContinuousSpeechChannel {
     }
   }
 
-  /// Clean up resources
   Future<void> _cleanup() async {
     _isListening = false;
+    _onPatternConfirmedSentence = null;
 
     await _eventSubscription?.cancel();
     _eventSubscription = null;
@@ -248,10 +270,8 @@ class ContinuousSpeechChannel {
     print('🧹 [ContinuousSpeech] Cleanup completed');
   }
 
-  /// Whether continuous recognition is currently active
   bool get isListening => _isListening;
 
-  /// Dispose of the service (call on app shutdown)
   Future<void> dispose() async {
     print('🗑️ [ContinuousSpeech] Disposing...');
     await stopContinuousListening();

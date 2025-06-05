@@ -1,4 +1,5 @@
 // lib/core/services/speech_to_text/speech_to_text_service_impl.dart
+// STEP 2: Enhanced STT service with pattern-confirmed support
 
 import 'dart:async';
 import 'dart:io';
@@ -9,15 +10,13 @@ import 'speech_to_text_service.dart';
 import 'speech_result.dart';
 import 'continuous_speech_channel.dart';
 
-/// Enhanced STT service that uses platform-specific continuous recognition
-/// iOS & Android: True continuous recognition via custom platform channels
-/// Fallback: Uses regular speech_to_text plugin with restart logic
+/// Enhanced STT service that separates partial results from pattern-confirmed sentences
 class SpeechToTextServiceImpl implements ISpeechToTextService {
   // Platform-specific continuous speech
   ContinuousSpeechChannel? _continuousChannel;
   bool _useContinuousChannel = false;
 
-  // Fallback regular STT (for platforms without continuous support)
+  // Fallback regular STT
   final stt.SpeechToText _speech = stt.SpeechToText();
 
   // Session state
@@ -25,24 +24,24 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   bool _isListening = false;
   String _locale = 'en-US';
 
-  // Session callbacks
-  void Function(SpeechResult)? _onResult;
+  // 🆕 NEW: Separate callbacks for partial and confirmed results
+  void Function(SpeechResult)? _onPartialResult;
+  void Function(SpeechResult)? _onConfirmedSentence;
   void Function(Exception)? _onError;
 
   @override
   Future<bool> initialize() async {
-    print('🎙️ [STTService] Initializing enhanced speech-to-text service...');
+    print(
+      '🎙️ [STTService] Initializing PATTERN-BASED speech-to-text service...',
+    );
 
-    // Try to initialize continuous speech channel first
     await _initializeContinuousChannel();
-
-    // Initialize fallback regular STT
     await _initializeFallbackSTT();
 
     final available = _useContinuousChannel || _isAvailable;
 
     if (_useContinuousChannel) {
-      print('✅ [STTService] Using CONTINUOUS speech recognition');
+      print('✅ [STTService] Using PATTERN-BASED continuous speech recognition');
     } else if (_isAvailable) {
       print('⚠️ [STTService] Using REGULAR speech recognition (with restarts)');
     } else {
@@ -56,7 +55,6 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     try {
       _continuousChannel = ContinuousSpeechChannel.instance;
 
-      // Check if continuous channel is available
       final isAvailable = await _continuousChannel!.isAvailable;
 
       if (isAvailable) {
@@ -65,7 +63,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
 
         if (_useContinuousChannel) {
           print(
-            '🚀 [STTService] Continuous speech channel initialized successfully',
+            '🚀 [STTService] Pattern-based continuous speech channel initialized successfully',
           );
         } else {
           print(
@@ -112,42 +110,80 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
       return;
     }
 
-    _onResult = onResult;
+    // 🎯 For backward compatibility: treat single callback as partial results only
+    _onPartialResult = onResult;
+    _onConfirmedSentence = null; // No confirmed callback in legacy mode
     _onError = onError;
 
     if (_useContinuousChannel) {
-      await _startContinuousListening();
+      await _startPatternBasedListening();
     } else {
       await _startFallbackListening();
     }
   }
 
-  /// Start listening using continuous speech channel (iOS/Android optimized)
-  Future<void> _startContinuousListening() async {
+  /// 🆕 NEW: Start listening with separate callbacks for partial and confirmed results
+  Future<void> startPatternBasedListening({
+    required void Function(SpeechResult) onPartialResult,
+    required void Function(SpeechResult) onConfirmedSentence,
+    required void Function(Exception) onError,
+  }) async {
+    if (!(_useContinuousChannel || _isAvailable)) {
+      final msg = 'Speech recognition not available';
+      print('❌ [STTService] $msg');
+      onError(Exception(msg));
+      return;
+    }
+
+    print('🎤 [STTService] Starting ENHANCED pattern-based listening...');
+
+    _onPartialResult = onPartialResult;
+    _onConfirmedSentence = onConfirmedSentence;
+    _onError = onError;
+
+    if (_useContinuousChannel) {
+      await _startPatternBasedListening();
+    } else {
+      // Fallback mode - use regular STT but with pattern detection in Dart
+      print('⚠️ [STTService] Using fallback mode with Dart pattern detection');
+      await _startFallbackListening();
+    }
+  }
+
+  /// Start listening using pattern-based continuous speech channel
+  Future<void> _startPatternBasedListening() async {
     print(
-      '🎤 [STTService] Starting CONTINUOUS listening with locale: $_locale',
+      '🎤 [STTService] Starting PATTERN-BASED listening with locale: $_locale',
     );
 
     try {
       await _continuousChannel!.startContinuousListening(
         locale: _locale,
         onResult: (result) {
+          // 🆕 These are PARTIAL results only - for UI updates
           print(
-            '📝 [STTService-Continuous] Result: "${result.transcript}" (final: ${result.isFinal})',
+            '📝 [STTService-Pattern] Partial result: "${result.transcript}"',
           );
-          _onResult?.call(result);
+          _onPartialResult?.call(result);
+        },
+        onPatternConfirmedSentence: (result) {
+          // 🎯 CRITICAL: These are CONFIRMED complete sentences
+          print(
+            '🎯 [STTService-Pattern] ✅ CONFIRMED SENTENCE: "${result.transcript}"',
+          );
+          _onConfirmedSentence?.call(result);
         },
         onError: (error) {
-          print('❌ [STTService-Continuous] Error: $error');
+          print('❌ [STTService-Pattern] Error: $error');
           _onError?.call(Exception(error));
         },
       );
 
       _isListening = true;
-      print('✅ [STTService] Continuous listening started successfully');
+      print('✅ [STTService] Pattern-based listening started successfully');
     } catch (e) {
-      print('❌ [STTService] Continuous listening failed: $e');
-      _onError?.call(Exception('Failed to start continuous listening: $e'));
+      print('❌ [STTService] Pattern-based listening failed: $e');
+      _onError?.call(Exception('Failed to start pattern-based listening: $e'));
     }
   }
 
@@ -180,23 +216,24 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     _isListening = false;
 
     if (_useContinuousChannel) {
-      await _stopContinuousListening();
+      await _stopPatternBasedListening();
     } else {
       await _stopFallbackListening();
     }
 
-    _onResult = null;
+    _onPartialResult = null;
+    _onConfirmedSentence = null;
     _onError = null;
 
     print('✅ [STTService] Listening stopped');
   }
 
-  Future<void> _stopContinuousListening() async {
+  Future<void> _stopPatternBasedListening() async {
     try {
       await _continuousChannel?.stopContinuousListening();
-      print('✅ [STTService] Continuous listening stopped');
+      print('✅ [STTService] Pattern-based listening stopped');
     } catch (e) {
-      print('⚠️ [STTService] Error stopping continuous listening: $e');
+      print('⚠️ [STTService] Error stopping pattern-based listening: $e');
     }
   }
 
@@ -216,7 +253,8 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     print('❌ [STTService] Cancelling listening...');
 
     _isListening = false;
-    _onResult = null;
+    _onPartialResult = null;
+    _onConfirmedSentence = null;
     _onError = null;
 
     if (_useContinuousChannel) {
@@ -228,12 +266,11 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     print('✅ [STTService] Listening cancelled');
   }
 
-  // Fallback STT handlers (for when continuous channel not available)
+  // Fallback STT handlers
   void _handleFallbackStatus(String status) {
     print('📊 [STTService-Fallback] Status: $status');
 
-    // Auto-restart logic for fallback mode
-    if (status == 'notListening' && _isListening && _onResult != null) {
+    if (status == 'notListening' && _isListening && _onPartialResult != null) {
       _scheduleRestart();
     }
   }
@@ -245,7 +282,6 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
       _onError!(Exception('Speech recognition error: $error'));
     }
 
-    // Try to restart after error
     if (_isListening) {
       _scheduleRestart();
     }
@@ -253,7 +289,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
 
   void _handleFallbackResult(stt.SpeechRecognitionResult result) {
     final transcript = result.recognizedWords.trim();
-    if (transcript.isNotEmpty && _onResult != null) {
+    if (transcript.isNotEmpty && _onPartialResult != null) {
       final speechResult = SpeechResult(
         transcript: transcript,
         isFinal: result.finalResult,
@@ -264,28 +300,106 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
       print(
         '📝 [STTService-Fallback] Result: "$transcript" (final: ${result.finalResult})',
       );
-      _onResult!(speechResult);
+      _onPartialResult!(speechResult);
+
+      // 🆕 ENHANCED: For fallback, if we have confirmed callback, use simple pattern detection
+      if (result.finalResult && _onConfirmedSentence != null) {
+        if (_isSimplePatternComplete(transcript)) {
+          print(
+            '🎯 [STTService-Fallback] Simple pattern confirms complete sentence',
+          );
+          final confirmedResult = SpeechResult(
+            transcript: transcript,
+            isFinal: true,
+            timestamp: DateTime.now(),
+            locale: _locale,
+          );
+          _onConfirmedSentence!(confirmedResult);
+        } else {
+          print(
+            '🚫 [STTService-Fallback] Simple pattern: sentence not complete',
+          );
+        }
+      }
     }
 
-    // Restart after final result for continuous experience
     if (result.finalResult && _isListening) {
       _scheduleRestart();
     }
   }
 
+  /// 🆕 Simple pattern detection for fallback mode
+  bool _isSimplePatternComplete(String text) {
+    final cleanText = text.trim();
+
+    // Must be reasonable length
+    if (cleanText.length < 12) return false;
+
+    // Check for clear sentence endings
+    if (cleanText.endsWith('.') ||
+        cleanText.endsWith('!') ||
+        cleanText.endsWith('?')) {
+      // Make sure it's not an abbreviation
+      if (!_isLikelyAbbreviation(cleanText)) {
+        return true;
+      }
+    }
+
+    // Check for natural transitions indicating complete thoughts
+    final transitionPatterns = [
+      RegExp(
+        r'[.!?]\s+(However|Nevertheless|Therefore|Meanwhile|Furthermore)\s+\w+',
+      ),
+      RegExp(r'[.!?]\s+(And then|But then|So then|After that)\s+\w+'),
+    ];
+
+    for (final pattern in transitionPatterns) {
+      if (pattern.hasMatch(cleanText)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _isLikelyAbbreviation(String text) {
+    final commonAbbreviations = [
+      'Dr.',
+      'Mr.',
+      'Mrs.',
+      'Ms.',
+      'Prof.',
+      'Inc.',
+      'Corp.',
+      'Ltd.',
+      'etc.',
+      'vs.',
+      'e.g.',
+      'i.e.',
+      'U.S.',
+      'U.K.',
+    ];
+
+    for (final abbrev in commonAbbreviations) {
+      if (text.toLowerCase().endsWith(abbrev.toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void _scheduleRestart() {
-    if (!_isListening || _onResult == null) return;
+    if (!_isListening || _onPartialResult == null) return;
 
     print('🔄 [STTService-Fallback] Scheduling restart...');
 
-    // Use platform-appropriate delay
     final delay =
         Platform.isAndroid
             ? const Duration(milliseconds: 1200)
             : const Duration(milliseconds: 400);
 
     Timer(delay, () async {
-      if (_isListening && _onResult != null) {
+      if (_isListening && _onPartialResult != null) {
         print('🔄 [STTService-Fallback] Restarting...');
         try {
           await _startFallbackListening();
@@ -314,7 +428,6 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
   @override
   Future<List<LocaleName>> getSupportedLocales() async {
     if (_useContinuousChannel) {
-      // Return common locales for continuous channel
       return [
         LocaleName(localeId: 'en-US', name: 'English (US)'),
         LocaleName(localeId: 'es-ES', name: 'Spanish (Spain)'),
@@ -345,7 +458,8 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     print('🗑️ [STTService] Disposing STT service...');
 
     _isListening = false;
-    _onResult = null;
+    _onPartialResult = null;
+    _onConfirmedSentence = null;
     _onError = null;
 
     _continuousChannel?.dispose();

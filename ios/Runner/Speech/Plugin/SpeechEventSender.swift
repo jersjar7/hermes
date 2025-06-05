@@ -1,10 +1,10 @@
 // ios/Runner/Speech/Plugin/SpeechEventSender.swift
+// STEP 4: Enhanced event sender that sends pattern-confirmed results separately
 
 import Flutter
 import Foundation
 
-/// Handles Flutter event channel communication for speech recognition events
-/// Responsible only for formatting and sending events to Flutter
+/// Enhanced event sender that distinguishes between partial and pattern-confirmed results
 class SpeechEventSender: NSObject, FlutterStreamHandler {
     
     // MARK: - Properties
@@ -23,7 +23,7 @@ class SpeechEventSender: NSObject, FlutterStreamHandler {
         super.init()
         
         eventChannel.setStreamHandler(self)
-        print("📡 [EventSender] Event channel initialized")
+        print("📡 [EventSender] Enhanced event channel initialized")
     }
     
     deinit {
@@ -45,9 +45,62 @@ class SpeechEventSender: NSObject, FlutterStreamHandler {
         return nil
     }
     
-    // MARK: - Public Event Methods
+    // MARK: - Regular Speech Results (Partial Only)
     
-    /// Send speech recognition result to Flutter
+    /// Send partial speech recognition result to Flutter
+    func sendPartialResult(
+        transcript: String,
+        confidence: Double,
+        locale: String
+    ) {
+        guard !transcript.isEmpty else {
+            print("⚠️ [EventSender] Skipping empty partial transcript")
+            return
+        }
+        
+        let event: [String: Any] = [
+            "type": "result",
+            "transcript": transcript,
+            "isFinal": false, // Always false for partial results
+            "confidence": confidence,
+            "locale": locale,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        sendEvent(event)
+        print("📡 [EventSender] Sent PARTIAL: \"\(String(transcript.prefix(30)))...\" (confidence: \(confidence))")
+    }
+    
+    // 🆕 NEW: Send pattern-confirmed complete sentence
+    /// Send pattern-confirmed complete sentence to Flutter
+    func sendPatternConfirmedSentence(
+        transcript: String,
+        confidence: Double,
+        locale: String,
+        reason: String
+    ) {
+        guard !transcript.isEmpty else {
+            print("⚠️ [EventSender] Skipping empty confirmed transcript")
+            return
+        }
+        
+        let event: [String: Any] = [
+            "type": "pattern_confirmed", // 🎯 DIFFERENT EVENT TYPE
+            "transcript": transcript,
+            "isFinal": true,
+            "confidence": confidence,
+            "locale": locale,
+            "reason": reason,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        sendEvent(event)
+        print("🎯 [EventSender] ✅ CONFIRMED SENTENCE: \"\(String(transcript.prefix(50)))...\" (reason: \(reason))")
+    }
+    
+    // MARK: - Legacy Method (Keep for backward compatibility)
+    
+    /// Legacy method - will be treated as partial result
     func sendRecognitionResult(
         transcript: String,
         isFinal: Bool,
@@ -55,30 +108,36 @@ class SpeechEventSender: NSObject, FlutterStreamHandler {
         locale: String,
         reason: String? = nil
     ) {
-        guard !transcript.isEmpty else {
-            print("⚠️ [EventSender] Skipping empty transcript")
-            return
+        if isFinal {
+            // 🚨 WARNING: This should not be used for final results anymore
+            // Use sendPatternConfirmedSentence instead
+            print("⚠️ [EventSender] WARNING: Using legacy sendRecognitionResult for final result. Use sendPatternConfirmedSentence instead.")
+            
+            if let reason = reason {
+                sendPatternConfirmedSentence(
+                    transcript: transcript,
+                    confidence: confidence,
+                    locale: locale,
+                    reason: reason
+                )
+            } else {
+                sendPatternConfirmedSentence(
+                    transcript: transcript,
+                    confidence: confidence,
+                    locale: locale,
+                    reason: "legacy"
+                )
+            }
+        } else {
+            sendPartialResult(
+                transcript: transcript,
+                confidence: confidence,
+                locale: locale
+            )
         }
-        
-        var event: [String: Any] = [
-            "type": "result",
-            "transcript": transcript,
-            "isFinal": isFinal,
-            "confidence": confidence,
-            "locale": locale,
-            "timestamp": Date().timeIntervalSince1970
-        ]
-        
-        // Add finalization reason for debugging
-        if isFinal, let reason = reason {
-            event["reason"] = reason
-        }
-        
-        sendEvent(event)
-        
-        let finalText = isFinal ? "FINAL" : "PARTIAL"
-        print("📡 [EventSender] Sent \(finalText): \"\(transcript.prefix(50))\" (confidence: \(confidence))")
     }
+    
+    // MARK: - Other Event Types
     
     /// Send status update to Flutter
     func sendStatusUpdate(_ status: String, details: [String: Any]? = nil) {
@@ -116,7 +175,7 @@ class SpeechEventSender: NSObject, FlutterStreamHandler {
         print("❌ [EventSender] Error: \(message)")
     }
     
-    /// Send debug information to Flutter (useful for development)
+    /// Send debug information to Flutter
     func sendDebugInfo(_ info: [String: Any]) {
         let event: [String: Any] = [
             "type": "debug",
