@@ -75,15 +75,15 @@ extension SentenceDetectionConfig {
     
     /// 🆕 OPTIMIZATION: Enhanced configuration optimized for Hermes real-time translation
     static let hermes = SentenceDetectionConfig(
-        stabilityTimeout: 1.2,        // ⚡ Faster response for live translation
-        maxSegmentDuration: 4.0,      // 🔄 Shorter segments for frequent updates
+        stabilityTimeout: 1.0,        // ⚡ Even faster response for live translation
+        maxSegmentDuration: 3.5,      // 🔄 Shorter segments for better translation flow
         minimumLength: 8,             // ✅ Allow shorter segments for better flow
-        maximumLength: 120,           // 📏 Lower limit for better translation chunks
+        maximumLength: 80,            // 📏 More aggressive length limit
         enablePunctuationDetection: true,
         enablePauseDetection: false,
         enableLengthBasedSplitting: true,    // 🆕 Split very long sentences
         enableCommaBasedSplitting: true,     // 🆕 Split at natural comma breaks
-        duplicateSuppressionWindow: 1.5      // 🆕 Prevent rapid duplicates
+        duplicateSuppressionWindow: 1.0      // 🆕 Shorter window for faster speech
     )
     
     /// 🆕 OPTIMIZATION: Aggressive configuration for rapid-fire speech and conversations

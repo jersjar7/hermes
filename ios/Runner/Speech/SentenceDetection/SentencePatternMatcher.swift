@@ -158,16 +158,17 @@ class SentencePatternMatcher {
     /// 🆕 OPTIMIZATION: Comma-based sentence breaking with conjunctions
     private func detectCommaBasedBreak(in text: String) -> Bool {
         // Only apply to reasonably long sentences
-        guard text.count >= 40 else {
+        guard text.count >= 30 else {  // Lowered from 40 to catch more cases
             return false
         }
         
         // Look for comma followed by coordinating conjunctions or transition words
         let commaPatterns = [
-            #",\s+(and|but|or|so|yet)\s+[a-z]"#,                    // ", and we"
-            #",\s+(because|while|when|if|although|since|unless)\s+"#, // ", because they"
+            #",\s+(and|but|or|so|yet)\s+[a-zA-Z]"#,                    // ", and we", ", but it"
+            #",\s+(because|while|when|if|although|since|unless)\s+"#,   // ", because they"
             #",\s+(however|therefore|meanwhile|furthermore|moreover|additionally|consequently)\s+"#, // ", however we"
-            #",\s+(then|now|next|finally|lastly)\s+"#               // ", then I"
+            #",\s+(then|now|next|finally|lastly)\s+"#,                 // ", then I"
+            #",\s+(authentication|hosting|databases)\s+(and|or)\s+"#   // Firebase-specific patterns
         ]
         
         return commaPatterns.contains { pattern in
