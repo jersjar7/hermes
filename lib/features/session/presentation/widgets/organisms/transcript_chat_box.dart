@@ -1,5 +1,4 @@
 // lib/features/session/presentation/widgets/organisms/transcript_chat_box.dart
-// Minor update to show buffer processing status
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,7 +13,7 @@ import '../molecules/current_speech_indicator.dart';
 import '../atoms/scroll_to_bottom_button.dart';
 import '../../utils/transcript_message.dart';
 
-/// Updated transcript chat box compatible with buffer processing
+/// FIXED: Simple transcript chat box with clear separation of partials vs permanent messages
 class TranscriptChatBox extends ConsumerStatefulWidget {
   const TranscriptChatBox({super.key});
 
@@ -26,9 +25,10 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
   final ScrollController _scrollController = ScrollController();
   final List<TranscriptMessage> _messages = [];
 
-  String? _lastProcessedTranscript;
-  String? _currentPartialTranscript;
-  bool _userHasScrolledUp = false;
+  // 🎯 CLEAR SEPARATION: Track different types of transcripts
+  String? _lastProcessedSentence; // For permanent messages
+  String? _currentPartialTranscript; // For real-time partials
+
   bool _showScrollToBottomButton = false;
   bool _hasEverSpoken = false;
 
@@ -54,21 +54,21 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
       ),
       child: sessionState.when(
         data: (state) {
-          // Update transcripts after build using addPostFrameCallback
+          // 🎯 SIMPLE UPDATE: Handle updates after build using addPostFrameCallback
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _updateTranscripts(state);
+            _handleStateUpdate(state);
           });
 
           return Column(
             children: [
-              // Header with dynamic status including buffer processing
+              // Header with dynamic status
               TranscriptHeader(
                 status: state.status,
                 hasEverSpoken: _hasEverSpoken,
                 messageCount: _messages.length,
               ),
 
-              // Messages area - takes available space automatically
+              // Messages area
               Expanded(
                 child: Stack(
                   children: [
@@ -81,8 +81,11 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                 ),
               ),
 
-              // Current speaking indicator with buffer processing status
-              _buildSpeechIndicator(state),
+              // Current speaking indicator
+              CurrentSpeechIndicator(
+                status: state.status,
+                currentText: _currentPartialTranscript,
+              ),
             ],
           );
         },
@@ -105,51 +108,10 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
       scrollController: _scrollController,
       onScrollStateChanged: (userHasScrolledUp) {
         setState(() {
-          _userHasScrolledUp = userHasScrolledUp;
           _showScrollToBottomButton = userHasScrolledUp && _messages.isNotEmpty;
         });
       },
     );
-  }
-
-  /// Enhanced speech indicator that shows buffer processing status
-  Widget _buildSpeechIndicator(state) {
-    // Show different indicators based on status
-    switch (state.status) {
-      case HermesStatus.listening:
-        return CurrentSpeechIndicator(
-          status: state.status,
-          currentText: _currentPartialTranscript,
-        );
-
-      case HermesStatus.translating:
-        // NEW: Show processing indicator during buffer processing
-        return Container(
-          padding: const EdgeInsets.all(HermesSpacing.md),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              const SizedBox(width: HermesSpacing.sm),
-              Text(
-                'Processing speech...', // Or "Correcting grammar..."
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-            ],
-          ),
-        );
-
-      default:
-        return CurrentSpeechIndicator(
-          status: state.status,
-          currentText: _currentPartialTranscript,
-        );
-    }
   }
 
   Widget _buildLoadingState(BuildContext context, ThemeData theme) {
@@ -199,75 +161,62 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
     );
   }
 
-  /// Updates transcript state based on Hermes controller data
-  void _updateTranscripts(state) {
+  /// 🎯 SIMPLIFIED: Clean state update with clear separation
+  void _handleStateUpdate(state) {
     final currentTranscript = state.lastTranscript;
+    final processedSentence = state.lastProcessedSentence;
     final isListening = state.status == HermesStatus.listening;
-    final isTranslating = state.status == HermesStatus.translating;
 
     // Track if user has ever spoken
     if (currentTranscript != null && currentTranscript.isNotEmpty) {
       _hasEverSpoken = true;
     }
 
-    // Handle partial transcripts (during listening)
+    // 1️⃣ HANDLE PERMANENT MESSAGES: Add when buffer processing completes
+    if (processedSentence != null &&
+        processedSentence.isNotEmpty &&
+        processedSentence != _lastProcessedSentence) {
+      print(
+        '✅ [TranscriptChatBox] Adding permanent message: "$processedSentence"',
+      );
+
+      if (mounted) {
+        setState(() {
+          _messages.add(
+            TranscriptMessage(
+              text: processedSentence,
+              timestamp: DateTime.now(),
+            ),
+          );
+
+          _lastProcessedSentence = processedSentence;
+
+          // Keep only last 50 messages
+          if (_messages.length > 50) {
+            _messages.removeAt(0);
+          }
+        });
+
+        // Always auto-scroll for permanent messages
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToBottom();
+        });
+      }
+    }
+
+    // 2️⃣ HANDLE PARTIAL MESSAGES: Show real-time speech feedback
     if (isListening &&
         currentTranscript != null &&
-        currentTranscript.isNotEmpty) {
+        currentTranscript.isNotEmpty &&
+        currentTranscript != _currentPartialTranscript) {
       if (mounted) {
         setState(() {
           _currentPartialTranscript = currentTranscript;
         });
       }
     }
-    // Handle processing state - keep showing last partial
-    else if (isTranslating) {
-      // Don't clear partial transcript during processing
-      // This maintains UI continuity during buffer processing
-    }
-    // Handle final transcripts from buffer processing
-    else if (currentTranscript != null &&
-        currentTranscript.isNotEmpty &&
-        currentTranscript != _lastProcessedTranscript) {
-      // Check if this should be considered a final transcript
-      final shouldProcessAsFinal =
-          !isListening ||
-          isTranslating ||
-          (_currentPartialTranscript != null &&
-              _currentPartialTranscript == currentTranscript);
-
-      if (shouldProcessAsFinal) {
-        if (mounted) {
-          setState(() {
-            _messages.add(
-              TranscriptMessage(
-                text: currentTranscript,
-                timestamp: DateTime.now(),
-              ),
-            );
-
-            _currentPartialTranscript = null;
-            _lastProcessedTranscript = currentTranscript;
-
-            // Keep only last 50 messages
-            if (_messages.length > 50) {
-              _messages.removeAt(0);
-            }
-          });
-
-          // Auto-scroll if user hasn't manually scrolled
-          if (!_userHasScrolledUp) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _scrollToBottom();
-            });
-          }
-        }
-      }
-    }
-    // Clear partial transcript when not listening and no current speech
-    else if (!isListening &&
-        !isTranslating &&
-        currentTranscript != _currentPartialTranscript) {
+    // Clear partials when not listening
+    else if (!isListening && _currentPartialTranscript != null) {
       if (mounted) {
         setState(() {
           _currentPartialTranscript = null;

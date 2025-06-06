@@ -13,6 +13,9 @@ class HermesSessionState {
   /// Last raw transcription received from STT
   final String? lastTranscript;
 
+  /// Last processed sentence from buffer processing (for permanent chat)
+  final String? lastProcessedSentence;
+
   /// Last translation received from TranslationService
   final String? lastTranslation;
 
@@ -32,6 +35,7 @@ class HermesSessionState {
     required this.status,
     this.countdownSeconds,
     this.lastTranscript,
+    this.lastProcessedSentence,
     this.lastTranslation,
     this.buffer = const [],
     this.errorMessage,
@@ -54,6 +58,7 @@ class HermesSessionState {
     HermesStatus? status,
     int? countdownSeconds,
     String? lastTranscript,
+    String? lastProcessedSentence,
     String? lastTranslation,
     List<String>? buffer,
     String? errorMessage,
@@ -64,6 +69,8 @@ class HermesSessionState {
       status: status ?? this.status,
       countdownSeconds: countdownSeconds ?? this.countdownSeconds,
       lastTranscript: lastTranscript ?? this.lastTranscript,
+      lastProcessedSentence:
+          lastProcessedSentence ?? this.lastProcessedSentence,
       lastTranslation: lastTranslation ?? this.lastTranslation,
       buffer: buffer ?? this.buffer,
       errorMessage: errorMessage,
@@ -114,6 +121,7 @@ class HermesSessionState {
     return 'HermesSessionState(status: $status, '
         'countdownSeconds: $countdownSeconds, '
         'lastTranscript: $lastTranscript, '
+        'lastProcessedSentence: $lastProcessedSentence, '
         'lastTranslation: $lastTranslation, '
         'bufferSize: ${buffer.length}, '
         'audienceCount: $audienceCount, '

@@ -138,10 +138,6 @@ Future<void> setupServiceLocator() async {
     ),
   );
 
-  getIt.registerLazySingleton<LanguageToolService>(() => LanguageToolService());
-  getIt.registerFactory<SentenceBuffer>(() => SentenceBuffer());
-  getIt.registerFactory<BufferAnalytics>(() => BufferAnalytics());
-
   // 🎯 Create fresh audience engine for each session
   getIt.registerFactory<AudienceEngine>(
     () => AudienceEngine(

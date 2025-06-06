@@ -317,6 +317,14 @@ class SpeakerEngine {
       // Step 3: Broadcast to audience
       await _broadcastTranslation(translationResult.translatedText);
 
+      // Step 4: 🆕 NEW: Emit processed sentence for permanent chat display
+      _emit(
+        _state.copyWith(
+          status: HermesStatus.listening,
+          lastProcessedSentence: correctedText, // Add to permanent chat
+        ),
+      );
+
       // Update analytics
       final endToEndLatency = DateTime.now().difference(processingStart);
       _analytics.logBufferProcessed(
@@ -331,9 +339,6 @@ class SpeakerEngine {
       print(
         '✅ [SpeakerEngine] Processing complete in ${endToEndLatency.inMilliseconds}ms',
       );
-
-      // Return to listening
-      _emit(_state.copyWith(status: HermesStatus.listening));
     } catch (e, stackTrace) {
       print('❌ [SpeakerEngine] Processing failed: $e');
       _log.error('Text processing failed', error: e, stackTrace: stackTrace);
