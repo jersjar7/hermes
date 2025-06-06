@@ -132,8 +132,15 @@ Future<void> setupServiceLocator() async {
       socket: getIt<ISocketService>(),
       connectivity: getIt<IConnectivityService>(),
       logger: getIt<ILoggerService>(),
+      grammar: getIt<LanguageToolService>(),
+      sentenceBuffer: getIt<SentenceBuffer>(),
+      analytics: getIt<BufferAnalytics>(),
     ),
   );
+
+  getIt.registerLazySingleton<LanguageToolService>(() => LanguageToolService());
+  getIt.registerFactory<SentenceBuffer>(() => SentenceBuffer());
+  getIt.registerFactory<BufferAnalytics>(() => BufferAnalytics());
 
   // 🎯 Create fresh audience engine for each session
   getIt.registerFactory<AudienceEngine>(

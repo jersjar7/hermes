@@ -1,5 +1,5 @@
 // lib/core/hermes_engine/speaker/speaker_engine.dart
-// INTEGRATED: 15-second buffer processing with grammar correction
+// COMPLETE: Implements 15-second timer + grammar + translation pipeline
 
 import 'dart:async';
 
@@ -11,9 +11,9 @@ import '../state/hermes_session_state.dart';
 import '../state/hermes_status.dart';
 import '../usecases/start_session.dart';
 import '../usecases/connectivity_handler.dart';
-import '../utils/log.dart';
 import '../buffer/sentence_buffer.dart';
 import '../buffer/buffer_analytics.dart';
+import '../utils/log.dart';
 import 'package:hermes/core/services/speech_to_text/speech_to_text_service.dart';
 import 'package:hermes/core/services/speech_to_text/speech_result.dart';
 import 'package:hermes/core/services/translation/translation_service.dart';
@@ -23,20 +23,20 @@ import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/permission/permission_service.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 
-/// SpeakerEngine with 15-second buffer processing and grammar correction
+/// Complete SpeakerEngine with 15-second buffering and processing pipeline
 class SpeakerEngine {
   final IPermissionService _permission;
   final ISpeechToTextService _stt;
-  final ITranslationService _translator;
+  final ITranslationService _translation;
   final ISessionService _session;
   final ISocketService _socket;
   final IConnectivityService _connectivity;
   final HermesLogger _log;
 
-  // Buffer processing services
-  final SentenceBuffer _buffer = SentenceBuffer();
-  final LanguageToolService _grammar = LanguageToolService();
-  final BufferAnalytics _analytics = BufferAnalytics();
+  // 🆕 NEW: Processing services
+  final LanguageToolService _grammar;
+  final SentenceBuffer _sentenceBuffer;
+  final BufferAnalytics _analytics;
 
   // Core state
   HermesSessionState _state = HermesSessionState.initial();
@@ -46,11 +46,11 @@ class SpeakerEngine {
 
   // Session management
   bool _isSessionActive = false;
-  String _currentLanguageCode = 'en-US';
+  String _targetLanguageCode = '';
 
-  // Buffer processing
-  Timer? _bufferTimer;
-  bool _isProcessing = false;
+  // 🆕 NEW: 15-second processing timer
+  Timer? _processingTimer;
+  static const Duration _processingInterval = Duration(seconds: 15);
 
   // Audience tracking
   int _audienceCount = 0;
@@ -72,13 +72,20 @@ class SpeakerEngine {
     required ISocketService socket,
     required IConnectivityService connectivity,
     required ILoggerService logger,
+    required LanguageToolService grammar, // 🆕 NEW
+    required SentenceBuffer sentenceBuffer, // 🆕 NEW
+    required BufferAnalytics analytics, // 🆕 NEW
   }) : _permission = permission,
        _stt = stt,
-       _translator = translator,
+       _translation = translator,
        _session = session,
        _socket = socket,
        _connectivity = connectivity,
-       _log = HermesLogger(logger) {
+       _log = HermesLogger(logger),
+       _grammar = grammar, // 🆕 NEW
+       _sentenceBuffer = sentenceBuffer, // 🆕 NEW
+       _analytics = analytics {
+    // 🆕 NEW
     _ensureStateController();
 
     _startUseCase = StartSessionUseCase(
@@ -102,18 +109,17 @@ class SpeakerEngine {
     }
   }
 
-  /// Starts speaker flow with buffer-based processing
+  /// Starts speaker flow with complete processing pipeline
   Future<void> start({required String languageCode}) async {
-    print('🎤 [SpeakerEngine] Starting buffer-based speaker session...');
-    _currentLanguageCode = languageCode;
+    print('🎤 [SpeakerEngine] Starting COMPLETE speaker session...');
 
     try {
       _ensureStateController();
+      _targetLanguageCode = languageCode;
       _emit(_state.copyWith(status: HermesStatus.buffering));
 
-      // Initialize grammar service
-      await _grammar.initialize();
-      _analytics.startSession();
+      // Initialize services
+      await _initializeProcessingServices();
 
       await _startUseCase.execute(isSpeaker: true, languageCode: languageCode);
       _listenToSocketEvents();
@@ -123,8 +129,8 @@ class SpeakerEngine {
       );
 
       _isSessionActive = true;
+      _startProcessingPipeline(); // 🆕 NEW
       _startListening();
-      _startBufferTimer();
     } catch (e, stackTrace) {
       print('❌ [SpeakerEngine] Failed to start session: $e');
       _log.error(
@@ -139,6 +145,42 @@ class SpeakerEngine {
         ),
       );
     }
+  }
+
+  /// 🆕 NEW: Initialize grammar and analytics services
+  Future<void> _initializeProcessingServices() async {
+    print('🔧 [SpeakerEngine] Initializing processing services...');
+
+    // Initialize grammar service
+    final grammarInitialized = await _grammar.initialize();
+    if (!grammarInitialized) {
+      print(
+        '⚠️ [SpeakerEngine] Grammar service failed to initialize - continuing without grammar correction',
+      );
+    }
+
+    // Start analytics session
+    _analytics.startSession();
+
+    print('✅ [SpeakerEngine] Processing services initialized');
+  }
+
+  /// 🆕 NEW: Start the 15-second processing pipeline
+  void _startProcessingPipeline() {
+    print('⏰ [SpeakerEngine] Starting 15-second processing timer...');
+
+    _processingTimer?.cancel();
+    _processingTimer = Timer.periodic(_processingInterval, (_) {
+      _processAccumulatedText('timer');
+    });
+
+    // Also check for force flush every 5 seconds
+    Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!_isSessionActive) return;
+      if (_sentenceBuffer.shouldForceFlush()) {
+        _processAccumulatedText('force');
+      }
+    });
   }
 
   void _listenToSocketEvents() {
@@ -157,6 +199,11 @@ class SpeakerEngine {
   }
 
   void _handleAudienceUpdate(AudienceUpdateEvent event) {
+    print(
+      '👥 [SpeakerEngine] Audience update: ${event.totalListeners} listeners',
+    );
+    print('   Languages: ${event.languageDistribution}');
+
     _audienceCount = event.totalListeners;
     _languageDistribution = event.languageDistribution;
 
@@ -171,7 +218,7 @@ class SpeakerEngine {
   void _startListening() {
     if (!_isSessionActive) return;
 
-    print('🎤 [SpeakerEngine] Starting continuous listening for buffer...');
+    print('🎤 [SpeakerEngine] Starting continuous listening...');
     _emit(_state.copyWith(status: HermesStatus.listening));
 
     _stt.startListening(
@@ -180,20 +227,16 @@ class SpeakerEngine {
     );
   }
 
-  /// Start 15-second buffer processing timer
-  void _startBufferTimer() {
-    _bufferTimer?.cancel();
-    _bufferTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
-      await _processBuffer(reason: 'timer');
-    });
-    print('⏱️ [SpeakerEngine] Started 15-second buffer timer');
-  }
-
-  /// Handle speech results by feeding to buffer
+  /// Handle continuous partial speech results
   void _handleSpeechResult(SpeechResult result) async {
-    if (!_isSessionActive) return;
+    if (!_isSessionActive) {
+      print('🚫 [SpeakerEngine] Ignoring speech result - session inactive');
+      return;
+    }
 
-    // Always update UI with latest transcript
+    print('📝 [SpeakerEngine] Speech result: "${result.transcript}"');
+
+    // Always update UI with latest transcript for real-time feedback
     _emit(
       _state.copyWith(
         status: HermesStatus.listening,
@@ -201,138 +244,162 @@ class SpeakerEngine {
       ),
     );
 
-    // Check for complete sentences in buffer
-    final completeSentences = _buffer.getCompleteSentencesForProcessing(
+    // 🆕 NEW: Check for complete sentences and process immediately
+    final completeSentences = _sentenceBuffer.getCompleteSentencesForProcessing(
       result.transcript,
     );
     if (completeSentences != null) {
       print(
-        '📝 [SpeakerEngine] Buffer found complete sentences, processing immediately',
+        '🎯 [SpeakerEngine] Found complete sentences, processing immediately...',
       );
-      await _processText(completeSentences, reason: 'punctuation');
-    }
-
-    // Check if we should force flush (30-second rule)
-    if (_buffer.shouldForceFlush()) {
-      print('⏰ [SpeakerEngine] Force flush triggered');
-      await _processBuffer(reason: 'force');
+      await _processText(completeSentences, 'punctuation');
     }
   }
 
-  /// Process buffer content (called by timer or force flush)
-  Future<void> _processBuffer({required String reason}) async {
-    final textToProcess = _buffer.flushPending(reason: reason);
+  /// 🆕 NEW: Process accumulated text (called by timer or force flush)
+  Future<void> _processAccumulatedText(String reason) async {
+    if (!_isSessionActive) return;
+
+    final textToProcess = _sentenceBuffer.flushPending(reason: reason);
     if (textToProcess != null) {
-      await _processText(textToProcess, reason: reason);
+      print(
+        '⏰ [SpeakerEngine] Processing accumulated text ($reason): "$textToProcess"',
+      );
+      await _processText(textToProcess, reason);
     }
   }
 
-  /// Core processing pipeline: Grammar correction → Translation → Send
-  Future<void> _processText(String text, {required String reason}) async {
-    if (!_isSessionActive || _isProcessing) return;
+  /// 🆕 NEW: Complete processing pipeline: grammar → translation → broadcast
+  Future<void> _processText(String text, String reason) async {
+    if (!_isSessionActive || text.trim().isEmpty) return;
 
-    _isProcessing = true;
-    _emit(_state.copyWith(status: HermesStatus.translating));
-
-    final startTime = DateTime.now();
-    bool grammarFailed = false;
-    bool translationFailed = false;
+    final processingStart = DateTime.now();
+    print(
+      '🔄 [SpeakerEngine] Starting processing pipeline for: "${text.substring(0, text.length.clamp(0, 50))}..."',
+    );
 
     try {
-      print(
-        '🔄 [SpeakerEngine] Processing: "${text.substring(0, text.length.clamp(0, 50))}..."',
-      );
+      _emit(_state.copyWith(status: HermesStatus.translating));
 
-      // Step 1: Grammar correction with timeout
+      // Step 1: Grammar correction
       final grammarStart = DateTime.now();
       final correctedText = await _grammar.correctGrammar(text);
       final grammarLatency = DateTime.now().difference(grammarStart);
 
-      if (correctedText == text) {
-        print('📝 [SpeakerEngine] No grammar corrections applied');
-      } else {
-        print('✏️ [SpeakerEngine] Applied grammar corrections');
+      print(
+        '📝 [SpeakerEngine] Grammar correction took ${grammarLatency.inMilliseconds}ms',
+      );
+      if (correctedText != text) {
+        print('✏️ [SpeakerEngine] Grammar corrections applied');
+        print(
+          '   Original: "${text.substring(0, text.length.clamp(0, 40))}..."',
+        );
+        print(
+          '   Corrected: "${correctedText.substring(0, correctedText.length.clamp(0, 40))}..."',
+        );
       }
 
       // Step 2: Translation
       final translationStart = DateTime.now();
-      String translatedText;
-
-      try {
-        final result = await _translator.translate(
-          text: correctedText,
-          targetLanguageCode: _currentLanguageCode,
-        );
-        translatedText = result.translatedText;
-      } catch (e) {
-        print('❌ [SpeakerEngine] Translation failed: $e, using corrected text');
-        translatedText = correctedText;
-        translationFailed = true;
-      }
-
+      final translationResult = await _translation.translate(
+        text: correctedText,
+        targetLanguageCode: _targetLanguageCode,
+      );
       final translationLatency = DateTime.now().difference(translationStart);
 
-      // Step 3: Send to audience
-      await _sendToAudience(translatedText);
+      print(
+        '🌍 [SpeakerEngine] Translation took ${translationLatency.inMilliseconds}ms',
+      );
+      print(
+        '🌍 [SpeakerEngine] Translated: "${translationResult.translatedText}"',
+      );
 
-      // Log analytics
-      final sentences = _countSentences(text);
+      // Step 3: Broadcast to audience
+      await _broadcastTranslation(translationResult.translatedText);
+
+      // Update analytics
+      final endToEndLatency = DateTime.now().difference(processingStart);
       _analytics.logBufferProcessed(
         textLength: text.length,
-        sentenceCount: sentences,
+        sentenceCount: _countSentences(text),
         hadPunctuation: reason == 'punctuation',
         wasForcedSend: reason == 'force',
         grammarLatency: grammarLatency,
         translationLatency: translationLatency,
-        grammarFailed: grammarFailed,
-        translationFailed: translationFailed,
       );
 
-      final totalLatency = DateTime.now().difference(startTime);
       print(
-        '✅ [SpeakerEngine] Processed in ${totalLatency.inMilliseconds}ms (reason: $reason)',
+        '✅ [SpeakerEngine] Processing complete in ${endToEndLatency.inMilliseconds}ms',
       );
+
+      // Return to listening
+      _emit(_state.copyWith(status: HermesStatus.listening));
     } catch (e, stackTrace) {
       print('❌ [SpeakerEngine] Processing failed: $e');
-      _log.error('Buffer processing failed', error: e, stackTrace: stackTrace);
-    } finally {
-      _isProcessing = false;
-      if (_isSessionActive) {
-        _emit(_state.copyWith(status: HermesStatus.listening));
-      }
+      _log.error('Text processing failed', error: e, stackTrace: stackTrace);
+
+      // Record failure in analytics
+      _analytics.logBufferProcessed(
+        textLength: text.length,
+        sentenceCount: _countSentences(text),
+        hadPunctuation: reason == 'punctuation',
+        wasForcedSend: reason == 'force',
+        grammarLatency: Duration.zero,
+        translationLatency: Duration.zero,
+        grammarFailed: true,
+        translationFailed: true,
+      );
+
+      // Return to listening despite error
+      _emit(_state.copyWith(status: HermesStatus.listening));
     }
   }
 
-  /// Send processed text to audience via socket
-  Future<void> _sendToAudience(String text) async {
+  /// 🆕 NEW: Broadcast translation to all audience members
+  Future<void> _broadcastTranslation(String translatedText) async {
     try {
-      await _socket.send(
-        TranscriptEvent(
-          sessionId: _session.currentSession!.sessionId,
-          text: text,
-          isFinal: true,
-        ),
+      final sessionId = _session.currentSession?.sessionId;
+      if (sessionId == null) {
+        print('❌ [SpeakerEngine] Cannot broadcast - no session ID');
+        return;
+      }
+
+      final event = TranslationEvent(
+        sessionId: sessionId,
+        translatedText: translatedText,
+        targetLanguage: _targetLanguageCode,
       );
+
+      await _socket.send(event);
       print(
-        '📤 [SpeakerEngine] Sent to audience: "${text.substring(0, text.length.clamp(0, 50))}..."',
+        '📡 [SpeakerEngine] Translation broadcasted to $_audienceCount listeners',
       );
+
+      // Update UI with last translation
+      _emit(_state.copyWith(lastTranslation: translatedText));
     } catch (e) {
-      print('❌ [SpeakerEngine] Failed to send to audience: $e');
-      rethrow;
+      print('❌ [SpeakerEngine] Failed to broadcast translation: $e');
+      throw Exception('Failed to broadcast translation: $e');
     }
   }
 
+  /// Helper to count sentences in text
   int _countSentences(String text) {
-    return RegExp(r'[.!?]+').allMatches(text).length.clamp(1, 99);
+    return text
+        .split(RegExp(r'[.!?]+'))
+        .where((s) => s.trim().isNotEmpty)
+        .length;
   }
 
   void _handleSpeechError(Exception error) {
     print('⚠️ [SpeakerEngine] Speech error: $error');
-    if (_isSessionActive) {
-      _emit(
-        _state.copyWith(status: HermesStatus.listening, errorMessage: null),
-      );
+
+    if (!_isSessionActive) {
+      print('🚫 [SpeakerEngine] Ignoring speech error - session inactive');
+      return;
     }
+
+    _emit(_state.copyWith(status: HermesStatus.listening, errorMessage: null));
   }
 
   void _handleOffline() {
@@ -347,16 +414,18 @@ class SpeakerEngine {
     }
   }
 
-  /// Stop session and cleanup
+  /// Enhanced stop method with proper cleanup
   Future<void> stop() async {
-    print('🛑 [SpeakerEngine] Stopping buffer-based session...');
+    print('🛑 [SpeakerEngine] Stopping speaker session...');
+
     _isSessionActive = false;
 
-    // Process any remaining buffer content
-    await _processBuffer(reason: 'cleanup');
+    // Stop processing timer
+    _processingTimer?.cancel();
+    _processingTimer = null;
 
-    _bufferTimer?.cancel();
-    _bufferTimer = null;
+    // Process any remaining text before stopping
+    await _processAccumulatedText('stop');
 
     try {
       await _stt.stopListening();
@@ -375,22 +444,19 @@ class SpeakerEngine {
       print('⚠️ [SpeakerEngine] Error disconnecting socket: $e');
     }
 
-    _buffer.clear();
-    _grammar.dispose();
+    // Clear buffers
+    _sentenceBuffer.clear();
     _audienceCount = 0;
     _languageDistribution = {};
 
-    print(
-      '📊 [SpeakerEngine] Final analytics: ${_analytics.getDebugSummary()}',
-    );
-
     _emit(_state.copyWith(status: HermesStatus.idle));
-    print('✅ [SpeakerEngine] Buffer-based session stopped');
+    await Future.delayed(const Duration(milliseconds: 50));
+    print('✅ [SpeakerEngine] Speaker session stopped');
   }
 
   Future<void> pause() async {
     print('⏸️ [SpeakerEngine] Pausing session...');
-    _bufferTimer?.cancel();
+    _processingTimer?.cancel();
     await _stt.stopListening();
     _emit(_state.copyWith(status: HermesStatus.paused));
   }
@@ -398,8 +464,8 @@ class SpeakerEngine {
   Future<void> resume() async {
     print('▶️ [SpeakerEngine] Resuming session...');
     if (_isSessionActive) {
+      _startProcessingPipeline();
       _startListening();
-      _startBufferTimer();
     }
   }
 
@@ -407,30 +473,31 @@ class SpeakerEngine {
   Map<String, int> get languageDistribution =>
       Map.unmodifiable(_languageDistribution);
 
-  /// Get buffer analytics for monitoring
-  Map<String, dynamic> getAnalytics() => _analytics.getAnalyticsReport();
-
   void _emit(HermesSessionState s) {
     if (_stateController != null && !_stateController!.isClosed) {
       _state = s;
       _stateController!.add(s);
+      print('🔄 [SpeakerEngine] State: ${s.status}');
+    } else {
+      print('⚠️ [SpeakerEngine] Cannot emit state - controller closed or null');
     }
   }
 
   void dispose() {
-    print('🗑️ [SpeakerEngine] Disposing buffer-based engine...');
+    print('🗑️ [SpeakerEngine] Disposing speaker engine...');
+
     _isSessionActive = false;
-    _bufferTimer?.cancel();
+    _processingTimer?.cancel();
     _stt.dispose();
     _socketSubscription?.cancel();
     _connHandler.dispose();
-    _buffer.clear();
     _grammar.dispose();
 
     if (_stateController != null && !_stateController!.isClosed) {
       _stateController!.close();
     }
     _stateController = null;
-    print('✅ [SpeakerEngine] Buffer-based engine disposed');
+
+    print('✅ [SpeakerEngine] Speaker engine disposed');
   }
 }
