@@ -24,11 +24,14 @@ import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/socket/socket_service_impl.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/core/services/session/session_service_impl.dart';
+import 'package:hermes/core/services/grammar/language_tool_service.dart';
 
 // HermesEngine components
 import 'package:hermes/core/hermes_engine/speaker/speaker_engine.dart';
 import 'package:hermes/core/hermes_engine/audience/audience_engine.dart';
 import 'package:hermes/core/hermes_engine/buffer/translation_buffer.dart';
+import 'package:hermes/core/hermes_engine/buffer/sentence_buffer.dart';
+import 'package:hermes/core/hermes_engine/buffer/buffer_analytics.dart';
 import 'package:hermes/core/hermes_engine/buffer/countdown_timer.dart';
 import 'package:hermes/core/hermes_engine/usecases/playback_control.dart';
 import 'package:hermes/core/hermes_engine/utils/log.dart';
@@ -81,18 +84,24 @@ Future<void> setupServiceLocator() async {
   // 👤 Authentication
   getIt.registerLazySingleton<IAuthService>(() => AuthServiceImpl());
 
-  // 🎛️ Session management - 🎯 SIMPLIFIED: Only needs logger now
+  // 🎛️ Session management
   getIt.registerLazySingleton<ISessionService>(
-    () => SessionServiceImpl(
-      logger: getIt<ILoggerService>(),
-      // 🎯 NO MORE SOCKET DEPENDENCY: Socket connection moved to speaker engine
-    ),
+    () => SessionServiceImpl(logger: getIt<ILoggerService>()),
   );
 
-  // ─────────────────────────────────────────────
-  // 🎯 CRITICAL CHANGE: HermesEngine Components - NOW USING FACTORIES FOR FRESH INSTANCES
+  // ✏️ Grammar correction (singleton - reusable across sessions)
+  getIt.registerLazySingleton<LanguageToolService>(() => LanguageToolService());
 
-  // 🎯 CHANGED: Create fresh buffer for each session
+  // ─────────────────────────────────────────────
+  // 🎯 HermesEngine Components - FACTORIES FOR FRESH INSTANCES
+
+  // 📝 Sentence buffer (factory - fresh per session)
+  getIt.registerFactory<SentenceBuffer>(() => SentenceBuffer());
+
+  // 📊 Buffer analytics (factory - fresh per session)
+  getIt.registerFactory<BufferAnalytics>(() => BufferAnalytics());
+
+  // 🎯 Existing buffer components (keep as factories)
   getIt.registerFactory<TranslationBuffer>(() => TranslationBuffer());
 
   // HermesLogger can stay singleton (safe to reuse)
@@ -100,10 +109,10 @@ Future<void> setupServiceLocator() async {
     () => HermesLogger(getIt<ILoggerService>()),
   );
 
-  // 🎯 CHANGED: Create fresh countdown timer for each session
+  // 🎯 Create fresh countdown timer for each session
   getIt.registerFactory<CountdownTimer>(() => CountdownTimer());
 
-  // 🎯 CHANGED: Create fresh playback control for each session
+  // 🎯 Create fresh playback control for each session
   getIt.registerFactory<PlaybackControlUseCase>(
     () => PlaybackControlUseCase(
       ttsService: getIt<ITextToSpeechService>(),
@@ -112,7 +121,7 @@ Future<void> setupServiceLocator() async {
     ),
   );
 
-  // 🎯 CHANGED: Create fresh speaker engine for each session
+  // 🎯 Create fresh speaker engine for each session
   getIt.registerFactory<SpeakerEngine>(
     () => SpeakerEngine(
       permission: getIt<IPermissionService>(),
@@ -126,7 +135,7 @@ Future<void> setupServiceLocator() async {
     ),
   );
 
-  // 🎯 CHANGED: Create fresh audience engine for each session
+  // 🎯 Create fresh audience engine for each session
   getIt.registerFactory<AudienceEngine>(
     () => AudienceEngine(
       buffer: getIt<TranslationBuffer>(), // This will get a fresh buffer

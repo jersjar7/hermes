@@ -1,4 +1,5 @@
 // lib/features/session/presentation/widgets/organisms/transcript_chat_box.dart
+// Minor update to show buffer processing status
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,7 +14,7 @@ import '../molecules/current_speech_indicator.dart';
 import '../atoms/scroll_to_bottom_button.dart';
 import '../../utils/transcript_message.dart';
 
-/// Simplified transcript chat box that orchestrates all sub-components
+/// Updated transcript chat box compatible with buffer processing
 class TranscriptChatBox extends ConsumerStatefulWidget {
   const TranscriptChatBox({super.key});
 
@@ -60,7 +61,7 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
 
           return Column(
             children: [
-              // Header with dynamic status
+              // Header with dynamic status including buffer processing
               TranscriptHeader(
                 status: state.status,
                 hasEverSpoken: _hasEverSpoken,
@@ -80,11 +81,8 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
                 ),
               ),
 
-              // Current speaking indicator
-              CurrentSpeechIndicator(
-                status: state.status,
-                currentText: _currentPartialTranscript,
-              ),
+              // Current speaking indicator with buffer processing status
+              _buildSpeechIndicator(state),
             ],
           );
         },
@@ -112,6 +110,46 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
         });
       },
     );
+  }
+
+  /// Enhanced speech indicator that shows buffer processing status
+  Widget _buildSpeechIndicator(state) {
+    // Show different indicators based on status
+    switch (state.status) {
+      case HermesStatus.listening:
+        return CurrentSpeechIndicator(
+          status: state.status,
+          currentText: _currentPartialTranscript,
+        );
+
+      case HermesStatus.translating:
+        // NEW: Show processing indicator during buffer processing
+        return Container(
+          padding: const EdgeInsets.all(HermesSpacing.md),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: HermesSpacing.sm),
+              Text(
+                'Processing speech...', // Or "Correcting grammar..."
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+        );
+
+      default:
+        return CurrentSpeechIndicator(
+          status: state.status,
+          currentText: _currentPartialTranscript,
+        );
+    }
   }
 
   Widget _buildLoadingState(BuildContext context, ThemeData theme) {
@@ -182,7 +220,12 @@ class _TranscriptChatBoxState extends ConsumerState<TranscriptChatBox> {
         });
       }
     }
-    // Handle final transcripts
+    // Handle processing state - keep showing last partial
+    else if (isTranslating) {
+      // Don't clear partial transcript during processing
+      // This maintains UI continuity during buffer processing
+    }
+    // Handle final transcripts from buffer processing
     else if (currentTranscript != null &&
         currentTranscript.isNotEmpty &&
         currentTranscript != _lastProcessedTranscript) {
