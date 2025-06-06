@@ -1,5 +1,5 @@
 // lib/core/hermes_engine/speaker/speaker_engine.dart
-// STEP 3: Enhanced SpeakerEngine with pattern detection - ONLY sends confirmed sentences
+// SIMPLIFIED: Removed pattern detection, only handles continuous partials
 
 import 'dart:async';
 
@@ -12,7 +12,6 @@ import '../usecases/start_session.dart';
 import '../usecases/connectivity_handler.dart';
 import '../utils/log.dart';
 import 'package:hermes/core/services/speech_to_text/speech_to_text_service.dart';
-import 'package:hermes/core/services/speech_to_text/speech_to_text_service_impl.dart';
 import 'package:hermes/core/services/speech_to_text/speech_result.dart';
 import 'package:hermes/core/services/translation/translation_service.dart';
 import 'package:hermes/core/services/text_to_speech/text_to_speech_service.dart';
@@ -21,7 +20,8 @@ import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/permission/permission_service.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 
-/// 🎯 ENHANCED: SpeakerEngine that only sends pattern-confirmed complete sentences
+/// Simplified SpeakerEngine that only handles continuous partial results
+/// Buffer-based processing will handle sentence detection and grammar correction
 class SpeakerEngine {
   final IPermissionService _permission;
   final ISpeechToTextService _stt;
@@ -38,10 +38,6 @@ class SpeakerEngine {
 
   // Session management
   bool _isSessionActive = false;
-
-  // 🆕 Pattern detection state tracking
-  String _lastSentTranscript = "";
-  DateTime _lastSentTimestamp = DateTime.now();
 
   // Audience tracking
   int _audienceCount = 0;
@@ -92,11 +88,9 @@ class SpeakerEngine {
     }
   }
 
-  /// Starts speaker flow with PATTERN-BASED sentence detection
+  /// Starts speaker flow with simplified continuous listening
   Future<void> start({required String languageCode}) async {
-    print(
-      '🎤 [SpeakerEngine] Starting speaker session with PATTERN DETECTION...',
-    );
+    print('🎤 [SpeakerEngine] Starting simplified speaker session...');
 
     try {
       _ensureStateController();
@@ -162,36 +156,24 @@ class SpeakerEngine {
   void _startListening() {
     if (!_isSessionActive) return;
 
-    print('🎤 [SpeakerEngine] Starting PATTERN-BASED continuous listening...');
+    print('🎤 [SpeakerEngine] Starting simplified continuous listening...');
     _emit(_state.copyWith(status: HermesStatus.listening));
 
-    // 🎯 CRITICAL: Check if we have the enhanced STT service
-    if (_stt is SpeechToTextServiceImpl) {
-      print('✅ [SpeakerEngine] Using ENHANCED pattern-based STT service');
-      // Use the new pattern-based listening method
-      (_stt).startPatternBasedListening(
-        onPartialResult: _handlePartialResult,
-        onConfirmedSentence: _handleConfirmedSentence,
-        onError: _handleSpeechError,
-      );
-    } else {
-      print('⚠️ [SpeakerEngine] Using fallback STT service');
-      // Fallback to regular listening for other implementations
-      _stt.startListening(
-        onResult: _handleFallbackSpeechResult,
-        onError: _handleSpeechError,
-      );
-    }
+    // SIMPLIFIED: Only use basic startListening - no pattern detection
+    _stt.startListening(
+      onResult: _handleSpeechResult,
+      onError: _handleSpeechError,
+    );
   }
 
-  /// 🆕 NEW: Handle partial results (for UI updates only)
-  void _handlePartialResult(SpeechResult result) async {
+  /// Handle all speech results (all are partials now)
+  void _handleSpeechResult(SpeechResult result) async {
     if (!_isSessionActive) {
-      print('🚫 [SpeakerEngine] Ignoring partial result - session inactive');
+      print('🚫 [SpeakerEngine] Ignoring speech result - session inactive');
       return;
     }
 
-    print('📝 [SpeakerEngine] Partial result: "${result.transcript}"');
+    print('📝 [SpeakerEngine] Speech result: "${result.transcript}"');
 
     // Always update UI with latest transcript for real-time feedback
     _emit(
@@ -200,76 +182,9 @@ class SpeakerEngine {
         lastTranscript: result.transcript,
       ),
     );
-  }
 
-  /// 🎯 CRITICAL: Handle pattern-confirmed complete sentences
-  void _handleConfirmedSentence(SpeechResult result) async {
-    if (!_isSessionActive) {
-      print(
-        '🚫 [SpeakerEngine] Ignoring confirmed sentence - session inactive',
-      );
-      return;
-    }
-
-    print(
-      '🎯 [SpeakerEngine] ✅ PATTERN CONFIRMED SENTENCE: "${result.transcript}"',
-    );
-
-    // Update UI to show we're processing
-    _emit(
-      _state.copyWith(
-        status: HermesStatus.translating,
-        lastTranscript: result.transcript,
-      ),
-    );
-
-    // Send the confirmed complete sentence to audience
-    await _sendConfirmedSentence(result.transcript, 'pattern-confirmed');
-
-    // Return to listening state
-    if (_isSessionActive) {
-      _emit(_state.copyWith(status: HermesStatus.listening));
-    }
-  }
-
-  /// 🆕 FALLBACK: Handle speech results from regular STT service
-  void _handleFallbackSpeechResult(SpeechResult result) async {
-    if (!_isSessionActive) {
-      print('🚫 [SpeakerEngine] Ignoring speech result - session inactive');
-      return;
-    }
-
-    print(
-      '📝 [SpeakerEngine] Fallback speech result: "${result.transcript}" (final: ${result.isFinal})',
-    );
-
-    // Always update UI
-    _emit(
-      _state.copyWith(
-        status:
-            result.isFinal ? HermesStatus.translating : HermesStatus.listening,
-        lastTranscript: result.transcript,
-      ),
-    );
-
-    // For fallback mode, use Dart-side pattern detection
-    if (result.isFinal) {
-      print('🔍 [SpeakerEngine] Fallback mode - using Dart pattern detection');
-
-      if (_isDartPatternComplete(result.transcript)) {
-        print('🎯 [SpeakerEngine] Dart pattern detected complete sentence');
-        await _sendConfirmedSentence(result.transcript, 'dart-pattern');
-      } else {
-        print(
-          '🚫 [SpeakerEngine] Dart pattern: sentence not complete, not sending',
-        );
-      }
-    }
-
-    // Continue listening
-    if (_isSessionActive) {
-      _emit(_state.copyWith(status: HermesStatus.listening));
-    }
+    // TODO: Buffer-based processing will handle sentence detection
+    // For now, just update UI - no transmission to audience
   }
 
   void _handleSpeechError(Exception error) {
@@ -283,111 +198,6 @@ class SpeakerEngine {
     _emit(_state.copyWith(status: HermesStatus.listening, errorMessage: null));
   }
 
-  /// 🆕 BACKUP: Simple Dart-side pattern detection as fallback
-  bool _isDartPatternComplete(String text) {
-    final cleanText = text.trim();
-
-    // Must be reasonable length
-    if (cleanText.length < 12) return false;
-
-    // Check for clear sentence endings
-    if (cleanText.endsWith('.') ||
-        cleanText.endsWith('!') ||
-        cleanText.endsWith('?')) {
-      // Make sure it's not an abbreviation
-      if (!_isLikelyAbbreviation(cleanText)) {
-        return true;
-      }
-    }
-
-    // Check for natural transitions indicating complete thoughts
-    final transitionPatterns = [
-      RegExp(
-        r'[.!?]\s+(However|Nevertheless|Therefore|Meanwhile|Furthermore)\s+\w+',
-      ),
-      RegExp(r'[.!?]\s+(And then|But then|So then|After that)\s+\w+'),
-    ];
-
-    for (final pattern in transitionPatterns) {
-      if (pattern.hasMatch(cleanText)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  bool _isLikelyAbbreviation(String text) {
-    final commonAbbreviations = [
-      'Dr.',
-      'Mr.',
-      'Mrs.',
-      'Ms.',
-      'Prof.',
-      'Inc.',
-      'Corp.',
-      'Ltd.',
-      'etc.',
-      'vs.',
-      'e.g.',
-      'i.e.',
-      'U.S.',
-      'U.K.',
-    ];
-
-    for (final abbrev in commonAbbreviations) {
-      if (text.toLowerCase().endsWith(abbrev.toLowerCase())) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// 🆕 Method to send confirmed complete sentences (called by pattern detector)
-  Future<void> _sendConfirmedSentence(String transcript, String reason) async {
-    if (!_isSessionActive) {
-      print('🚫 [SpeakerEngine] Cannot send - session inactive');
-      return;
-    }
-
-    // Prevent duplicates
-    final now = DateTime.now();
-    final timeSinceLastSent = now.difference(_lastSentTimestamp).inSeconds;
-
-    if (transcript == _lastSentTranscript && timeSinceLastSent < 2) {
-      print(
-        '🔄 [SpeakerEngine] Skipping duplicate sentence: "${transcript.substring(0, transcript.length.clamp(0, 30))}..."',
-      );
-      return;
-    }
-
-    print(
-      '🎯 [SpeakerEngine] ✅ SENDING CONFIRMED COMPLETE SENTENCE: "${transcript.substring(0, transcript.length.clamp(0, 50))}..." (reason: $reason)',
-    );
-
-    try {
-      await _socket.send(
-        TranscriptEvent(
-          sessionId: _session.currentSession!.sessionId,
-          text: transcript,
-          isFinal: true,
-        ),
-      );
-
-      _lastSentTranscript = transcript;
-      _lastSentTimestamp = now;
-
-      print('✅ [SpeakerEngine] Confirmed sentence sent to audience');
-    } catch (e, stackTrace) {
-      print('❌ [SpeakerEngine] Failed to send confirmed sentence: $e');
-      _log.error(
-        'Failed to send confirmed sentence',
-        error: e,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
   void _handleOffline() {
     print('📵 [SpeakerEngine] Going offline - pausing session');
     _emit(_state.copyWith(status: HermesStatus.paused));
@@ -398,15 +208,6 @@ class SpeakerEngine {
     if (_isSessionActive) {
       _startListening();
     }
-  }
-
-  /// 🆕 PUBLIC METHOD: Call this from pattern detector results
-  /// This should be called when the Swift pattern detector confirms a complete sentence
-  Future<void> sendPatternConfirmedSentence(
-    String transcript,
-    String reason,
-  ) async {
-    await _sendConfirmedSentence(transcript, reason);
   }
 
   /// Enhanced stop method with proper cleanup
@@ -433,9 +234,7 @@ class SpeakerEngine {
     }
 
     _audienceCount = 0;
-    _audienceCount = 0;
     _languageDistribution = {};
-    _lastSentTranscript = "";
 
     _emit(_state.copyWith(status: HermesStatus.idle));
     await Future.delayed(const Duration(milliseconds: 50));

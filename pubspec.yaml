@@ -49,6 +49,7 @@ dependencies:
   go_router: ^15.1.2
   shared_preferences: ^2.5.3
   qr_flutter: ^4.1.0
+  language_tool: ^2.2.0
 
 dev_dependencies:
   flutter_test:
