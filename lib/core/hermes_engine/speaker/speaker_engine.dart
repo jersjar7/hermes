@@ -244,16 +244,19 @@ class SpeakerEngine {
       ),
     );
 
+    // Always update buffer with latest transcript
+    _sentenceBuffer.getCompleteSentencesForProcessing(result.transcript);
+
     // 🆕 NEW: Check for complete sentences and process immediately
-    final completeSentences = _sentenceBuffer.getCompleteSentencesForProcessing(
-      result.transcript,
-    );
-    if (completeSentences != null) {
-      print(
-        '🎯 [SpeakerEngine] Found complete sentences, processing immediately...',
-      );
-      await _processText(completeSentences, 'punctuation');
-    }
+    // final completeSentences = _sentenceBuffer.getCompleteSentencesForProcessing(
+    //   result.transcript,
+    // );
+    // if (completeSentences != null) {
+    //   print(
+    //     '🎯 [SpeakerEngine] Found complete sentences, processing immediately...',
+    //   );
+    //   await _processText(completeSentences, 'punctuation');
+    // }
   }
 
   /// 🆕 NEW: Process accumulated text (called by timer or force flush)
