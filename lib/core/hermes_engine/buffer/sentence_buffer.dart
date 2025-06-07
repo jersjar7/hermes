@@ -15,14 +15,13 @@ class SentenceBuffer {
       ''; // 🆕 NEW: Track what we last flushed to avoid duplication
 
   // Analytics tracking
-  int _totalSentencesProcessed = 0;
-  int _forcedFlushCount = 0;
-  int _punctuationBasedCount = 0;
+  final int _totalSentencesProcessed = 0;
+  final int _forcedFlushCount = 0;
+  final int _punctuationBasedCount = 0;
   final List<Duration> _processingLatencies = [];
 
   // Configuration
   static const Duration _forceFlushTimeout = Duration(seconds: 30);
-  static const int _minimumSentenceLength = 8;
 
   // Common sentence endings
   static const Set<String> _sentenceEnders = {'.', '!', '?'};
@@ -101,6 +100,52 @@ class SentenceBuffer {
     return false;
   }
 
+  /// 🆕 NEW: Splits text into complete sentences and incomplete remainder
+  /// Returns (completeText, incompleteText)
+  (String, String) _splitAtSentenceBoundaries(String text) {
+    if (text.trim().isEmpty) {
+      return ('', '');
+    }
+
+    // Find the last occurrence of sentence-ending punctuation
+    int lastSentenceEnd = -1;
+    for (int i = text.length - 1; i >= 0; i--) {
+      if (_sentenceEnders.contains(text[i])) {
+        lastSentenceEnd = i;
+        break;
+      }
+    }
+
+    // If no sentence enders found, everything is incomplete
+    if (lastSentenceEnd == -1) {
+      return ('', text.trim());
+    }
+
+    // Split at the sentence boundary
+    final completeText = text.substring(0, lastSentenceEnd + 1).trim();
+    final incompleteText = text.substring(lastSentenceEnd + 1).trim();
+
+    return (completeText, incompleteText);
+  }
+
+  /// 🆕 NEW: Resets buffer state but retains incomplete text for next batch
+  void _resetBufferWithRetainedText(String incompleteText) {
+    // Clear most state like normal reset
+    _lastProcessedText = '';
+    _accumulatedText = '';
+    _bufferStartTime = DateTime.now();
+    _updatePunctuationTime();
+
+    // But retain the incomplete text as pending for next batch
+    _pendingText = incompleteText.trim();
+
+    print(
+      '🔄 [SentenceBuffer] Buffer reset with retained text: "${_pendingText.substring(0, _pendingText.length.clamp(0, 50))}..." (${_pendingText.length} chars)',
+    );
+
+    // Don't reset _lastFlushedText - we still need it for duplication detection
+  }
+
   /// 🆕 NEW: Intelligently combine texts, avoiding duplication
   String _combineTexts(String accumulated, String newText) {
     if (accumulated.isEmpty) return newText;
@@ -114,45 +159,29 @@ class SentenceBuffer {
     return accumulated + connector + newText;
   }
 
-  /// 🎯 FIXED: Forces flush of ALL accumulated text (cross-restart + pending)
   String? flushPending({String reason = 'timer'}) {
-    // Combine all accumulated text
     final allText = _getAllAccumulatedText();
 
-    if (allText.trim().isEmpty) {
-      print('🚫 [SentenceBuffer] No accumulated text to flush');
+    if (allText.trim().isEmpty) return null;
+
+    // 🆕 NEW: Split complete vs incomplete sentences
+    final (completeText, incompleteText) = _splitAtSentenceBoundaries(allText);
+
+    if (completeText.trim().isEmpty) {
+      // No complete sentences yet, keep everything for next batch
       return null;
     }
 
-    // Only flush if meets minimum length
-    if (allText.length < _minimumSentenceLength) {
-      print(
-        '🚫 [SentenceBuffer] Skipping flush - text too short (${allText.length} chars): "$allText"',
-      );
-      return null;
+    // Flush only complete sentences
+    print('🔄 [SentenceBuffer] Flushing COMPLETE sentences: "$completeText"');
+    if (incompleteText.isNotEmpty) {
+      print('📝 [SentenceBuffer] Retaining incomplete: "$incompleteText"');
     }
 
-    print(
-      '🔄 [SentenceBuffer] Flushing ALL accumulated text (${allText.length} chars, reason: $reason): "${allText.substring(0, allText.length.clamp(0, 100))}..."',
-    );
-    print('🔄 [SentenceBuffer] FULL TEXT BEING FLUSHED: "$allText"');
+    // Reset buffer but keep incomplete text
+    _resetBufferWithRetainedText(incompleteText);
 
-    // 🎯 NEW: Track what we just flushed to prevent duplication
-    _lastFlushedText = allText;
-
-    // 🎯 CRITICAL: Reset all buffer state IMMEDIATELY after flush
-    // This prevents already-processed text from being preserved in future restarts
-    _resetBuffer();
-
-    // Update analytics
-    if (reason == 'force') {
-      _forcedFlushCount++;
-    } else {
-      _punctuationBasedCount++; // Timer-based processing
-    }
-    _totalSentencesProcessed++;
-
-    return allText;
+    return completeText; // Only return complete sentences
   }
 
   /// 🆕 NEW: Get all accumulated text across restarts
