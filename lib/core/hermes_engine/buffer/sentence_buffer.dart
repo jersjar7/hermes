@@ -11,10 +11,8 @@ class SentenceBuffer {
 
   // 🆕 NEW: Cross-restart accumulation state
   String _accumulatedText = '';
-  DateTime _lastAccumulationTime = DateTime.now();
   String _lastFlushedText =
       ''; // 🆕 NEW: Track what we last flushed to avoid duplication
-  static const Duration _accumulationTimeout = Duration(seconds: 3);
 
   // Analytics tracking
   int _totalSentencesProcessed = 0;
@@ -28,42 +26,6 @@ class SentenceBuffer {
 
   // Common sentence endings
   static const Set<String> _sentenceEnders = {'.', '!', '?'};
-
-  // Common abbreviations to avoid false sentence breaks
-  static const Set<String> _commonAbbreviations = {
-    'Dr.',
-    'Mr.',
-    'Mrs.',
-    'Ms.',
-    'Prof.',
-    'Sr.',
-    'Jr.',
-    'Inc.',
-    'Corp.',
-    'Ltd.',
-    'Co.',
-    'LLC.',
-    'etc.',
-    'vs.',
-    'e.g.',
-    'i.e.',
-    'U.S.',
-    'U.K.',
-    'U.N.',
-    'N.Y.',
-    'L.A.',
-    'Jan.',
-    'Feb.',
-    'Mar.',
-    'Apr.',
-    'Jun.',
-    'Jul.',
-    'Aug.',
-    'Sep.',
-    'Oct.',
-    'Nov.',
-    'Dec.',
-  };
 
   /// 🎯 FIXED: Cross-restart accumulation for 15-second timer processing
   /// Handles iOS Speech Recognition restarts without losing accumulated text
@@ -100,7 +62,6 @@ class SentenceBuffer {
 
       // Reset pending text for new partial
       _pendingText = cleanPartial;
-      _lastAccumulationTime = DateTime.now();
     } else {
       // Normal accumulation within the same STT session
       _pendingText = cleanPartial;
@@ -243,7 +204,6 @@ class SentenceBuffer {
     _lastProcessedText = '';
     _accumulatedText = ''; // Clear cross-restart accumulation
     _bufferStartTime = DateTime.now();
-    _lastAccumulationTime = DateTime.now();
     _updatePunctuationTime(); // Reset punctuation timer
     // 🎯 NOTE: Don't reset _lastFlushedText - we need it for duplication detection
   }
