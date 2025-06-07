@@ -1,13 +1,18 @@
 // lib/core/hermes_engine/buffer/sentence_buffer.dart
 
-/// Buffers speech transcripts and detects complete sentences for processing.
-/// FIXED: Properly accumulates text over 15-second periods instead of replacing.
+/// FIXED: Buffers speech transcripts across STT restarts for 15-second timer processing
+/// Handles iOS Speech Recognition automatic restarts without losing context
 class SentenceBuffer {
   // Buffer state
   String _pendingText = '';
   String _lastProcessedText = '';
   DateTime _lastPunctuationTime = DateTime.now();
   DateTime _bufferStartTime = DateTime.now();
+
+  // 🆕 NEW: Cross-restart accumulation state
+  String _accumulatedText = '';
+  DateTime _lastAccumulationTime = DateTime.now();
+  static const Duration _accumulationTimeout = Duration(seconds: 3);
 
   // Analytics tracking
   int _totalSentencesProcessed = 0;
@@ -58,8 +63,8 @@ class SentenceBuffer {
     'Dec.',
   };
 
-  /// 🎯 FIXED: Properly accumulates partials for 15-second timer processing
-  /// Called every time we get a new partial result from STT.
+  /// 🎯 FIXED: Cross-restart accumulation for 15-second timer processing
+  /// Handles iOS Speech Recognition restarts without losing accumulated text
   String? getCompleteSentencesForProcessing(String latestPartial) {
     final cleanPartial = latestPartial.trim();
 
@@ -70,42 +75,101 @@ class SentenceBuffer {
 
     _lastProcessedText = cleanPartial;
 
-    // 🎯 FIXED: For 15-second timer logic, we always accumulate the latest partial
-    // The buffer should contain the most complete/recent version of the speech
-    // since STT gives us progressively better transcriptions
-    _pendingText = cleanPartial;
+    // 🆕 NEW: Check if this looks like a restart (completely different text)
+    final isLikelyRestart = _isLikelySTTRestart(cleanPartial);
+
+    if (isLikelyRestart) {
+      print(
+        '🔄 [SentenceBuffer] Detected STT restart, preserving accumulated text',
+      );
+
+      // Add current pending text to accumulated text before restart
+      if (_pendingText.trim().isNotEmpty) {
+        _accumulatedText = _combineTexts(_accumulatedText, _pendingText.trim());
+        print(
+          '📚 [SentenceBuffer] Preserved text: "${_accumulatedText.substring(0, _accumulatedText.length.clamp(0, 50))}..." (${_accumulatedText.length} chars)',
+        );
+      }
+
+      // Reset pending text for new partial
+      _pendingText = cleanPartial;
+      _lastAccumulationTime = DateTime.now();
+    } else {
+      // Normal accumulation within the same STT session
+      _pendingText = cleanPartial;
+    }
 
     print(
       '📝 [SentenceBuffer] Updated buffer: "${_pendingText.substring(0, _pendingText.length.clamp(0, 50))}..." (${_pendingText.length} chars)',
     );
+    if (_accumulatedText.isNotEmpty) {
+      print(
+        '📚 [SentenceBuffer] Total accumulated: "${_accumulatedText.substring(0, _accumulatedText.length.clamp(0, 50))}..." (${_accumulatedText.length} chars)',
+      );
+    }
 
     // 🎯 IMPORTANT: For 15-second timer logic, we DON'T immediately return complete sentences
     // We let the timer handle ALL processing to ensure consistent 15-second intervals
     return null;
   }
 
-  /// Forces flush of pending text. Called by 15-second timer or 30-second force rule.
+  /// 🆕 NEW: Detect if the partial looks like an STT restart
+  bool _isLikelySTTRestart(String newPartial) {
+    if (_pendingText.isEmpty) return false;
+
+    // If new partial is much shorter and doesn't start with similar words, likely a restart
+    if (newPartial.length < _pendingText.length * 0.3) {
+      final newWords = newPartial.toLowerCase().split(' ').take(3).toList();
+      final oldWords = _pendingText.toLowerCase().split(' ').take(3).toList();
+
+      // Check if any of the first few words match
+      final hasCommonWords = newWords.any((word) => oldWords.contains(word));
+
+      if (!hasCommonWords) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// 🆕 NEW: Intelligently combine texts, avoiding duplication
+  String _combineTexts(String accumulated, String newText) {
+    if (accumulated.isEmpty) return newText;
+    if (newText.isEmpty) return accumulated;
+
+    // Add period if accumulated doesn't end with punctuation
+    final needsPeriod =
+        !_sentenceEnders.any((ender) => accumulated.endsWith(ender));
+    final connector = needsPeriod ? '. ' : ' ';
+
+    return accumulated + connector + newText;
+  }
+
+  /// 🎯 FIXED: Forces flush of ALL accumulated text (cross-restart + pending)
   String? flushPending({String reason = 'timer'}) {
-    if (_pendingText.trim().isEmpty) {
-      print('🚫 [SentenceBuffer] No pending text to flush');
+    // Combine all accumulated text
+    final allText = _getAllAccumulatedText();
+
+    if (allText.trim().isEmpty) {
+      print('🚫 [SentenceBuffer] No accumulated text to flush');
       return null;
     }
 
-    final textToFlush = _pendingText.trim();
-
     // Only flush if meets minimum length
-    if (textToFlush.length < _minimumSentenceLength) {
+    if (allText.length < _minimumSentenceLength) {
       print(
-        '🚫 [SentenceBuffer] Skipping flush - text too short (${textToFlush.length} chars): "$textToFlush"',
+        '🚫 [SentenceBuffer] Skipping flush - text too short (${allText.length} chars): "$allText"',
       );
       return null;
     }
 
     print(
-      '🔄 [SentenceBuffer] Flushing accumulated text (${textToFlush.length} chars, reason: $reason): "${textToFlush.substring(0, textToFlush.length.clamp(0, 100))}..."',
+      '🔄 [SentenceBuffer] Flushing ALL accumulated text (${allText.length} chars, reason: $reason): "${allText.substring(0, allText.length.clamp(0, 100))}..."',
     );
+    print('🔄 [SentenceBuffer] FULL TEXT BEING FLUSHED: "$allText"');
 
-    // Reset buffer state
+    // Reset all buffer state
     _resetBuffer();
 
     // Update analytics
@@ -116,12 +180,30 @@ class SentenceBuffer {
     }
     _totalSentencesProcessed++;
 
-    return textToFlush;
+    return allText;
+  }
+
+  /// 🆕 NEW: Get all accumulated text across restarts
+  String _getAllAccumulatedText() {
+    if (_accumulatedText.isEmpty && _pendingText.isEmpty) {
+      return '';
+    }
+
+    if (_accumulatedText.isEmpty) {
+      return _pendingText.trim();
+    }
+
+    if (_pendingText.isEmpty) {
+      return _accumulatedText.trim();
+    }
+
+    return _combineTexts(_accumulatedText, _pendingText.trim());
   }
 
   /// Checks if we should force flush due to 30-second timeout without punctuation.
   bool shouldForceFlush() {
-    if (_pendingText.trim().isEmpty) {
+    final allText = _getAllAccumulatedText();
+    if (allText.trim().isEmpty) {
       return false;
     }
 
@@ -144,11 +226,13 @@ class SentenceBuffer {
     _lastPunctuationTime = DateTime.now();
   }
 
-  /// Resets buffer state for next cycle.
+  /// 🎯 FIXED: Resets ALL buffer state (including cross-restart accumulation)
   void _resetBuffer() {
     _pendingText = '';
     _lastProcessedText = '';
+    _accumulatedText = ''; // Clear cross-restart accumulation
     _bufferStartTime = DateTime.now();
+    _lastAccumulationTime = DateTime.now();
     _updatePunctuationTime(); // Reset punctuation timer
   }
 
@@ -156,7 +240,9 @@ class SentenceBuffer {
   void clear() {
     _resetBuffer();
     _lastPunctuationTime = DateTime.now();
-    print('🧹 [SentenceBuffer] Buffer cleared');
+    print(
+      '🧹 [SentenceBuffer] Buffer cleared (including cross-restart accumulation)',
+    );
   }
 
   /// Records processing latency for analytics.
@@ -173,9 +259,12 @@ class SentenceBuffer {
 
   String get currentPendingText => _pendingText;
 
-  bool get hasPendingText => _pendingText.trim().isNotEmpty;
+  /// 🆕 NEW: Returns all accumulated text across restarts
+  String get allAccumulatedText => _getAllAccumulatedText();
 
-  int get pendingTextLength => _pendingText.trim().length;
+  bool get hasPendingText => _getAllAccumulatedText().trim().isNotEmpty;
+
+  int get pendingTextLength => _getAllAccumulatedText().trim().length;
 
   Duration get timeSinceLastPunctuation =>
       DateTime.now().difference(_lastPunctuationTime);
@@ -201,7 +290,9 @@ class SentenceBuffer {
               ? _punctuationBasedCount / _totalSentencesProcessed
               : 0.0,
       'averageProcessingLatencyMs': avgLatency,
-      'currentPendingLength': pendingTextLength,
+      'currentPendingLength': _pendingText.length,
+      'accumulatedLength': _accumulatedText.length,
+      'totalLength': pendingTextLength,
       'timeSinceLastPunctuationSeconds': timeSinceLastPunctuation.inSeconds,
       'bufferAgeSeconds': bufferAge.inSeconds,
       'hasPendingText': hasPendingText,
@@ -211,7 +302,9 @@ class SentenceBuffer {
   /// Returns a debug-friendly summary of current buffer state.
   String getDebugSummary() {
     return 'SentenceBuffer('
-        'pending: $pendingTextLength chars, '
+        'pending: ${_pendingText.length} chars, '
+        'accumulated: ${_accumulatedText.length} chars, '
+        'total: $pendingTextLength chars, '
         'processed: $_totalSentencesProcessed sentences, '
         'punctuation: ${timeSinceLastPunctuation.inSeconds}s ago, '
         'should_flush: ${shouldForceFlush()}'

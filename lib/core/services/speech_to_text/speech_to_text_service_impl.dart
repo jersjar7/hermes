@@ -1,5 +1,5 @@
 // lib/core/services/speech_to_text/speech_to_text_service_impl.dart
-// SIMPLIFIED: Removed pattern detection, only emits continuous partials
+// FIXED: Removed auto-restart on final results for continuous 15-second processing
 
 import 'dart:async';
 import 'dart:io';
@@ -10,8 +10,8 @@ import 'speech_to_text_service.dart';
 import 'speech_result.dart';
 import 'continuous_speech_channel.dart';
 
-/// Simplified STT service that only emits continuous partial results
-/// No pattern detection - that's handled by buffer-based processing now
+/// FIXED: STT service for 15-second timer processing pattern
+/// Removed auto-restart on final results to enable continuous accumulation
 class SpeechToTextServiceImpl implements ISpeechToTextService {
   // Platform-specific continuous speech
   ContinuousSpeechChannel? _continuousChannel;
@@ -31,7 +31,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
 
   @override
   Future<bool> initialize() async {
-    print('🎙️ [STTService] Initializing SIMPLIFIED speech-to-text service...');
+    print('🎙️ [STTService] Initializing FIXED speech-to-text service...');
 
     await _initializeContinuousChannel();
     await _initializeFallbackSTT();
@@ -41,7 +41,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     if (_useContinuousChannel) {
       print('✅ [STTService] Using continuous speech recognition');
     } else if (_isAvailable) {
-      print('⚠️ [STTService] Using regular speech recognition (with restarts)');
+      print('✅ [STTService] Using fallback STT (15-second timer mode)');
     } else {
       print('❌ [STTService] Speech recognition not available');
     }
@@ -108,7 +108,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
       return;
     }
 
-    print('🎤 [STTService] Starting SIMPLIFIED listening (partials only)...');
+    print('🎤 [STTService] Starting FIXED listening (15-second timer mode)...');
 
     _onResult = onResult;
     _onError = onError;
@@ -158,9 +158,12 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     }
   }
 
-  /// Start listening using fallback STT with restart logic (only partial results)
+  /// 🎯 FIXED: Start listening using fallback STT for 15-second timer processing
+  /// Increased duration and removed auto-restart on final results
   Future<void> _startFallbackListening() async {
-    print('🎤 [STTService] Starting fallback listening with locale: $_locale');
+    print(
+      '🎤 [STTService] Starting FIXED fallback listening with locale: $_locale',
+    );
 
     try {
       await _speech.listen(
@@ -168,12 +171,18 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
         onResult: _handleFallbackResult,
         cancelOnError: false,
         partialResults: true,
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 3),
+        // 🎯 FIXED: Much longer duration to support 15-second timer
+        listenFor: const Duration(
+          minutes: 10,
+        ), // Was 30 seconds, now 10 minutes
+        // 🎯 FIXED: Longer pause to prevent premature stops
+        pauseFor: const Duration(seconds: 10), // Was 3 seconds, now 10 seconds
       );
 
       _isListening = true;
-      print('✅ [STTService] Fallback listening started');
+      print(
+        '✅ [STTService] FIXED fallback listening started (10min duration, 10s pause)',
+      );
     } catch (e) {
       print('❌ [STTService] Fallback listening failed: $e');
       _onError?.call(Exception('Failed to start listening: $e'));
@@ -235,11 +244,14 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     print('✅ [STTService] Listening cancelled');
   }
 
-  // Fallback STT handlers
+  // 🎯 FIXED: Fallback STT handlers for 15-second timer pattern
   void _handleFallbackStatus(String status) {
     print('📊 [STTService-Fallback] Status: $status');
 
+    // 🎯 FIXED: Only restart on actual stops, not normal processing
     if (status == 'notListening' && _isListening && _onResult != null) {
+      // Only restart if we're supposed to be listening but aren't
+      print('⚠️ [STTService-Fallback] Unexpected stop detected, restarting...');
       _scheduleRestart();
     }
   }
@@ -256,6 +268,7 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
     }
   }
 
+  /// 🎯 FIXED: Handle fallback results without auto-restart
   void _handleFallbackResult(stt.SpeechRecognitionResult result) {
     final transcript = result.recognizedWords.trim();
     if (transcript.isNotEmpty && _onResult != null) {
@@ -274,15 +287,29 @@ class SpeechToTextServiceImpl implements ISpeechToTextService {
       _onResult!(speechResult);
     }
 
-    if (result.finalResult && _isListening) {
-      _scheduleRestart();
+    // 🎯 FIXED: REMOVED AUTO-RESTART ON FINAL RESULTS
+    // This was the cause of the fragmentation! iOS STT naturally returns
+    // "final" results every few seconds, but we want continuous accumulation
+    // for the 15-second timer pattern.
+
+    // OLD CODE (REMOVED):
+    // if (result.finalResult && _isListening) {
+    //   _scheduleRestart();
+    // }
+
+    // NEW: Only log final results, don't restart
+    if (result.finalResult) {
+      print(
+        '📋 [STTService-Fallback] Received final result, continuing to accumulate...',
+      );
     }
   }
 
+  /// 🎯 FIXED: Only restart on actual errors/stops, not final results
   void _scheduleRestart() {
     if (!_isListening || _onResult == null) return;
 
-    print('🔄 [STTService-Fallback] Scheduling restart...');
+    print('🔄 [STTService-Fallback] Scheduling restart due to error/stop...');
 
     final delay =
         Platform.isAndroid
