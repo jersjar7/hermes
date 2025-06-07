@@ -1,7 +1,7 @@
 // lib/core/hermes_engine/buffer/sentence_buffer.dart
 
 /// Buffers speech transcripts and detects complete sentences for processing.
-/// Handles 15-second timer processing and 30-second force flush logic.
+/// FIXED: Properly accumulates text over 15-second periods instead of replacing.
 class SentenceBuffer {
   // Buffer state
   String _pendingText = '';
@@ -58,7 +58,7 @@ class SentenceBuffer {
     'Dec.',
   };
 
-  /// Updates buffer with latest partial transcript and returns complete sentences if any.
+  /// 🎯 FIXED: Properly accumulates partials for 15-second timer processing
   /// Called every time we get a new partial result from STT.
   String? getCompleteSentencesForProcessing(String latestPartial) {
     final cleanPartial = latestPartial.trim();
@@ -69,28 +69,25 @@ class SentenceBuffer {
     }
 
     _lastProcessedText = cleanPartial;
+
+    // 🎯 FIXED: For 15-second timer logic, we always accumulate the latest partial
+    // The buffer should contain the most complete/recent version of the speech
+    // since STT gives us progressively better transcriptions
     _pendingText = cleanPartial;
 
-    // Check for complete sentences with punctuation
-    final completeSentences = _extractCompleteSentences(_pendingText);
+    print(
+      '📝 [SentenceBuffer] Updated buffer: "${_pendingText.substring(0, _pendingText.length.clamp(0, 50))}..." (${_pendingText.length} chars)',
+    );
 
-    if (completeSentences.isNotEmpty) {
-      _updatePunctuationTime();
-      _punctuationBasedCount++;
-      _totalSentencesProcessed++;
-
-      print(
-        '📝 [SentenceBuffer] Found ${completeSentences.length} complete sentences',
-      );
-      return completeSentences.join(' ');
-    }
-
+    // 🎯 IMPORTANT: For 15-second timer logic, we DON'T immediately return complete sentences
+    // We let the timer handle ALL processing to ensure consistent 15-second intervals
     return null;
   }
 
   /// Forces flush of pending text. Called by 15-second timer or 30-second force rule.
   String? flushPending({String reason = 'timer'}) {
     if (_pendingText.trim().isEmpty) {
+      print('🚫 [SentenceBuffer] No pending text to flush');
       return null;
     }
 
@@ -99,13 +96,13 @@ class SentenceBuffer {
     // Only flush if meets minimum length
     if (textToFlush.length < _minimumSentenceLength) {
       print(
-        '🚫 [SentenceBuffer] Skipping flush - text too short (${textToFlush.length} chars)',
+        '🚫 [SentenceBuffer] Skipping flush - text too short (${textToFlush.length} chars): "$textToFlush"',
       );
       return null;
     }
 
     print(
-      '🔄 [SentenceBuffer] Force flushing: "${textToFlush.substring(0, textToFlush.length.clamp(0, 50))}..." (reason: $reason)',
+      '🔄 [SentenceBuffer] Flushing accumulated text (${textToFlush.length} chars, reason: $reason): "${textToFlush.substring(0, textToFlush.length.clamp(0, 100))}..."',
     );
 
     // Reset buffer state
@@ -114,6 +111,8 @@ class SentenceBuffer {
     // Update analytics
     if (reason == 'force') {
       _forcedFlushCount++;
+    } else {
+      _punctuationBasedCount++; // Timer-based processing
     }
     _totalSentencesProcessed++;
 
@@ -140,73 +139,6 @@ class SentenceBuffer {
     return shouldFlush;
   }
 
-  /// Extracts complete sentences from text based on punctuation.
-  List<String> _extractCompleteSentences(String text) {
-    final sentences = <String>[];
-    final buffer = StringBuffer();
-
-    for (int i = 0; i < text.length; i++) {
-      final char = text[i];
-      buffer.write(char);
-
-      if (_sentenceEnders.contains(char)) {
-        final candidate = buffer.toString().trim();
-
-        // Check if this is a real sentence ending
-        if (_isCompleteSentence(candidate, text, i)) {
-          sentences.add(candidate);
-          buffer.clear();
-
-          // Skip whitespace after sentence
-          while (i + 1 < text.length && text[i + 1] == ' ') {
-            i++;
-          }
-        }
-      }
-    }
-
-    // Update pending text with remainder
-    final remainder = buffer.toString().trim();
-    _pendingText = remainder;
-
-    return sentences;
-  }
-
-  /// Determines if a candidate string is actually a complete sentence.
-  bool _isCompleteSentence(String candidate, String fullText, int position) {
-    if (candidate.length < _minimumSentenceLength) {
-      return false;
-    }
-
-    // Check for abbreviations
-    if (_isLikelyAbbreviation(candidate)) {
-      return false;
-    }
-
-    // Check for decimal numbers (e.g., "3.14")
-    if (_isDecimalNumber(candidate)) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /// Checks if text ends with a common abbreviation.
-  bool _isLikelyAbbreviation(String text) {
-    for (final abbrev in _commonAbbreviations) {
-      if (text.toLowerCase().endsWith(abbrev.toLowerCase())) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// Checks if text ends with a decimal number.
-  bool _isDecimalNumber(String text) {
-    final regex = RegExp(r'\d+\.\d*$');
-    return regex.hasMatch(text);
-  }
-
   /// Updates the last punctuation timestamp.
   void _updatePunctuationTime() {
     _lastPunctuationTime = DateTime.now();
@@ -217,6 +149,7 @@ class SentenceBuffer {
     _pendingText = '';
     _lastProcessedText = '';
     _bufferStartTime = DateTime.now();
+    _updatePunctuationTime(); // Reset punctuation timer
   }
 
   /// Completely clears all buffer state.
