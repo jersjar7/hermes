@@ -12,6 +12,8 @@ class SentenceBuffer {
   // 🆕 NEW: Cross-restart accumulation state
   String _accumulatedText = '';
   DateTime _lastAccumulationTime = DateTime.now();
+  String _lastFlushedText =
+      ''; // 🆕 NEW: Track what we last flushed to avoid duplication
   static const Duration _accumulationTimeout = Duration(seconds: 3);
 
   // Analytics tracking
@@ -83,11 +85,16 @@ class SentenceBuffer {
         '🔄 [SentenceBuffer] Detected STT restart, preserving accumulated text',
       );
 
-      // Add current pending text to accumulated text before restart
-      if (_pendingText.trim().isNotEmpty) {
+      // 🎯 FIXED: Only preserve text if it wasn't just flushed
+      if (_pendingText.trim().isNotEmpty &&
+          _pendingText.trim() != _lastFlushedText.trim()) {
         _accumulatedText = _combineTexts(_accumulatedText, _pendingText.trim());
         print(
           '📚 [SentenceBuffer] Preserved text: "${_accumulatedText.substring(0, _accumulatedText.length.clamp(0, 50))}..." (${_accumulatedText.length} chars)',
+        );
+      } else if (_pendingText.trim() == _lastFlushedText.trim()) {
+        print(
+          '🚫 [SentenceBuffer] Skipping preservation - text was just flushed',
         );
       }
 
@@ -169,7 +176,11 @@ class SentenceBuffer {
     );
     print('🔄 [SentenceBuffer] FULL TEXT BEING FLUSHED: "$allText"');
 
-    // Reset all buffer state
+    // 🎯 NEW: Track what we just flushed to prevent duplication
+    _lastFlushedText = allText;
+
+    // 🎯 CRITICAL: Reset all buffer state IMMEDIATELY after flush
+    // This prevents already-processed text from being preserved in future restarts
     _resetBuffer();
 
     // Update analytics
@@ -226,7 +237,7 @@ class SentenceBuffer {
     _lastPunctuationTime = DateTime.now();
   }
 
-  /// 🎯 FIXED: Resets ALL buffer state (including cross-restart accumulation)
+  /// 🎯 FIXED: Resets buffer state but preserves flush tracking
   void _resetBuffer() {
     _pendingText = '';
     _lastProcessedText = '';
@@ -234,14 +245,16 @@ class SentenceBuffer {
     _bufferStartTime = DateTime.now();
     _lastAccumulationTime = DateTime.now();
     _updatePunctuationTime(); // Reset punctuation timer
+    // 🎯 NOTE: Don't reset _lastFlushedText - we need it for duplication detection
   }
 
   /// Completely clears all buffer state.
   void clear() {
     _resetBuffer();
+    _lastFlushedText = ''; // Clear flush tracking on manual clear
     _lastPunctuationTime = DateTime.now();
     print(
-      '🧹 [SentenceBuffer] Buffer cleared (including cross-restart accumulation)',
+      '🧹 [SentenceBuffer] Buffer cleared (including cross-restart accumulation and flush tracking)',
     );
   }
 
@@ -293,6 +306,7 @@ class SentenceBuffer {
       'currentPendingLength': _pendingText.length,
       'accumulatedLength': _accumulatedText.length,
       'totalLength': pendingTextLength,
+      'lastFlushedLength': _lastFlushedText.length,
       'timeSinceLastPunctuationSeconds': timeSinceLastPunctuation.inSeconds,
       'bufferAgeSeconds': bufferAge.inSeconds,
       'hasPendingText': hasPendingText,
