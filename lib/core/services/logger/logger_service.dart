@@ -1,3 +1,5 @@
+// lib/core/services/logger/logger_service.dart
+
 abstract class ILoggerService {
   /// Logs a general informational message.
   void logInfo(String message, {String? context});

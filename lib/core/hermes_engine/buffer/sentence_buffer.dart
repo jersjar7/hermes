@@ -15,9 +15,11 @@ class SentenceBuffer {
       ''; // 🆕 NEW: Track what we last flushed to avoid duplication
 
   // Analytics tracking
-  final int _totalSentencesProcessed = 0;
-  final int _forcedFlushCount = 0;
-  final int _punctuationBasedCount = 0;
+  int _totalSentencesProcessed = 0;
+  int _forcedFlushCount = 0;
+  int _punctuationBasedCount = 0;
+  int _timerFlushCount = 0;
+  int _totalBufferOperations = 0;
   final List<Duration> _processingLatencies = [];
 
   // Configuration
@@ -26,27 +28,28 @@ class SentenceBuffer {
   // Common sentence endings
   static const Set<String> _sentenceEnders = {'.', '!', '?'};
 
-  /// 🎯 FIXED: Cross-restart accumulation for 15-second timer processing
-  /// Handles iOS Speech Recognition restarts without losing accumulated text
-  String? getCompleteSentencesForProcessing(String latestPartial) {
-    final cleanPartial = latestPartial.trim();
+  /// 🆕 NEW: Updates buffer with new transcript (used by HandleSpeechResultUseCase)
+  void updateWithTranscript(String transcript) {
+    _totalBufferOperations++;
+
+    final cleanTranscript = transcript.trim();
 
     // Skip if no new content
-    if (cleanPartial == _lastProcessedText || cleanPartial.isEmpty) {
-      return null;
+    if (cleanTranscript == _lastProcessedText || cleanTranscript.isEmpty) {
+      return;
     }
 
-    _lastProcessedText = cleanPartial;
+    _lastProcessedText = cleanTranscript;
 
-    // 🆕 NEW: Check if this looks like a restart (completely different text)
-    final isLikelyRestart = _isLikelySTTRestart(cleanPartial);
+    // Check if this looks like a restart (completely different text)
+    final isLikelyRestart = _isLikelySTTRestart(cleanTranscript);
 
     if (isLikelyRestart) {
       print(
         '🔄 [SentenceBuffer] Detected STT restart, preserving accumulated text',
       );
 
-      // 🎯 FIXED: Only preserve text if it wasn't just flushed
+      // Only preserve text if it wasn't just flushed
       if (_pendingText.trim().isNotEmpty &&
           _pendingText.trim() != _lastFlushedText.trim()) {
         _accumulatedText = _combineTexts(_accumulatedText, _pendingText.trim());
@@ -60,10 +63,10 @@ class SentenceBuffer {
       }
 
       // Reset pending text for new partial
-      _pendingText = cleanPartial;
+      _pendingText = cleanTranscript;
     } else {
       // Normal accumulation within the same STT session
-      _pendingText = cleanPartial;
+      _pendingText = cleanTranscript;
     }
 
     print(
@@ -74,6 +77,39 @@ class SentenceBuffer {
         '📚 [SentenceBuffer] Total accumulated: "${_accumulatedText.substring(0, _accumulatedText.length.clamp(0, 50))}..." (${_accumulatedText.length} chars)',
       );
     }
+  }
+
+  /// 🆕 NEW: Gets current content of the buffer (used by HandleSpeechResultUseCase)
+  String getCurrentContent() {
+    return _getAllAccumulatedText();
+  }
+
+  /// 🆕 NEW: Gets count of pending sentences (estimated)
+  int get pendingSentenceCount {
+    final content = getCurrentContent();
+    if (content.trim().isEmpty) return 0;
+
+    // Count sentence endings + estimate incomplete sentences
+    int sentenceEndings = 0;
+    for (int i = 0; i < content.length; i++) {
+      if (_sentenceEnders.contains(content[i])) {
+        sentenceEndings++;
+      }
+    }
+
+    // If there's text after the last sentence ending, count it as an incomplete sentence
+    final hasIncompleteText =
+        content.trim().isNotEmpty &&
+        !_sentenceEnders.any((ender) => content.trim().endsWith(ender));
+
+    return sentenceEndings + (hasIncompleteText ? 1 : 0);
+  }
+
+  /// 🎯 FIXED: Cross-restart accumulation for 15-second timer processing
+  /// Handles iOS Speech Recognition restarts without losing accumulated text
+  String? getCompleteSentencesForProcessing(String latestPartial) {
+    // Update buffer with latest partial
+    updateWithTranscript(latestPartial);
 
     // 🎯 IMPORTANT: For 15-second timer logic, we DON'T immediately return complete sentences
     // We let the timer handle ALL processing to ensure consistent 15-second intervals
@@ -164,6 +200,19 @@ class SentenceBuffer {
 
     if (allText.trim().isEmpty) return null;
 
+    // Track flush reason for analytics
+    switch (reason) {
+      case 'timer':
+        _timerFlushCount++;
+        break;
+      case 'force':
+        _forcedFlushCount++;
+        break;
+      case 'punctuation':
+        _punctuationBasedCount++;
+        break;
+    }
+
     // 🆕 NEW: Split complete vs incomplete sentences
     final (completeText, incompleteText) = _splitAtSentenceBoundaries(allText);
 
@@ -171,6 +220,10 @@ class SentenceBuffer {
       // No complete sentences yet, keep everything for next batch
       return null;
     }
+
+    // Track as processed
+    _totalSentencesProcessed++;
+    _lastFlushedText = completeText.trim();
 
     // Flush only complete sentences
     print('🔄 [SentenceBuffer] Flushing COMPLETE sentences: "$completeText"');
@@ -242,6 +295,15 @@ class SentenceBuffer {
     _resetBuffer();
     _lastFlushedText = ''; // Clear flush tracking on manual clear
     _lastPunctuationTime = DateTime.now();
+
+    // Reset analytics
+    _totalSentencesProcessed = 0;
+    _forcedFlushCount = 0;
+    _punctuationBasedCount = 0;
+    _timerFlushCount = 0;
+    _totalBufferOperations = 0;
+    _processingLatencies.clear();
+
     print(
       '🧹 [SentenceBuffer] Buffer cleared (including cross-restart accumulation and flush tracking)',
     );
@@ -273,6 +335,18 @@ class SentenceBuffer {
 
   Duration get bufferAge => DateTime.now().difference(_bufferStartTime);
 
+  /// 🆕 NEW: Gets analytics data compatible with BufferStatistics
+  Map<String, dynamic> getBufferStatistics() {
+    return {
+      'pendingSentences': pendingSentenceCount,
+      'bufferCharacters': pendingTextLength,
+      'timerFlushes': _timerFlushCount,
+      'forceFlushes': _forcedFlushCount,
+      'punctuationFlushes': _punctuationBasedCount,
+      'totalBufferOperations': _totalBufferOperations,
+    };
+  }
+
   /// Returns analytics data for monitoring and tuning.
   Map<String, dynamic> getAnalytics() {
     final avgLatency =
@@ -287,6 +361,8 @@ class SentenceBuffer {
       'totalSentencesProcessed': _totalSentencesProcessed,
       'punctuationBasedCount': _punctuationBasedCount,
       'forcedFlushCount': _forcedFlushCount,
+      'timerFlushCount': _timerFlushCount,
+      'totalBufferOperations': _totalBufferOperations,
       'punctuationRate':
           _totalSentencesProcessed > 0
               ? _punctuationBasedCount / _totalSentencesProcessed
@@ -299,6 +375,7 @@ class SentenceBuffer {
       'timeSinceLastPunctuationSeconds': timeSinceLastPunctuation.inSeconds,
       'bufferAgeSeconds': bufferAge.inSeconds,
       'hasPendingText': hasPendingText,
+      'pendingSentenceCount': pendingSentenceCount,
     };
   }
 
@@ -308,6 +385,7 @@ class SentenceBuffer {
         'pending: ${_pendingText.length} chars, '
         'accumulated: ${_accumulatedText.length} chars, '
         'total: $pendingTextLength chars, '
+        'sentences: $pendingSentenceCount, '
         'processed: $_totalSentencesProcessed sentences, '
         'punctuation: ${timeSinceLastPunctuation.inSeconds}s ago, '
         'should_flush: ${shouldForceFlush()}'

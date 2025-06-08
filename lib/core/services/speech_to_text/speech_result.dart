@@ -5,11 +5,13 @@ class SpeechResult {
   final bool isFinal;
   final DateTime timestamp;
   final String locale;
+  final double? confidence;
 
   SpeechResult({
     required this.transcript,
     required this.isFinal,
     required this.timestamp,
     required this.locale,
+    this.confidence,
   });
 }

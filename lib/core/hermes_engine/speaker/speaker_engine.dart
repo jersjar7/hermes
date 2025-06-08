@@ -1,75 +1,81 @@
 // lib/core/hermes_engine/speaker/speaker_engine.dart
-// COMPLETE: Implements 15-second timer + grammar + translation pipeline
+// REFACTORED: Clean, maintainable speaker engine using orchestrated components
 
 import 'dart:async';
 
+import 'package:hermes/core/hermes_engine/buffer/buffer_analytics.dart';
+import 'package:hermes/core/hermes_engine/buffer/sentence_buffer.dart';
 import 'package:hermes/core/services/logger/logger_service.dart';
-import 'package:hermes/core/services/socket/socket_event.dart';
-import 'package:hermes/core/services/grammar/language_tool_service.dart';
-
-import '../state/hermes_session_state.dart';
-import '../state/hermes_status.dart';
-import '../usecases/start_session.dart';
-import '../usecases/connectivity_handler.dart';
-import '../buffer/sentence_buffer.dart';
-import '../buffer/buffer_analytics.dart';
-import '../utils/log.dart';
 import 'package:hermes/core/services/speech_to_text/speech_to_text_service.dart';
-import 'package:hermes/core/services/speech_to_text/speech_result.dart';
 import 'package:hermes/core/services/translation/translation_service.dart';
 import 'package:hermes/core/services/text_to_speech/text_to_speech_service.dart';
 import 'package:hermes/core/services/session/session_service.dart';
 import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/permission/permission_service.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service.dart';
+import 'package:hermes/core/services/grammar/language_tool_service.dart';
 
-/// Processing type enumeration
-enum ProcessingType {
-  newContent, // Completely new text
-  replacement, // Expansion/replacement of existing text
-}
+import 'config/speaker_config.dart';
+import 'state/speaker_session_state.dart';
+import 'handlers/duplicate_detection_handler.dart';
+import 'handlers/audience_handler.dart';
+import 'processors/speech_processor.dart';
+import 'processors/text_processor.dart';
+import 'processors/broadcast_processor.dart';
+import 'usecases/handle_speech_result_usecase.dart';
+import 'usecases/process_accumulated_text_usecase.dart';
+import 'usecases/manage_processing_pipeline_usecase.dart';
+import '../state/hermes_status.dart';
+import '../usecases/start_session.dart';
+import '../usecases/connectivity_handler.dart';
+import '../utils/log.dart';
 
-/// Complete SpeakerEngine with 15-second buffering and processing pipeline
+/// Clean, maintainable SpeakerEngine with orchestrated architecture
 class SpeakerEngine {
+  // === CORE DEPENDENCIES ===
   final IPermissionService _permission;
   final ISpeechToTextService _stt;
   final ITranslationService _translation;
   final ISessionService _session;
   final ISocketService _socket;
   final IConnectivityService _connectivity;
+  final ILoggerService _logger; // Keep original logger service
   final HermesLogger _log;
 
-  // 🆕 NEW: Processing services
-  final LanguageToolService _grammar;
-  final SentenceBuffer _sentenceBuffer;
-  final BufferAnalytics _analytics;
+  // === PROCESSING COMPONENTS ===
+  late final SentenceBuffer _sentenceBuffer;
+  late final BufferAnalytics _analytics;
+  late final DuplicateDetectionHandler _duplicateDetection;
+  late final AudienceHandler _audienceHandler;
+  late final SpeechProcessor _speechProcessor;
+  late final TextProcessor _textProcessor;
+  late final BroadcastProcessor _broadcastProcessor;
 
-  // Core state
-  HermesSessionState _state = HermesSessionState.initial();
-  StreamController<HermesSessionState>? _stateController;
-  Stream<HermesSessionState> get stream =>
-      _stateController?.stream ?? const Stream.empty();
+  // === USE CASES ===
+  late final HandleSpeechResultUseCase _speechResultHandler;
+  late final ProcessAccumulatedTextUseCase _textProcessingHandler;
+  late final ManageProcessingPipelineUseCase _pipelineManager;
 
-  // Session management
-  bool _isSessionActive = false;
-  String _targetLanguageCode = '';
-
-  // 🆕 NEW: 15-second processing timer
-  Timer? _processingTimer;
-  static const Duration _processingInterval = Duration(seconds: 5);
-
-  // Audience tracking
-  int _audienceCount = 0;
-  Map<String, int> _languageDistribution = {};
-
-  // Socket subscription
-  StreamSubscription<SocketEvent>? _socketSubscription;
-
-  // Infrastructure
+  // === INFRASTRUCTURE ===
   late final StartSessionUseCase _startUseCase;
   late final ConnectivityHandlerUseCase _connHandler;
 
-  final Set<String> _processedTexts = <String>{};
+  // === STATE MANAGEMENT ===
+  SpeakerSessionState _state = SpeakerSessionState.initial();
+  StreamController<SpeakerSessionState>? _stateController;
+  Stream<SpeakerSessionState> get stream =>
+      _stateController?.stream ?? const Stream.empty();
+
+  // === SESSION TRACKING ===
+  bool _isSessionActive = false;
+  String _targetLanguageCode = '';
+
+  // === EVENT SUBSCRIPTIONS ===
+  StreamSubscription<PipelineManagementEvent>? _pipelineSubscription;
+  StreamSubscription<SpeechResultHandlingEvent>? _speechResultSubscription;
+  StreamSubscription<AccumulatedTextProcessingEvent>?
+  _textProcessingSubscription;
+  StreamSubscription<AudienceInfo>? _audienceSubscription;
 
   SpeakerEngine({
     required IPermissionService permission,
@@ -80,22 +86,75 @@ class SpeakerEngine {
     required ISocketService socket,
     required IConnectivityService connectivity,
     required ILoggerService logger,
-    required LanguageToolService grammar, // 🆕 NEW
-    required SentenceBuffer sentenceBuffer, // 🆕 NEW
-    required BufferAnalytics analytics, // 🆕 NEW
+    required LanguageToolService grammar,
+    required SentenceBuffer sentenceBuffer,
+    required BufferAnalytics analytics,
   }) : _permission = permission,
        _stt = stt,
        _translation = translator,
        _session = session,
        _socket = socket,
        _connectivity = connectivity,
-       _log = HermesLogger(logger),
-       _grammar = grammar, // 🆕 NEW
-       _sentenceBuffer = sentenceBuffer, // 🆕 NEW
+       _logger = logger, // Store original logger
+       _log = HermesLogger(
+         logger,
+         'SpeakerEngine',
+       ), // Create HermesLogger from it
+       _sentenceBuffer = sentenceBuffer,
        _analytics = analytics {
-    // 🆕 NEW
+    _initializeComponents();
     _ensureStateController();
+  }
 
+  /// Initializes all components and their dependencies
+  void _initializeComponents() {
+    print('🔧 [SpeakerEngine] Initializing components...');
+
+    // === HANDLERS ===
+    _duplicateDetection = DuplicateDetectionHandler();
+    _audienceHandler = AudienceHandler(logger: _logger);
+
+    // === PROCESSORS ===
+    _speechProcessor = SpeechProcessor(stt: _stt, logger: _logger);
+
+    _textProcessor = TextProcessor(
+      grammar: LanguageToolService(), // This should be injected
+      translation: _translation,
+      duplicateDetection: _duplicateDetection,
+      logger: _logger,
+    );
+
+    _broadcastProcessor = BroadcastProcessor(
+      socket: _socket,
+      session: _session,
+      audienceHandler: _audienceHandler,
+      logger: _logger,
+    );
+
+    // === USE CASES ===
+    _speechResultHandler = HandleSpeechResultUseCase(
+      sentenceBuffer: _sentenceBuffer,
+      logger: _logger,
+    );
+
+    _textProcessingHandler = ProcessAccumulatedTextUseCase(
+      textProcessor: _textProcessor,
+      broadcastProcessor: _broadcastProcessor,
+      sentenceBuffer: _sentenceBuffer,
+      logger: _logger,
+    );
+
+    _pipelineManager = ManageProcessingPipelineUseCase(
+      speechProcessor: _speechProcessor,
+      textProcessor: _textProcessor,
+      broadcastProcessor: _broadcastProcessor,
+      audienceHandler: _audienceHandler,
+      speechResultHandler: _speechResultHandler,
+      textProcessingHandler: _textProcessingHandler,
+      logger: _logger,
+    );
+
+    // === INFRASTRUCTURE ===
     _startUseCase = StartSessionUseCase(
       permissionService: _permission,
       sttService: _stt,
@@ -103,575 +162,398 @@ class SpeakerEngine {
       socketService: _socket,
       logger: _log,
     );
+
     _connHandler = ConnectivityHandlerUseCase(
       connectivityService: _connectivity,
       logger: _log,
     );
+
+    print('✅ [SpeakerEngine] Components initialized');
   }
 
+  /// Ensures state controller is available
   void _ensureStateController() {
     if (_stateController == null || _stateController!.isClosed) {
       _stateController?.close();
-      _stateController = StreamController<HermesSessionState>.broadcast();
+      _stateController = StreamController<SpeakerSessionState>.broadcast();
       print('🔄 [SpeakerEngine] Created new state controller');
     }
   }
 
-  /// Starts speaker flow with complete processing pipeline
+  /// Starts speaker session with complete processing pipeline
   Future<void> start({required String languageCode}) async {
-    print('🎤 [SpeakerEngine] Starting COMPLETE speaker session...');
+    print('🎤 [SpeakerEngine] Starting REFACTORED speaker session...');
 
     try {
       _ensureStateController();
       _targetLanguageCode = languageCode;
       _emit(_state.copyWith(status: HermesStatus.buffering));
 
-      // Initialize services
-      await _initializeProcessingServices();
+      // === PHASE 1: SESSION SETUP ===
+      await _setupSession(languageCode);
 
-      await _startUseCase.execute(isSpeaker: true, languageCode: languageCode);
-      _listenToSocketEvents();
-      _connHandler.startMonitoring(
-        onOffline: _handleOffline,
-        onOnline: _handleOnline,
-      );
+      // === PHASE 2: PIPELINE INITIALIZATION ===
+      await _initializePipeline(languageCode);
+
+      // === PHASE 3: EVENT SUBSCRIPTIONS ===
+      _subscribeToEvents();
+
+      // === PHASE 4: START PROCESSING ===
+      await _startProcessing();
 
       _isSessionActive = true;
-      _startProcessingPipeline(); // 🆕 NEW
-      _startListening();
+      print('✅ [SpeakerEngine] Speaker session started successfully');
     } catch (e, stackTrace) {
       print('❌ [SpeakerEngine] Failed to start session: $e');
+
       _log.error(
         'Speaker session start failed',
         error: e,
         stackTrace: stackTrace,
+        tag: 'StartError',
       );
+
       _emit(
         _state.copyWith(
           status: HermesStatus.error,
           errorMessage: 'Failed to start session: $e',
         ),
       );
+
+      await _emergencyCleanup();
+      rethrow;
     }
   }
 
-  /// 🆕 NEW: Initialize grammar and analytics services
-  Future<void> _initializeProcessingServices() async {
-    print('🔧 [SpeakerEngine] Initializing processing services...');
+  /// Sets up the session infrastructure
+  Future<void> _setupSession(String languageCode) async {
+    print('🚀 [SpeakerEngine] Setting up session infrastructure...');
 
-    // Initialize grammar service
-    final grammarInitialized = await _grammar.initialize();
-    if (!grammarInitialized) {
-      print(
-        '⚠️ [SpeakerEngine] Grammar service failed to initialize - continuing without grammar correction',
-      );
-    }
+    // Start session and connectivity monitoring
+    await _startUseCase.execute(isSpeaker: true, languageCode: languageCode);
+    _connHandler.startMonitoring(
+      onOffline: _handleOffline,
+      onOnline: _handleOnline,
+    );
 
     // Start analytics session
     _analytics.startSession();
 
-    print('✅ [SpeakerEngine] Processing services initialized');
+    print('✅ [SpeakerEngine] Session infrastructure ready');
   }
 
-  /// 🆕 NEW: Start the 15-second processing pipeline
-  void _startProcessingPipeline() {
-    print('⏰ [SpeakerEngine] Starting 15-second processing timer...');
+  /// Initializes the processing pipeline
+  Future<void> _initializePipeline(String languageCode) async {
+    print('🔧 [SpeakerEngine] Initializing processing pipeline...');
 
-    _processingTimer?.cancel();
-    _processingTimer = Timer.periodic(_processingInterval, (_) {
-      _processAccumulatedText('timer');
-    });
+    _emit(_state.copyWith(status: HermesStatus.buffering));
 
-    // Also check for force flush every 5 seconds
-    Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!_isSessionActive) return;
-      if (_sentenceBuffer.shouldForceFlush()) {
-        _processAccumulatedText('force');
-      }
-    });
+    await _pipelineManager.initializePipeline(languageCode);
+
+    print('✅ [SpeakerEngine] Pipeline initialized');
   }
 
-  void _listenToSocketEvents() {
-    _socketSubscription?.cancel();
-    _socketSubscription = _socket.onEvent.listen((event) {
-      if (event is AudienceUpdateEvent) {
-        _handleAudienceUpdate(event);
-      } else if (event is SessionJoinEvent) {
-        print(
-          '👥 [SpeakerEngine] User joined: ${event.userId} (${event.language})',
-        );
-      } else if (event is SessionLeaveEvent) {
-        print('👋 [SpeakerEngine] User left: ${event.userId}');
-      }
-    });
-  }
+  /// Subscribes to all component events
+  void _subscribeToEvents() {
+    print('🔗 [SpeakerEngine] Setting up event subscriptions...');
 
-  void _handleAudienceUpdate(AudienceUpdateEvent event) {
-    print(
-      '👥 [SpeakerEngine] Audience update: ${event.totalListeners} listeners',
-    );
-    print('   Languages: ${event.languageDistribution}');
-
-    _audienceCount = event.totalListeners;
-    _languageDistribution = event.languageDistribution;
-
-    _emit(
-      _state.copyWith(
-        audienceCount: _audienceCount,
-        languageDistribution: _languageDistribution,
-      ),
-    );
-  }
-
-  void _startListening() {
-    if (!_isSessionActive) return;
-
-    print('🎤 [SpeakerEngine] Starting continuous listening...');
-    _emit(_state.copyWith(status: HermesStatus.listening));
-
-    _stt.startListening(
-      onResult: _handleSpeechResult,
-      onError: _handleSpeechError,
-    );
-  }
-
-  /// Handle continuous partial speech results
-  void _handleSpeechResult(SpeechResult result) async {
-    if (!_isSessionActive) {
-      print('🚫 [SpeakerEngine] Ignoring speech result - session inactive');
-      return;
-    }
-
-    print('📝 [SpeakerEngine] Speech result: "${result.transcript}"');
-
-    // Always update UI with latest transcript for real-time feedback
-    _emit(
-      _state.copyWith(
-        status: HermesStatus.listening,
-        lastTranscript: result.transcript,
-      ),
+    // === PIPELINE MANAGEMENT EVENTS ===
+    _pipelineSubscription = _pipelineManager.events.listen(
+      _handlePipelineEvent,
+      onError: _handleEventError,
     );
 
-    // Always update buffer with latest transcript
-    _sentenceBuffer.getCompleteSentencesForProcessing(result.transcript);
-
-    // 🆕 NEW: Check for complete sentences and process immediately
-    // final completeSentences = _sentenceBuffer.getCompleteSentencesForProcessing(
-    //   result.transcript,
-    // );
-    // if (completeSentences != null) {
-    //   print(
-    //     '🎯 [SpeakerEngine] Found complete sentences, processing immediately...',
-    //   );
-    //   await _processText(completeSentences, 'punctuation');
-    // }
-  }
-
-  /// 🆕 NEW: Process accumulated text (called by timer or force flush)
-  Future<void> _processAccumulatedText(String reason) async {
-    if (!_isSessionActive) return;
-
-    final textToProcess = _sentenceBuffer.flushPending(reason: reason);
-    if (textToProcess != null) {
-      print(
-        '⏰ [SpeakerEngine] Processing accumulated text ($reason): "$textToProcess"',
-      );
-      await _processText(textToProcess, reason);
-    }
-  }
-
-  /// 🆕 NEW: Complete processing pipeline: grammar → translation → broadcast
-  /// Enhanced text processing pipeline with intelligent duplicate detection
-  /// Prevents UI duplicates while maintaining processing efficiency
-  Future<void> _processText(String text, String reason) async {
-    if (!_isSessionActive || text.trim().isEmpty) return;
-
-    final normalizedText = text.trim().toLowerCase();
-    final originalLength = normalizedText.length;
-
-    // Track what type of processing this is
-    ProcessingType processingType = ProcessingType.newContent;
-    String? replacedText;
-
-    print(
-      '🔍 [SpeakerEngine] Analyzing text for duplicates: "${text.substring(0, text.length.clamp(0, 50))}..."',
+    // === SPEECH RESULT EVENTS ===
+    _speechResultSubscription = _speechResultHandler.events.listen(
+      _handleSpeechResultEvent,
+      onError: _handleEventError,
     );
 
-    // Step 1: Check for exact duplicates
-    if (_processedTexts.contains(normalizedText)) {
-      print('🚫 [SpeakerEngine] Skipping exact duplicate: "$text"');
-      return;
+    // === TEXT PROCESSING EVENTS ===
+    _textProcessingSubscription = _textProcessingHandler.events.listen(
+      _handleTextProcessingEvent,
+      onError: _handleEventError,
+    );
+
+    // === AUDIENCE EVENTS ===
+    _audienceSubscription = _audienceHandler.audienceStream.listen(
+      _handleAudienceUpdate,
+      onError: _handleEventError,
+    );
+
+    print('✅ [SpeakerEngine] Event subscriptions ready');
+  }
+
+  /// Starts the processing pipeline
+  Future<void> _startProcessing() async {
+    print('🎬 [SpeakerEngine] Starting processing pipeline...');
+
+    await _pipelineManager.startPipeline();
+
+    print('✅ [SpeakerEngine] Processing pipeline started');
+  }
+
+  /// Handles pipeline management events
+  void _handlePipelineEvent(PipelineManagementEvent event) {
+    if (event is PipelineInitializedEvent) {
+      _emit(
+        _state.copyWith(
+          status: HermesStatus.buffering,
+          targetLanguageCode: event.targetLanguageCode,
+        ),
+      );
+    } else if (event is PipelineStartedEvent) {
+      _emit(_state.copyWith(status: HermesStatus.listening));
+    } else if (event is PipelinePausedEvent) {
+      _emit(_state.copyWith(status: HermesStatus.paused));
+    } else if (event is PipelineResumedEvent) {
+      _emit(_state.copyWith(status: HermesStatus.listening));
+    } else if (event is PipelineErrorEvent) {
+      _emit(
+        _state.copyWith(
+          status: HermesStatus.error,
+          errorMessage: 'Pipeline error in ${event.component}: ${event.error}',
+        ),
+      );
+    } else if (event is PipelineStateSyncEvent) {
+      // Merge pipeline state with current state
+      _emit(
+        _state.copyWith(
+          audienceCount: event.currentState.audienceCount,
+          languageDistribution: event.currentState.languageDistribution,
+        ),
+      );
     }
+  }
 
-    // Step 2: Advanced duplicate detection with similarity scoring
-    String? textToRemove;
-    double maxSimilarity = 0.0;
+  /// Handles speech result events for UI updates
+  void _handleSpeechResultEvent(SpeechResultHandlingEvent event) {
+    if (event is TranscriptUpdatedEvent) {
+      _emit(
+        _state.copyWith(
+          status: HermesStatus.listening,
+          lastTranscript: event.transcript,
+        ),
+      );
+    } else if (event is CompleteSentencesDetectedEvent) {
+      // Complete sentences detected - processing will happen automatically
+      print(
+        '🎯 [SpeakerEngine] Complete sentences detected, processing initiated',
+      );
+    } else if (event is BufferForceFlushEvent) {
+      // Buffer force flush - processing will happen automatically
+      print('⚠️ [SpeakerEngine] Buffer force flush: ${event.reason}');
+    }
+  }
 
-    for (final processedText in _processedTexts) {
-      final similarity = _calculateSimilarity(normalizedText, processedText);
+  /// Handles text processing workflow events
+  void _handleTextProcessingEvent(AccumulatedTextProcessingEvent event) {
+    if (event is ProcessingCycleCompletedEvent) {
+      final result = event.result;
 
-      // Case A: Current text is completely contained in previous text (subset)
-      if (processedText.contains(normalizedText) &&
-          processedText.length > normalizedText.length) {
-        print(
-          '🚫 [SpeakerEngine] Skipping subset duplicate: "$text" (contained in previous text)',
+      // Update state with processed content
+      if (result.processingType.shouldEmitToUI) {
+        _emit(
+          _state.copyWith(
+            lastProcessedSentence: result.correctedText,
+            lastTranslation: result.translatedText,
+            isReplacement: result.isReplacement,
+            replacedText: result.replacedText,
+            status: HermesStatus.listening,
+          ),
         );
-        return;
+      } else {
+        // For replacements, just ensure we're in listening state
+        _emit(_state.copyWith(status: HermesStatus.listening));
       }
 
-      // Case B: Previous text is contained in current text (expansion)
-      if (normalizedText.contains(processedText) &&
-          normalizedText.length > processedText.length) {
-        // Ensure significant expansion (at least 10% more content)
-        final expansionRatio = normalizedText.length / processedText.length;
-        if (expansionRatio >= 1.1) {
-          print(
-            '🔄 [SpeakerEngine] Detected expansion: ${(expansionRatio * 100).toInt()}% longer',
-          );
-          print(
-            '   Previous: "${processedText.substring(0, processedText.length.clamp(0, 40))}..."',
-          );
-          print(
-            '   Current:  "${normalizedText.substring(0, normalizedText.length.clamp(0, 40))}..."',
-          );
-
-          if (similarity > maxSimilarity) {
-            maxSimilarity = similarity;
-            textToRemove = processedText;
-            replacedText = processedText;
-            processingType = ProcessingType.replacement;
-          }
-        }
-      }
-      // Case C: High similarity but different lengths (potential duplicate with minor changes)
-      else if (similarity > 0.85 && similarity > maxSimilarity) {
-        final lengthDiff = (normalizedText.length - processedText.length).abs();
-        final avgLength = (normalizedText.length + processedText.length) / 2;
-        final lengthDiffRatio = lengthDiff / avgLength;
-
-        // If very similar but length difference is small, consider it a duplicate
-        if (lengthDiffRatio < 0.1) {
-          print(
-            '🚫 [SpeakerEngine] Skipping similar duplicate (${(similarity * 100).toInt()}% similar): "$text"',
-          );
-          return;
-        }
-      }
-    }
-
-    // Step 3: Handle replacement if detected
-    if (textToRemove != null) {
-      _processedTexts.remove(textToRemove);
-      print('✅ [SpeakerEngine] Removed previous text for replacement');
-    }
-
-    // Step 4: Add new text to processed set
-    _processedTexts.add(normalizedText);
-
-    // Step 5: Prevent memory bloat
-    if (_processedTexts.length > 50) {
-      final oldSize = _processedTexts.length;
-      _processedTexts.clear();
-      print(
-        '🧹 [SpeakerEngine] Cleared processed texts cache (was $oldSize items)',
-      );
-    }
-
-    // Step 6: Log processing decision
-    switch (processingType) {
-      case ProcessingType.newContent:
-        print(
-          '🆕 [SpeakerEngine] Processing new content ($originalLength chars)',
-        );
-        break;
-      case ProcessingType.replacement:
-        print(
-          '🔄 [SpeakerEngine] Processing replacement content ($originalLength chars)',
-        );
-        break;
-    }
-
-    final processingStart = DateTime.now();
-
-    try {
-      _emit(_state.copyWith(status: HermesStatus.translating));
-
-      // Step 7: Grammar correction
-      final grammarStart = DateTime.now();
-      final correctedText = await _grammar.correctGrammar(text);
-      final grammarLatency = DateTime.now().difference(grammarStart);
-
-      print(
-        '📝 [SpeakerEngine] Grammar correction took ${grammarLatency.inMilliseconds}ms',
-      );
-
-      if (correctedText != text) {
-        print('✏️ [SpeakerEngine] Grammar corrections applied');
-        print(
-          '   Original:  "${text.substring(0, text.length.clamp(0, 40))}..."',
-        );
-        print(
-          '   Corrected: "${correctedText.substring(0, correctedText.length.clamp(0, 40))}..."',
-        );
-      }
-
-      // Step 8: Translation
-      final translationStart = DateTime.now();
-      final translationResult = await _translation.translate(
-        text: correctedText,
-        targetLanguageCode: _targetLanguageCode,
-      );
-      final translationLatency = DateTime.now().difference(translationStart);
-
-      print(
-        '🌍 [SpeakerEngine] Translation took ${translationLatency.inMilliseconds}ms',
-      );
-      print(
-        '🌍 [SpeakerEngine] Translated: "${translationResult.translatedText}"',
-      );
-
-      // Step 9: Broadcast to audience
-      await _broadcastTranslation(translationResult.translatedText);
-
-      // Step 10: Emit state update based on processing type
-      await _emitProcessedContent(
-        correctedText: correctedText,
-        processingType: processingType,
-        replacedText: replacedText,
-      );
-
-      // Step 11: Update analytics
-      final endToEndLatency = DateTime.now().difference(processingStart);
-      _analytics.logBufferProcessed(
-        textLength: text.length,
-        sentenceCount: _countSentences(text),
-        hadPunctuation: reason == 'punctuation',
-        wasForcedSend: reason == 'force',
-        grammarLatency: grammarLatency,
-        translationLatency: translationLatency,
-      );
-
-      print(
-        '✅ [SpeakerEngine] Processing complete in ${endToEndLatency.inMilliseconds}ms',
-      );
-    } catch (e, stackTrace) {
-      print('❌ [SpeakerEngine] Processing failed: $e');
-      _log.error('Text processing failed', error: e, stackTrace: stackTrace);
-
-      // Record failure in analytics
-      _analytics.logBufferProcessed(
-        textLength: text.length,
-        sentenceCount: _countSentences(text),
-        hadPunctuation: reason == 'punctuation',
-        wasForcedSend: reason == 'force',
-        grammarLatency: Duration.zero,
-        translationLatency: Duration.zero,
-        grammarFailed: true,
-        translationFailed: true,
-      );
-
-      // Return to listening despite error
+      print('✅ [SpeakerEngine] Text processed and state updated');
+    } else if (event is ProcessingCycleFailedEvent) {
+      print('❌ [SpeakerEngine] Text processing failed: ${event.error}');
+      // Continue listening despite processing error
       _emit(_state.copyWith(status: HermesStatus.listening));
     }
   }
 
-  /// Calculates similarity between two texts using a simple algorithm
-  /// Returns value between 0.0 (completely different) and 1.0 (identical)
-  double _calculateSimilarity(String text1, String text2) {
-    if (text1 == text2) return 1.0;
-    if (text1.isEmpty || text2.isEmpty) return 0.0;
-
-    final words1 = text1.split(' ').where((w) => w.isNotEmpty).toSet();
-    final words2 = text2.split(' ').where((w) => w.isNotEmpty).toSet();
-
-    if (words1.isEmpty || words2.isEmpty) return 0.0;
-
-    final intersection = words1.intersection(words2).length;
-    final union = words1.union(words2).length;
-
-    // Jaccard similarity coefficient
-    return union > 0 ? intersection / union : 0.0;
+  /// Handles audience updates
+  void _handleAudienceUpdate(AudienceInfo audienceInfo) {
+    _emit(
+      _state.copyWith(
+        audienceCount: audienceInfo.totalListeners,
+        languageDistribution: audienceInfo.languageDistribution,
+      ),
+    );
   }
 
-  /// Handles state emission based on processing type
-  Future<void> _emitProcessedContent({
-    required String correctedText,
-    required ProcessingType processingType,
-    String? replacedText,
-  }) async {
-    switch (processingType) {
-      case ProcessingType.newContent:
-        // Emit new content normally
-        print('📤 [SpeakerEngine] Emitting new content for UI');
-        _emit(
-          _state.copyWith(
-            status: HermesStatus.listening,
-            lastProcessedSentence: correctedText,
-          ),
-        );
-        break;
-
-      case ProcessingType.replacement:
-        // For replacements, you have several options:
-
-        // Option 1: Don't emit to prevent UI duplicates (current recommendation)
-        print(
-          '🚫 [SpeakerEngine] Skipping emission for replacement to prevent UI duplication',
-        );
-        _emit(_state.copyWith(status: HermesStatus.listening));
-        break;
-
-      // Option 2: Emit with replacement flag (uncomment if you want to handle replacements in UI)
-      // print('🔄 [SpeakerEngine] Emitting replacement content for UI');
-      // _emit(_state.copyWith(
-      //   status: HermesStatus.listening,
-      //   lastProcessedSentence: correctedText,
-      //   isReplacement: true,
-      //   replacedText: replacedText,
-      // ));
-      // break;
-    }
+  /// Handles event stream errors
+  void _handleEventError(dynamic error) {
+    print('❌ [SpeakerEngine] Event stream error: $error');
+    _log.error('Event stream error', error: error, tag: 'EventError');
   }
 
-  /// 🆕 NEW: Broadcast translation to all audience members
-  Future<void> _broadcastTranslation(String translatedText) async {
-    try {
-      final sessionId = _session.currentSession?.sessionId;
-      if (sessionId == null) {
-        print('❌ [SpeakerEngine] Cannot broadcast - no session ID');
-        return;
-      }
-
-      final event = TranslationEvent(
-        sessionId: sessionId,
-        translatedText: translatedText,
-        targetLanguage: _targetLanguageCode,
-      );
-
-      await _socket.send(event);
-      print(
-        '📡 [SpeakerEngine] Translation broadcasted to $_audienceCount listeners',
-      );
-
-      // Update UI with last translation
-      _emit(_state.copyWith(lastTranslation: translatedText));
-    } catch (e) {
-      print('❌ [SpeakerEngine] Failed to broadcast translation: $e');
-      throw Exception('Failed to broadcast translation: $e');
-    }
-  }
-
-  /// Helper to count sentences in text
-  int _countSentences(String text) {
-    return text
-        .split(RegExp(r'[.!?]+'))
-        .where((s) => s.trim().isNotEmpty)
-        .length;
-  }
-
-  void _handleSpeechError(Exception error) {
-    print('⚠️ [SpeakerEngine] Speech error: $error');
-
-    if (!_isSessionActive) {
-      print('🚫 [SpeakerEngine] Ignoring speech error - session inactive');
-      return;
-    }
-
-    _emit(_state.copyWith(status: HermesStatus.listening, errorMessage: null));
-  }
-
+  /// Handles connectivity offline
   void _handleOffline() {
     print('📵 [SpeakerEngine] Going offline - pausing session');
     _emit(_state.copyWith(status: HermesStatus.paused));
   }
 
+  /// Handles connectivity online
   void _handleOnline() {
     print('📶 [SpeakerEngine] Coming online - resuming session');
     if (_isSessionActive) {
-      _startListening();
+      _pipelineManager.resumePipeline();
     }
   }
 
-  /// Enhanced stop method with proper cleanup
+  /// Stops the speaker session with graceful cleanup
   Future<void> stop() async {
     print('🛑 [SpeakerEngine] Stopping speaker session...');
 
     _isSessionActive = false;
 
-    // Stop processing timer
-    _processingTimer?.cancel();
-    _processingTimer = null;
-
-    // Process any remaining text before stopping
-    await _processAccumulatedText('stop');
-
     try {
-      await _stt.stopListening();
-      await Future.delayed(const Duration(milliseconds: 100));
-    } catch (e) {
-      print('⚠️ [SpeakerEngine] Error stopping STT: $e');
-    }
+      // === PHASE 1: STOP PIPELINE ===
+      await _pipelineManager.stopPipeline();
 
-    _socketSubscription?.cancel();
-    _socketSubscription = null;
+      // === PHASE 2: CLEANUP INFRASTRUCTURE ===
+      await _cleanupInfrastructure();
+
+      // === PHASE 3: FINAL STATE UPDATE ===
+      _emit(_state.copyWith(status: HermesStatus.idle));
+      await Future.delayed(SpeakerConfig.stateEmissionDelay);
+
+      print('✅ [SpeakerEngine] Speaker session stopped successfully');
+    } catch (e, stackTrace) {
+      print('❌ [SpeakerEngine] Error during stop: $e');
+
+      _log.error(
+        'Error stopping speaker session',
+        error: e,
+        stackTrace: stackTrace,
+        tag: 'StopError',
+      );
+
+      // Force emergency cleanup
+      await _emergencyCleanup();
+    }
+  }
+
+  /// Cleans up infrastructure components
+  Future<void> _cleanupInfrastructure() async {
+    print('🧹 [SpeakerEngine] Cleaning up infrastructure...');
+
+    // Cancel event subscriptions
+    await _pipelineSubscription?.cancel();
+    await _speechResultSubscription?.cancel();
+    await _textProcessingSubscription?.cancel();
+    await _audienceSubscription?.cancel();
+
+    // Stop connectivity monitoring
     _connHandler.dispose();
 
+    // Disconnect socket
     try {
       await _socket.disconnect();
     } catch (e) {
       print('⚠️ [SpeakerEngine] Error disconnecting socket: $e');
     }
 
-    // Clear buffers
+    // Clear buffers and reset handlers
     _sentenceBuffer.clear();
-    _processedTexts.clear(); // 🆕 NEW: Clear duplicate detection
-    _audienceCount = 0;
-    _languageDistribution = {};
+    _duplicateDetection.clearCache();
+    _audienceHandler.reset();
 
-    _emit(_state.copyWith(status: HermesStatus.idle));
-    await Future.delayed(const Duration(milliseconds: 50));
-    print('✅ [SpeakerEngine] Speaker session stopped');
+    print('✅ [SpeakerEngine] Infrastructure cleanup completed');
   }
 
-  Future<void> pause() async {
-    print('⏸️ [SpeakerEngine] Pausing session...');
-    _processingTimer?.cancel();
-    await _stt.stopListening();
-    _emit(_state.copyWith(status: HermesStatus.paused));
-  }
+  /// Emergency cleanup for error conditions
+  Future<void> _emergencyCleanup() async {
+    print('🚨 [SpeakerEngine] Performing emergency cleanup...');
 
-  Future<void> resume() async {
-    print('▶️ [SpeakerEngine] Resuming session...');
-    if (_isSessionActive) {
-      _startProcessingPipeline();
-      _startListening();
+    _isSessionActive = false;
+
+    try {
+      await _pipelineSubscription?.cancel();
+      await _speechResultSubscription?.cancel();
+      await _textProcessingSubscription?.cancel();
+      await _audienceSubscription?.cancel();
+
+      _connHandler.dispose();
+      _sentenceBuffer.clear();
+      _duplicateDetection.clearCache();
+
+      _emit(_state.copyWith(status: HermesStatus.idle));
+    } catch (e) {
+      print('⚠️ [SpeakerEngine] Error during emergency cleanup: $e');
     }
   }
 
-  int get audienceCount => _audienceCount;
-  Map<String, int> get languageDistribution =>
-      Map.unmodifiable(_languageDistribution);
+  /// Pauses the speaker session
+  Future<void> pause() async {
+    print('⏸️ [SpeakerEngine] Pausing session...');
 
-  void _emit(HermesSessionState s) {
+    if (_pipelineManager.currentStatus.canPause) {
+      await _pipelineManager.pausePipeline(reason: 'manual');
+    }
+  }
+
+  /// Resumes the speaker session
+  Future<void> resume() async {
+    print('▶️ [SpeakerEngine] Resuming session...');
+
+    if (_pipelineManager.currentStatus.canResume) {
+      await _pipelineManager.resumePipeline();
+    }
+  }
+
+  /// Current audience count
+  int get audienceCount => _audienceHandler.audienceCount;
+
+  /// Current language distribution
+  Map<String, int> get languageDistribution =>
+      _audienceHandler.languageDistribution;
+
+  /// Emits state update
+  void _emit(SpeakerSessionState newState) {
     if (_stateController != null && !_stateController!.isClosed) {
-      _state = s;
-      _stateController!.add(s);
-      print('🔄 [SpeakerEngine] State: ${s.status}');
+      _state = newState;
+      _stateController!.add(newState);
+      print('🔄 [SpeakerEngine] State: ${newState.status}');
     } else {
       print('⚠️ [SpeakerEngine] Cannot emit state - controller closed or null');
     }
   }
 
+  /// Gets comprehensive session statistics
+  Map<String, dynamic> getSessionStats() {
+    return {
+      'isActive': _isSessionActive,
+      'targetLanguage': _targetLanguageCode,
+      'currentState': _state.status.toString(),
+      'pipelineStats': _pipelineManager.getPipelineStats(),
+      'audienceStats': _audienceHandler.getAudienceStats(),
+      'bufferStats': _speechResultHandler.getBufferAnalytics(),
+    };
+  }
+
+  /// Disposes of all resources
   void dispose() {
     print('🗑️ [SpeakerEngine] Disposing speaker engine...');
 
     _isSessionActive = false;
-    _processingTimer?.cancel();
-    _stt.dispose();
-    _socketSubscription?.cancel();
-    _connHandler.dispose();
-    _grammar.dispose();
 
+    // Dispose pipeline manager (will handle all processors)
+    _pipelineManager.dispose();
+
+    // Dispose handlers
+    _duplicateDetection.dispose();
+    _audienceHandler.dispose();
+
+    // Dispose infrastructure
+    _connHandler.dispose();
+    _stt.dispose();
+
+    // Close state controller
     if (_stateController != null && !_stateController!.isClosed) {
       _stateController!.close();
     }
