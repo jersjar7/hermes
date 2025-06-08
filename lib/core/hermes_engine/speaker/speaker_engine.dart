@@ -50,7 +50,7 @@ class SpeakerEngine {
 
   // 🆕 NEW: 15-second processing timer
   Timer? _processingTimer;
-  static const Duration _processingInterval = Duration(seconds: 15);
+  static const Duration _processingInterval = Duration(seconds: 5);
 
   // Audience tracking
   int _audienceCount = 0;
@@ -62,6 +62,8 @@ class SpeakerEngine {
   // Infrastructure
   late final StartSessionUseCase _startUseCase;
   late final ConnectivityHandlerUseCase _connHandler;
+
+  final Set<String> _processedTexts = <String>{};
 
   SpeakerEngine({
     required IPermissionService permission,
@@ -276,6 +278,43 @@ class SpeakerEngine {
   Future<void> _processText(String text, String reason) async {
     if (!_isSessionActive || text.trim().isEmpty) return;
 
+    // 🆕 NEW: Advanced duplicate detection - handles partial duplicates
+    final normalizedText = text.trim().toLowerCase();
+
+    // Check for exact duplicates
+    if (_processedTexts.contains(normalizedText)) {
+      print('🚫 [SpeakerEngine] Skipping exact duplicate: "$text"');
+      return;
+    }
+
+    // Check if this text is a substring of any previously processed text
+    for (final processedText in _processedTexts) {
+      if (processedText.contains(normalizedText) &&
+          processedText.length > normalizedText.length) {
+        print(
+          '🚫 [SpeakerEngine] Skipping substring duplicate: "$text" (contained in previous text)',
+        );
+        return;
+      }
+      // Check if any previous text is a substring of current text
+      if (normalizedText.contains(processedText) &&
+          normalizedText.length > processedText.length) {
+        print(
+          '🔄 [SpeakerEngine] Replacing shorter text with longer version: "$text"',
+        );
+        _processedTexts.remove(processedText);
+        break;
+      }
+    }
+
+    // Track this text as processed
+    _processedTexts.add(normalizedText);
+
+    // Keep only last 50 processed texts to prevent memory bloat
+    if (_processedTexts.length > 50) {
+      _processedTexts.clear();
+    }
+
     final processingStart = DateTime.now();
     print(
       '🔄 [SpeakerEngine] Starting processing pipeline for: "${text.substring(0, text.length.clamp(0, 50))}..."',
@@ -454,6 +493,7 @@ class SpeakerEngine {
 
     // Clear buffers
     _sentenceBuffer.clear();
+    _processedTexts.clear(); // 🆕 NEW: Clear duplicate detection
     _audienceCount = 0;
     _languageDistribution = {};
 
