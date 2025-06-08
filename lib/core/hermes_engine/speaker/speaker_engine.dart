@@ -23,6 +23,12 @@ import 'package:hermes/core/services/socket/socket_service.dart';
 import 'package:hermes/core/services/permission/permission_service.dart';
 import 'package:hermes/core/services/connectivity/connectivity_service.dart';
 
+/// Processing type enumeration
+enum ProcessingType {
+  newContent, // Completely new text
+  replacement, // Expansion/replacement of existing text
+}
+
 /// Complete SpeakerEngine with 15-second buffering and processing pipeline
 class SpeakerEngine {
   final IPermissionService _permission;
@@ -275,55 +281,122 @@ class SpeakerEngine {
   }
 
   /// 🆕 NEW: Complete processing pipeline: grammar → translation → broadcast
+  /// Enhanced text processing pipeline with intelligent duplicate detection
+  /// Prevents UI duplicates while maintaining processing efficiency
   Future<void> _processText(String text, String reason) async {
     if (!_isSessionActive || text.trim().isEmpty) return;
 
-    // 🆕 NEW: Advanced duplicate detection - handles partial duplicates
     final normalizedText = text.trim().toLowerCase();
+    final originalLength = normalizedText.length;
 
-    // Check for exact duplicates
+    // Track what type of processing this is
+    ProcessingType processingType = ProcessingType.newContent;
+    String? replacedText;
+
+    print(
+      '🔍 [SpeakerEngine] Analyzing text for duplicates: "${text.substring(0, text.length.clamp(0, 50))}..."',
+    );
+
+    // Step 1: Check for exact duplicates
     if (_processedTexts.contains(normalizedText)) {
       print('🚫 [SpeakerEngine] Skipping exact duplicate: "$text"');
       return;
     }
 
-    // Check if this text is a substring of any previously processed text
+    // Step 2: Advanced duplicate detection with similarity scoring
+    String? textToRemove;
+    double maxSimilarity = 0.0;
+
     for (final processedText in _processedTexts) {
+      final similarity = _calculateSimilarity(normalizedText, processedText);
+
+      // Case A: Current text is completely contained in previous text (subset)
       if (processedText.contains(normalizedText) &&
           processedText.length > normalizedText.length) {
         print(
-          '🚫 [SpeakerEngine] Skipping substring duplicate: "$text" (contained in previous text)',
+          '🚫 [SpeakerEngine] Skipping subset duplicate: "$text" (contained in previous text)',
         );
         return;
       }
-      // Check if any previous text is a substring of current text
+
+      // Case B: Previous text is contained in current text (expansion)
       if (normalizedText.contains(processedText) &&
           normalizedText.length > processedText.length) {
-        print(
-          '🔄 [SpeakerEngine] Replacing shorter text with longer version: "$text"',
-        );
-        _processedTexts.remove(processedText);
-        break;
+        // Ensure significant expansion (at least 10% more content)
+        final expansionRatio = normalizedText.length / processedText.length;
+        if (expansionRatio >= 1.1) {
+          print(
+            '🔄 [SpeakerEngine] Detected expansion: ${(expansionRatio * 100).toInt()}% longer',
+          );
+          print(
+            '   Previous: "${processedText.substring(0, processedText.length.clamp(0, 40))}..."',
+          );
+          print(
+            '   Current:  "${normalizedText.substring(0, normalizedText.length.clamp(0, 40))}..."',
+          );
+
+          if (similarity > maxSimilarity) {
+            maxSimilarity = similarity;
+            textToRemove = processedText;
+            replacedText = processedText;
+            processingType = ProcessingType.replacement;
+          }
+        }
+      }
+      // Case C: High similarity but different lengths (potential duplicate with minor changes)
+      else if (similarity > 0.85 && similarity > maxSimilarity) {
+        final lengthDiff = (normalizedText.length - processedText.length).abs();
+        final avgLength = (normalizedText.length + processedText.length) / 2;
+        final lengthDiffRatio = lengthDiff / avgLength;
+
+        // If very similar but length difference is small, consider it a duplicate
+        if (lengthDiffRatio < 0.1) {
+          print(
+            '🚫 [SpeakerEngine] Skipping similar duplicate (${(similarity * 100).toInt()}% similar): "$text"',
+          );
+          return;
+        }
       }
     }
 
-    // Track this text as processed
+    // Step 3: Handle replacement if detected
+    if (textToRemove != null) {
+      _processedTexts.remove(textToRemove);
+      print('✅ [SpeakerEngine] Removed previous text for replacement');
+    }
+
+    // Step 4: Add new text to processed set
     _processedTexts.add(normalizedText);
 
-    // Keep only last 50 processed texts to prevent memory bloat
+    // Step 5: Prevent memory bloat
     if (_processedTexts.length > 50) {
+      final oldSize = _processedTexts.length;
       _processedTexts.clear();
+      print(
+        '🧹 [SpeakerEngine] Cleared processed texts cache (was $oldSize items)',
+      );
+    }
+
+    // Step 6: Log processing decision
+    switch (processingType) {
+      case ProcessingType.newContent:
+        print(
+          '🆕 [SpeakerEngine] Processing new content ($originalLength chars)',
+        );
+        break;
+      case ProcessingType.replacement:
+        print(
+          '🔄 [SpeakerEngine] Processing replacement content ($originalLength chars)',
+        );
+        break;
     }
 
     final processingStart = DateTime.now();
-    print(
-      '🔄 [SpeakerEngine] Starting processing pipeline for: "${text.substring(0, text.length.clamp(0, 50))}..."',
-    );
 
     try {
       _emit(_state.copyWith(status: HermesStatus.translating));
 
-      // Step 1: Grammar correction
+      // Step 7: Grammar correction
       final grammarStart = DateTime.now();
       final correctedText = await _grammar.correctGrammar(text);
       final grammarLatency = DateTime.now().difference(grammarStart);
@@ -331,17 +404,18 @@ class SpeakerEngine {
       print(
         '📝 [SpeakerEngine] Grammar correction took ${grammarLatency.inMilliseconds}ms',
       );
+
       if (correctedText != text) {
         print('✏️ [SpeakerEngine] Grammar corrections applied');
         print(
-          '   Original: "${text.substring(0, text.length.clamp(0, 40))}..."',
+          '   Original:  "${text.substring(0, text.length.clamp(0, 40))}..."',
         );
         print(
           '   Corrected: "${correctedText.substring(0, correctedText.length.clamp(0, 40))}..."',
         );
       }
 
-      // Step 2: Translation
+      // Step 8: Translation
       final translationStart = DateTime.now();
       final translationResult = await _translation.translate(
         text: correctedText,
@@ -356,18 +430,17 @@ class SpeakerEngine {
         '🌍 [SpeakerEngine] Translated: "${translationResult.translatedText}"',
       );
 
-      // Step 3: Broadcast to audience
+      // Step 9: Broadcast to audience
       await _broadcastTranslation(translationResult.translatedText);
 
-      // Step 4: 🆕 NEW: Emit processed sentence for permanent chat display
-      _emit(
-        _state.copyWith(
-          status: HermesStatus.listening,
-          lastProcessedSentence: correctedText, // Add to permanent chat
-        ),
+      // Step 10: Emit state update based on processing type
+      await _emitProcessedContent(
+        correctedText: correctedText,
+        processingType: processingType,
+        replacedText: replacedText,
       );
 
-      // Update analytics
+      // Step 11: Update analytics
       final endToEndLatency = DateTime.now().difference(processingStart);
       _analytics.logBufferProcessed(
         textLength: text.length,
@@ -399,6 +472,64 @@ class SpeakerEngine {
 
       // Return to listening despite error
       _emit(_state.copyWith(status: HermesStatus.listening));
+    }
+  }
+
+  /// Calculates similarity between two texts using a simple algorithm
+  /// Returns value between 0.0 (completely different) and 1.0 (identical)
+  double _calculateSimilarity(String text1, String text2) {
+    if (text1 == text2) return 1.0;
+    if (text1.isEmpty || text2.isEmpty) return 0.0;
+
+    final words1 = text1.split(' ').where((w) => w.isNotEmpty).toSet();
+    final words2 = text2.split(' ').where((w) => w.isNotEmpty).toSet();
+
+    if (words1.isEmpty || words2.isEmpty) return 0.0;
+
+    final intersection = words1.intersection(words2).length;
+    final union = words1.union(words2).length;
+
+    // Jaccard similarity coefficient
+    return union > 0 ? intersection / union : 0.0;
+  }
+
+  /// Handles state emission based on processing type
+  Future<void> _emitProcessedContent({
+    required String correctedText,
+    required ProcessingType processingType,
+    String? replacedText,
+  }) async {
+    switch (processingType) {
+      case ProcessingType.newContent:
+        // Emit new content normally
+        print('📤 [SpeakerEngine] Emitting new content for UI');
+        _emit(
+          _state.copyWith(
+            status: HermesStatus.listening,
+            lastProcessedSentence: correctedText,
+          ),
+        );
+        break;
+
+      case ProcessingType.replacement:
+        // For replacements, you have several options:
+
+        // Option 1: Don't emit to prevent UI duplicates (current recommendation)
+        print(
+          '🚫 [SpeakerEngine] Skipping emission for replacement to prevent UI duplication',
+        );
+        _emit(_state.copyWith(status: HermesStatus.listening));
+        break;
+
+      // Option 2: Emit with replacement flag (uncomment if you want to handle replacements in UI)
+      // print('🔄 [SpeakerEngine] Emitting replacement content for UI');
+      // _emit(_state.copyWith(
+      //   status: HermesStatus.listening,
+      //   lastProcessedSentence: correctedText,
+      //   isReplacement: true,
+      //   replacedText: replacedText,
+      // ));
+      // break;
     }
   }
 
